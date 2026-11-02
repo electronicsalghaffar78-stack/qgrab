@@ -126,3 +126,54 @@ stream through a helper, `_open_media_stream()`:
 - **Dependency:** none new — `curl_cffi==0.17.0` was already pinned
   for extraction impersonation. If it is ever missing, the proxy
   silently degrades to the urllib-only behavior.
+
+## yt-dlp native download fallback
+
+Added 2026-11-03 after the impersonated proxy went live on Render:
+TikTok `/api/info` succeeds there, yet `/download` STILL returned
+"502 — Upstream returned 403" through both the curl_cffi impersonated
+fetch and the urllib fallback. Working theory: the media URL TikTok
+hands out is bound to the extraction session (cookies/fingerprint
+carried inside yt-dlp) — the extract-then-fetch-separately flow loses
+that session, and TikTok's CDN also 403s datacenter IPs on direct
+media fetches. yt-dlp downloading natively keeps the session
+end-to-end, which is why yt-dlp itself can download TikTok whenever
+its extraction succeeds.
+
+`app.py` (both copies, byte-identical) now has a helper,
+`_download_via_ytdlp(url, format_id)`, wired into the `/download`
+route as a last resort — the visitor-visible behavior is otherwise
+unchanged:
+
+- **When it runs:** (1) after the proxied fetch ultimately fails —
+  at the exact point the route used to abort 502; (2) defensively,
+  when the extraction re-check inside `/download` succeeds but yields
+  no target format URL — at the point the route used to abort 404.
+  The `merge:` path is untouched (it already downloads via yt-dlp).
+- **How it downloads:** walks the same attempt cascade as
+  `download_merged()` (cached winner first, same `webpage_errors_only`
+  gate), building opts via `_build_opts`. The format selector is the
+  exact requested format id (a bare format id IS a valid yt-dlp
+  selector); if a client rejects it, that attempt is retried once
+  with `"<id>/best"`. The file lands in a fresh temp dir via
+  `extract_info(url, download=True)`; the produced path is resolved
+  with `prepare_filename`, falling back to the single file left in
+  the temp dir when the extension differs (the same mismatch class
+  `download_merged` patches). On success the winning spec is
+  remembered, exactly like the other paths.
+- **Response contract:** `send_file` with the same `safe_filename`
+  title logic, attachment disposition, and the temp dir deleted via
+  `call_on_close` when the response closes — the merged path's exact
+  pattern. The MIME type is guessed from the actual file extension
+  (video/mp4 for mp4, etc.).
+- **Failure contract:** if every cascade attempt fails, the helper
+  returns `None` and the route answers precisely what it answered
+  before — 502 "Upstream returned {code}" / "Could not reach the
+  media server.", or 404 "That format is no longer available.".
+  Every fallback invocation and its outcome is logged server-side;
+  nothing about the visitor-facing errors changed.
+- **Cost note:** unlike the streaming proxy, the fallback downloads
+  the whole file to the temp dir before the first byte reaches the
+  visitor — slower first byte and temp-disk usage, in exchange for
+  downloads that actually complete. It only runs when the proxy has
+  already failed, so fast paths are unaffected.

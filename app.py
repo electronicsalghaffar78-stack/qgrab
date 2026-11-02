@@ -9,7 +9,10 @@ A small Flask app:
 
 Downloads are proxied through the server (using the headers yt-dlp
 reports for the media URL) so links that need a specific User-Agent /
-Referer still work for the visitor.
+Referer still work for the visitor. When the proxied fetch fails
+anyway — some CDNs bind the media URL to the extraction session — a
+last-resort fallback lets yt-dlp download the file natively instead
+(see _download_via_ytdlp).
 
 Extraction is resilient to cloud-IP blocks: it walks a per-site cascade
 of yt-dlp configurations (alternate YouTube player clients, curl_cffi
@@ -18,6 +21,7 @@ engine" below.
 """
 
 import json
+import mimetypes
 import os
 import re
 import shutil
@@ -451,6 +455,94 @@ def download_merged(url, height):
     return resp
 
 
+def _download_via_ytdlp(url, format_id):
+    """Last-resort download: let yt-dlp fetch the file itself.
+
+    The /download proxy extracts a media URL and then fetches the bytes
+    separately (impersonated curl_cffi, then urllib). Some CDNs —
+    TikTok's above all — bind the media URL to the extraction session
+    (cookies/fingerprint carried inside yt-dlp) and 403 any fetch that
+    does not come through that session, so the proxy can fail even when
+    /api/info succeeded moments earlier. Downloading natively keeps the
+    session end-to-end — the same reason the merged path works.
+
+    Walks the same attempt cascade as download_merged() — cached winner
+    first, same gate. Per attempt the format selector is the exact
+    requested id (a bare format id IS a valid yt-dlp selector); if a
+    client rejects it, that attempt is retried once with "<id>/best" so
+    a client whose format table differs still yields the closest
+    download instead of nothing. Returns a send_file response on
+    success, None when every attempt failed (the caller then answers
+    502/404 exactly as it did before this fallback existed).
+    """
+    selectors = [str(format_id), f"{format_id}/best"]
+    last_error = None
+    for spec in _ordered_attempts(url):
+        if not _cascade_gate_open(spec, last_error):
+            break
+        for selector in selectors:
+            tmpdir = tempfile.mkdtemp(prefix="qgrab-")
+            outtmpl = os.path.join(tmpdir, f"{uuid.uuid4().hex}.%(ext)s")
+            opts = _build_opts(spec, {
+                "format": selector,
+                "outtmpl": outtmpl,
+            })
+            info = path = None
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    path = ydl.prepare_filename(info)
+            except Exception as e:
+                last_error = e
+                app.logger.info(
+                    "ytdlp fallback attempt failed (client=%s "
+                    "impersonate=%s format=%s) for %s: %s",
+                    spec.get("client"), spec.get("impersonate"),
+                    selector, url, e)
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue
+            if not path or not os.path.exists(path):
+                # prepare_filename can miss when the produced file's
+                # extension differs from the info dict's (the same
+                # mismatch download_merged patches with a .mp4 fix-up);
+                # fall back to whatever file the download left behind.
+                produced = [f for f in os.listdir(tmpdir)
+                            if not f.endswith(".part")]
+                if produced:
+                    path = os.path.join(tmpdir, produced[0])
+            if not path or not os.path.exists(path) \
+                    or os.path.getsize(path) == 0:
+                app.logger.info(
+                    "ytdlp fallback produced no file (client=%s "
+                    "impersonate=%s format=%s) for %s",
+                    spec.get("client"), spec.get("impersonate"),
+                    selector, url)
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue
+            _remember_winner(url, spec)
+            ext = os.path.splitext(path)[1].lstrip(".") or "mp4"
+            filename = safe_filename(info.get("title"), ext)
+            mimetype = (mimetypes.guess_type(filename)[0]
+                        or "application/octet-stream")
+            resp = send_file(path, as_attachment=True,
+                             download_name=filename, mimetype=mimetype)
+
+            @resp.call_on_close
+            def _cleanup(tmpdir=tmpdir):
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+            app.logger.info(
+                "ytdlp fallback succeeded (client=%s impersonate=%s "
+                "format=%s) for %s",
+                spec.get("client"), spec.get("impersonate"),
+                selector, url)
+            return resp
+    if last_error is not None:
+        app.logger.warning("ytdlp fallback failed for %s: %s",
+                           url, last_error)
+    return None
+
+
 class _MediaFetchError(Exception):
     """Every media-fetch path failed. ``code`` is the HTTP status the
     upstream produced, or None when no response was received at all."""
@@ -555,6 +647,16 @@ def download():
             target = f
             break
     if target is None:
+        # Extraction succeeded but lists no fetchable URL for this
+        # format (defensive: e.g. the winning client returned formats
+        # without direct URLs). Give the yt-dlp-native fallback a
+        # chance before telling the visitor the format is gone.
+        app.logger.info(
+            "no target format URL for %s format %s; "
+            "trying ytdlp fallback", url, format_id)
+        fallback = _download_via_ytdlp(url, format_id)
+        if fallback is not None:
+            return fallback
         abort(404, "That format is no longer available.")
 
     media_url = target["url"]
@@ -570,6 +672,18 @@ def download():
         status, up_headers, chunks, close_upstream = _open_media_stream(
             media_url, headers)
     except _MediaFetchError as e:
+        # Both media-fetch paths failed (impersonated curl_cffi and
+        # urllib). Before answering 502, let yt-dlp download the file
+        # natively — session-bound media URLs are exactly the case the
+        # proxy cannot fetch (see _download_via_ytdlp). Only when the
+        # fallback also fails does the visitor get the same 502 as
+        # before.
+        app.logger.info(
+            "proxy fetch failed for %s format %s (code=%s); "
+            "trying ytdlp fallback", url, format_id, e.code)
+        fallback = _download_via_ytdlp(url, format_id)
+        if fallback is not None:
+            return fallback
         if e.code is not None:
             abort(502, f"Upstream returned {e.code}")
         abort(502, "Could not reach the media server.")
