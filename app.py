@@ -14,12 +14,17 @@ anyway — some CDNs bind the media URL to the extraction session — a
 last-resort fallback lets yt-dlp download the file natively instead
 (see _download_via_ytdlp).
 
+Optionally, a YouTube session cookie file can be supplied through
+the QGRAB_YT_COOKIES_B64 environment variable — see "YouTube session
+cookies" below.
+
 Extraction is resilient to cloud-IP blocks: it walks a per-site cascade
 of yt-dlp configurations (alternate YouTube player clients, curl_cffi
 browser impersonation) until one returns formats — see "Extraction
 engine" below.
 """
 
+import base64
 import json
 import mimetypes
 import os
@@ -121,6 +126,86 @@ except Exception:  # curl_cffi not installed — proxy falls back to urllib
     _cffi_requests = None
     HAS_CFFI_REQUESTS = False
 
+# ---------------------------------------------------------------------------
+# Optional YouTube session cookies — QGRAB_YT_COOKIES_B64 (env var only)
+#
+# YouTube's bot wall blocks some cloud IPs outright, where no player
+# client trick helps. As an optional escape hatch the operator can
+# supply the Netscape-format cookies.txt of a YouTube session (exported
+# from a browser signed in with a SPARE account) base64-encoded in
+# the QGRAB_YT_COOKIES_B64 environment variable. That value is a LIVE
+# SESSION credential: it belongs only in the host's environment
+# settings, must NEVER be committed to git or written into any file
+# in this repo, and the cookie values are never logged — only whether
+# they were configured (and how many). At startup the value is
+# decoded once into a private temp file (mode 0600) and handed to
+# yt-dlp as "cookiefile" for YouTube URLs only — see _build_opts.
+# Sessions expire and Google rotates these cookies, so the variable
+# must be refreshed with a fresh export whenever YouTube starts
+# answering with the bot message again. Absent or invalid value =
+# exactly the behaviour the app has without cookies.
+# ---------------------------------------------------------------------------
+
+YT_COOKIEFILE = None  # path of the decoded cookie file, or None
+
+
+def _is_youtube_url(url):
+    """True only for youtube.com / youtu.be and their subdomains."""
+    if not url:
+        return False
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == h or host.endswith("." + h)
+               for h in ("youtube.com", "youtu.be"))
+
+
+def _load_yt_cookies():
+    """Decode QGRAB_YT_COOKIES_B64 into a private temp file, once."""
+    global YT_COOKIEFILE
+    raw = (os.environ.get("QGRAB_YT_COOKIES_B64") or "").strip()
+    if not raw:
+        app.logger.info("YouTube session cookies configured: no")
+        return
+    try:
+        text = base64.b64decode(raw, validate=True).decode("utf-8")
+    except Exception:
+        app.logger.warning(
+            "QGRAB_YT_COOKIES_B64 is set but is not valid base64 "
+            "UTF-8; ignoring it. "
+            "YouTube session cookies configured: no")
+        return
+    # Cookie lines are the tab-separated ones; "#HttpOnly_" lines are
+    # cookies too, other "#" lines are comments.
+    count = sum(
+        1 for line in text.splitlines()
+        if line.strip()
+        and (not line.startswith("#") or line.startswith("#HttpOnly_")))
+    fd, path = tempfile.mkstemp(prefix="qgrab-yt-cookies-",
+                                suffix=".txt")
+    try:
+        os.fchmod(fd, 0o600)  # mkstemp already uses 0600; be explicit
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        app.logger.warning(
+            "Could not write the YouTube session cookie file; "
+            "continuing without cookies. "
+            "YouTube session cookies configured: no")
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return
+    YT_COOKIEFILE = path
+    app.logger.info(
+        "YouTube session cookies configured: yes (%d cookies)", count)
+
+
+_load_yt_cookies()
+
 # YouTube player clients tried after the default, in order.
 YOUTUBE_CLIENT_CASCADE = (None, "tv", "android_vr", "web_safari")
 
@@ -182,7 +267,7 @@ def _attempt_plan(url):
     return plan
 
 
-def _build_opts(spec, extra=None):
+def _build_opts(spec, extra=None, url=None):
     opts = dict(YDL_OPTS)
     if spec.get("client"):
         opts["extractor_args"] = {
@@ -192,6 +277,10 @@ def _build_opts(spec, extra=None):
         opts["impersonate"] = _CHROME_TARGET
     if extra:
         opts.update(extra)
+    if url and YT_COOKIEFILE and _is_youtube_url(url):
+        # The optional session cookies are for YouTube only — they
+        # must never ride along on another platform's requests.
+        opts["cookiefile"] = YT_COOKIEFILE
     return opts
 
 
@@ -241,7 +330,7 @@ def extract_info(url):
         if not _cascade_gate_open(spec, last_error):
             break
         try:
-            with yt_dlp.YoutubeDL(_build_opts(spec)) as ydl:
+            with yt_dlp.YoutubeDL(_build_opts(spec, url=url)) as ydl:
                 info = ydl.extract_info(url, download=False)
             if not _has_formats(info):
                 # Page "loaded" but empty — from a blocked IP this is
@@ -413,7 +502,7 @@ def download_merged(url, height):
             "format": fmt,
             "merge_output_format": "mp4",
             "outtmpl": outtmpl,
-        })
+        }, url=url)
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -486,7 +575,7 @@ def _download_via_ytdlp(url, format_id):
             opts = _build_opts(spec, {
                 "format": selector,
                 "outtmpl": outtmpl,
-            })
+            }, url=url)
             info = path = None
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:

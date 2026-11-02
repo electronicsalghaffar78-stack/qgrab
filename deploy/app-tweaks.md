@@ -177,3 +177,42 @@ unchanged:
   visitor — slower first byte and temp-disk usage, in exchange for
   downloads that actually complete. It only runs when the proxy has
   already failed, so fast paths are unaffected.
+
+## YouTube session cookies (optional, env var)
+
+Added 2026-11-03. YouTube's bot wall blocks some cloud IPs outright,
+where no player-client trick helps; this mechanism lets the operator
+supply a signed-in YouTube session so yt-dlp can pass as that session
+instead of as an anonymous cloud visitor.
+
+- **What it is:** the environment variable `QGRAB_YT_COOKIES_B64`
+  holds the base64 encoding of a Netscape-format `cookies.txt`
+  exported from a browser signed in to YouTube. At startup `app.py`
+  decodes it once into a private temp file (mode 0600) and passes it
+  to yt-dlp as `cookiefile` — for YouTube URLs (youtube.com / youtu.be
+  and subdomains) only, in all three yt-dlp paths (`extract_info`,
+  `download_merged`, `_download_via_ytdlp`, all via `_build_opts`).
+  No other platform's requests ever carry the session. Env vars for
+  this service are managed in the Render dashboard, so the variable
+  is deliberately NOT listed in `render.yaml`.
+- **Security — read before ever setting it:** the value is a LIVE
+  SESSION credential, equivalent to being signed in as that account.
+  It must NEVER be committed to git, pasted into any file in this
+  repo, or logged — the app logs only "YouTube session cookies
+  configured: yes (N cookies)" / "no", never the contents. Use a
+  SPARE account for the export, never the master account that owns
+  the channels: if the session is abused or flagged, only the spare
+  account is at risk. Anyone holding the value can act as that
+  account on YouTube until the session expires or is revoked.
+- **Behaviour when absent/invalid:** if the variable is unset the
+  app behaves exactly as before. If it is set but not valid base64
+  UTF-8, a warning is logged and the app continues without cookies.
+- **Expiry and rotation:** Google session cookies expire and are
+  rotated by Google (typically days to a few weeks), and the session
+  can die early if the account signs in elsewhere or Google flags
+  the datacenter IP anyway — cookies raise the odds, they do not
+  guarantee YouTube access. When YouTube downloads start failing
+  with the bot message again, export a fresh `cookies.txt` from the
+  spare account's browser, replace the env var value in the Render
+  dashboard, and restart/redeploy the service (the variable is read
+  once, at process startup).
