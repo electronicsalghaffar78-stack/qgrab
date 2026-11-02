@@ -10,16 +10,24 @@ A small Flask app:
 Downloads are proxied through the server (using the headers yt-dlp
 reports for the media URL) so links that need a specific User-Agent /
 Referer still work for the visitor.
+
+Extraction is resilient to cloud-IP blocks: it walks a per-site cascade
+of yt-dlp configurations (alternate YouTube player clients, curl_cffi
+browser impersonation) until one returns formats — see "Extraction
+engine" below.
 """
 
 import json
 import os
 import re
+import shutil
 import tempfile
+import threading
+import time
 import urllib.request
 import urllib.error
 import uuid
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from flask import Flask, request, jsonify, render_template, Response, abort, send_file
 import yt_dlp
@@ -62,9 +70,180 @@ def human_size(num):
     return f"{num:.1f} TB"
 
 
+# ---------------------------------------------------------------------------
+# Extraction engine — client cascade + browser impersonation
+#
+# Cloud/datacenter IPs get blocked by some platforms in ways a home IP is
+# not: YouTube answers "Sign in to confirm you're not a bot", TikTok
+# serves a broken webpage ("Unexpected response from webpage request"),
+# etc. To survive that, extraction tries an ordered list of yt-dlp
+# configurations ("attempts") until one returns formats:
+#
+#   YouTube : default client -> player_client=tv -> android_vr ->
+#             web_safari. Alternate player clients do not hit the same
+#             bot wall as the default web client.
+#   TikTok  : curl_cffi browser impersonation (chrome) first, plain as
+#             fallback — impersonation is what fixes the broken-webpage
+#             failure.
+#   Facebook: plain first (it works), one impersonation retry on failure.
+#   Others  : plain first, one impersonation retry only when the error
+#             looks like a webpage/403-style block.
+#
+# Every attempt is bounded by YDL_OPTS["socket_timeout"] (20s), so even
+# the 4-step YouTube cascade stays within ~80s of network stalls. The
+# winning attempt is cached per URL for a few minutes so /download
+# re-uses the exact configuration /api/info succeeded with instead of
+# re-running the whole cascade.
+# ---------------------------------------------------------------------------
+
+try:
+    from yt_dlp.networking.impersonate import ImpersonateTarget
+
+    _CHROME_TARGET = ImpersonateTarget.from_str("chrome")
+    HAS_IMPERSONATION = True
+except Exception:  # curl_cffi not installed — degrade gracefully
+    _CHROME_TARGET = None
+    HAS_IMPERSONATION = False
+
+# YouTube player clients tried after the default, in order.
+YOUTUBE_CLIENT_CASCADE = (None, "tv", "android_vr", "web_safari")
+
+# The only extraction error a visitor ever sees; raw yt-dlp errors are
+# logged server-side instead of leaked to the page.
+FRIENDLY_ERROR = (
+    "This link could not be read — the platform may be limiting our "
+    "server right now. Please try again later."
+)
+
+_WINNER_TTL = 600  # seconds a winning attempt config is reused per URL
+_winner_cache = {}  # url -> (spec dict, expiry timestamp)
+_winner_lock = threading.Lock()
+
+_WEBPAGE_ERROR_HINTS = (
+    "webpage", "403", "forbidden", "http error", "unable to download",
+    "sign in to confirm", "not a bot", "blocked", "captcha",
+)
+
+
+def site_of(url):
+    host = (urlparse(url).hostname or "").lower()
+    if "youtube" in host or host == "youtu.be":
+        return "youtube"
+    if "tiktok" in host:
+        return "tiktok"
+    if "facebook" in host or host == "fb.watch":
+        return "facebook"
+    return "other"
+
+
+def _attempt_plan(url):
+    """Ordered attempt specs for a URL.
+
+    A spec is {"client": <YouTube player_client or None>,
+               "impersonate": bool,
+               "webpage_errors_only": bool (optional — only try this
+               attempt if the previous failure looked like a block)}.
+    """
+    site = site_of(url)
+    if site == "youtube":
+        return [{"client": c, "impersonate": False}
+                for c in YOUTUBE_CLIENT_CASCADE]
+    if site == "tiktok":
+        plan = []
+        if HAS_IMPERSONATION:
+            plan.append({"client": None, "impersonate": True})
+        plan.append({"client": None, "impersonate": False})
+        return plan
+    if site == "facebook":
+        plan = [{"client": None, "impersonate": False}]
+        if HAS_IMPERSONATION:
+            plan.append({"client": None, "impersonate": True})
+        return plan
+    plan = [{"client": None, "impersonate": False}]
+    if HAS_IMPERSONATION:
+        plan.append({"client": None, "impersonate": True,
+                     "webpage_errors_only": True})
+    return plan
+
+
+def _build_opts(spec, extra=None):
+    opts = dict(YDL_OPTS)
+    if spec.get("client"):
+        opts["extractor_args"] = {
+            "youtube": {"player_client": [spec["client"]]}
+        }
+    if spec.get("impersonate") and _CHROME_TARGET is not None:
+        opts["impersonate"] = _CHROME_TARGET
+    if extra:
+        opts.update(extra)
+    return opts
+
+
+def _spec_key(spec):
+    return (spec.get("client"), bool(spec.get("impersonate")))
+
+
+def _ordered_attempts(url):
+    """Cached winner first (if fresh), then the full plan, de-duplicated."""
+    plan = _attempt_plan(url)
+    with _winner_lock:
+        hit = _winner_cache.get(url)
+    if hit and hit[1] > time.time():
+        winner = hit[0]
+        plan = [winner] + [s for s in plan
+                           if _spec_key(s) != _spec_key(winner)]
+    return plan
+
+
+def _remember_winner(url, spec):
+    with _winner_lock:
+        _winner_cache[url] = (dict(spec), time.time() + _WINNER_TTL)
+
+
+def _cascade_gate_open(spec, last_error):
+    """A 'webpage_errors_only' attempt runs only after a block-style error."""
+    if not spec.get("webpage_errors_only") or last_error is None:
+        return True
+    msg = str(last_error).lower()
+    return any(h in msg for h in _WEBPAGE_ERROR_HINTS)
+
+
+def _has_formats(info):
+    if not info:
+        return False
+    if info.get("formats"):
+        return True
+    entries = [e for e in info.get("entries") or [] if e]
+    return bool(entries and entries[0].get("formats"))
+
+
 def extract_info(url):
-    with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-        return ydl.extract_info(url, download=False)
+    """Extract metadata, walking the attempt cascade until one attempt
+    returns formats. Raises the last error if every attempt fails."""
+    last_error = None
+    for spec in _ordered_attempts(url):
+        if not _cascade_gate_open(spec, last_error):
+            break
+        try:
+            with yt_dlp.YoutubeDL(_build_opts(spec)) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if not _has_formats(info):
+                # Page "loaded" but empty — from a blocked IP this is
+                # the bot wall wearing a disguise; keep cascading.
+                raise yt_dlp.utils.DownloadError(
+                    "Extractor returned no formats "
+                    "(webpage may have been blocked)")
+            _remember_winner(url, spec)
+            return info
+        except Exception as e:  # DownloadError or network error
+            last_error = e
+            app.logger.info(
+                "extract attempt failed (client=%s impersonate=%s) "
+                "for %s: %s",
+                spec.get("client"), spec.get("impersonate"), url, e)
+    if last_error is not None:
+        raise last_error
+    raise yt_dlp.utils.DownloadError("No extraction attempt was made.")
 
 
 def pick_formats(info):
@@ -172,10 +351,11 @@ def api_info():
         return jsonify({"error": "Please paste a valid video link (http/https)."}), 400
     try:
         info = extract_info(url)
-    except yt_dlp.utils.DownloadError as e:
-        return jsonify({"error": f"Could not read that link: {str(e)[:300]}"}), 422
-    except Exception as e:  # network errors etc.
-        return jsonify({"error": f"Something went wrong reading that link: {str(e)[:200]}"}), 500
+    except Exception as e:
+        # Raw yt-dlp errors (bot walls, extractor internals) stay in the
+        # server log; visitors get one short, friendly message.
+        app.logger.warning("info failed for %s: %s", url, e)
+        return jsonify({"error": FRIENDLY_ERROR}), 422
 
     if info.get("_type") == "playlist":
         entries = [e for e in info.get("entries") or [] if e]
@@ -195,29 +375,58 @@ def api_info():
 
 
 def download_merged(url, height):
-    """Download best video (<= height) + best audio and merge with ffmpeg."""
-    tmpdir = tempfile.mkdtemp(prefix="qgrab-")
-    outtmpl = os.path.join(tmpdir, f"{uuid.uuid4().hex}.%(ext)s")
-    opts = dict(YDL_OPTS)
-    opts.update({
-        "format": (
-            f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]"
-            f"/bestvideo[height<={height}]+bestaudio"
-            f"/best[height<={height}]"
-        ),
-        "merge_output_format": "mp4",
-        "outtmpl": outtmpl,
-    })
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            path = ydl.prepare_filename(info)
-            if not os.path.exists(path):  # merged file may differ in ext
-                path = os.path.splitext(path)[0] + ".mp4"
-    except Exception:
+    """Download best video (<= height) + best audio and merge with ffmpeg.
+
+    Walks the same attempt cascade as extract_info() — cached winner
+    first — so the merged download uses a client/impersonation combo
+    that can actually read the page from this server's IP.
+    """
+    fmt = (
+        f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]"
+        f"/bestvideo[height<={height}]+bestaudio"
+        f"/best[height<={height}]"
+    )
+    info = path = tmpdir = None
+    last_error = None
+    for spec in _ordered_attempts(url):
+        if not _cascade_gate_open(spec, last_error):
+            break
+        tmpdir = tempfile.mkdtemp(prefix="qgrab-")
+        outtmpl = os.path.join(tmpdir, f"{uuid.uuid4().hex}.%(ext)s")
+        opts = _build_opts(spec, {
+            "format": fmt,
+            "merge_output_format": "mp4",
+            "outtmpl": outtmpl,
+        })
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                path = ydl.prepare_filename(info)
+                if not os.path.exists(path):  # merged file may differ in ext
+                    path = os.path.splitext(path)[0] + ".mp4"
+        except Exception as e:
+            last_error = e
+            app.logger.info(
+                "merged attempt failed (client=%s impersonate=%s) "
+                "for %s: %s",
+                spec.get("client"), spec.get("impersonate"), url, e)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            info = path = tmpdir = None
+            continue
+        if not os.path.exists(path):
+            app.logger.info(
+                "merged attempt produced no file (client=%s) for %s",
+                spec.get("client"), url)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            info = path = tmpdir = None
+            continue
+        _remember_winner(url, spec)
+        break
+    if not path:
+        if last_error is not None:
+            app.logger.warning("merged download failed for %s: %s",
+                               url, last_error)
         abort(502, "Could not prepare that merged download.")
-    if not os.path.exists(path):
-        abort(502, "Merged file was not created.")
 
     filename = safe_filename(info.get("title"), "mp4")
     resp = send_file(path, as_attachment=True, download_name=filename,
@@ -225,14 +434,7 @@ def download_merged(url, height):
 
     @resp.call_on_close
     def _cleanup():
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-        try:
-            os.rmdir(tmpdir)
-        except OSError:
-            pass
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     return resp
 
@@ -253,8 +455,9 @@ def download():
 
     try:
         info = extract_info(url)
-    except Exception:
-        abort(422, "Could not read that link anymore.")
+    except Exception as e:
+        app.logger.warning("download re-check failed for %s: %s", url, e)
+        abort(422, FRIENDLY_ERROR)
 
     target = None
     for f in info.get("formats", []):
