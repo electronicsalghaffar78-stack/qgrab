@@ -1,0 +1,17 @@
+# Render Blueprint for QGrab (free test launch).
+#
+# NOTE: Render only reads render.yaml from the REPOSITORY ROOT. To use
+# this Blueprint, copy this file to the root of the git repo that holds
+# the downloader-site code. Creating the service manually in the Render
+# dashboard with the same settings (see LAUNCH-CHECKLIST.md) works just
+# as well and is the recommended launch-day path.
+services:
+  - type: web
+    name: qgrab            # becomes https://qgrab.onrender.com (if free)
+    env: docker
+    plan: free
+    dockerfilePath: ./deploy/Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"

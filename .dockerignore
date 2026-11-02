@@ -1,0 +1,10 @@
+# Copy of deploy/.dockerignore — Docker only honors the .dockerignore at
+# the build-context root (this folder). Keep the two in sync.
+.venv
+__pycache__
+*.pyc
+.git
+logo-ideas
+QGrab-Preview.html
+deploy
+README.md
