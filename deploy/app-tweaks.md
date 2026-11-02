@@ -90,3 +90,39 @@ cloud IP remains unproven until this build runs on Render — the
 cascade gives each platform several distinct chances per request
 instead of one, but no client trick can force a platform to serve
 formats to an IP it has decided to block outright.
+
+## Download proxy impersonation
+
+Added 2026-11-03 after the first live run of the cascade build on
+Render: TikTok `/api/info` now succeeded (extraction impersonation
+works), but `/download` of a TikTok format returned "502 — Upstream
+returned 403". The proxied media fetch in the `/download` route still
+used plain `urllib.request`, and TikTok's CDN fingerprints the TLS
+handshake of the media request itself — impersonating only the page
+extraction is not enough.
+
+`app.py` (both copies, byte-identical) now opens the proxied media
+stream through a helper, `_open_media_stream()`:
+
+- **Primary path:** `curl_cffi.requests.get(..., impersonate="chrome",
+  stream=True, timeout=30)` with the exact headers dict the route
+  already built (the format's `http_headers` from yt-dlp, the default
+  User-Agent, and the visitor's `Range` header passed through).
+- **Fallback:** if curl_cffi is unavailable, the impersonated request
+  raises a connection-level error, OR it returns an HTTP error status,
+  the original urllib fetch gets one second chance (some other CDN may
+  dislike impersonation while tolerating a plain request — the reverse
+  of TikTok). Only when both paths fail does the route answer 502,
+  keeping the existing message shapes: "Upstream returned {code}" when
+  either attempt produced an HTTP status (urllib's own status wins as
+  the most recent answer), otherwise "Could not reach the media
+  server.".
+- **Contract preserved:** upstream status is returned to the visitor;
+  `Content-Disposition` filename headers, `Content-Length`,
+  `Content-Range` and `Accept-Ranges` pass through unchanged; the body
+  streams in 256 KB chunks and the upstream response is closed when
+  the stream finishes. The merged path (`download_merged`, which
+  downloads via yt-dlp itself) is untouched.
+- **Dependency:** none new — `curl_cffi==0.17.0` was already pinned
+  for extraction impersonation. If it is ever missing, the proxy
+  silently degrades to the urllib-only behavior.

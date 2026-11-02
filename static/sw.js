@@ -1,7 +1,7 @@
 /* QGrab service worker — caches the app shell so the installed app
    opens instantly and the homepage works offline. API calls and media
    downloads are NEVER cached; they always go to the network. */
-const CACHE = "qgrab-shell-v3";
+const CACHE = "qgrab-shell-v4";
 const SHELL = [
   "/",
   "/static/manifest.webmanifest",

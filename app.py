@@ -105,6 +105,18 @@ except Exception:  # curl_cffi not installed — degrade gracefully
     _CHROME_TARGET = None
     HAS_IMPERSONATION = False
 
+# curl_cffi's own requests API, used directly by the /download proxy:
+# some CDNs (TikTok's) fingerprint the TLS handshake of the media fetch
+# itself, so extraction succeeding via impersonation is not enough —
+# the bytes must be fetched with an impersonated client too.
+try:
+    from curl_cffi import requests as _cffi_requests
+
+    HAS_CFFI_REQUESTS = True
+except Exception:  # curl_cffi not installed — proxy falls back to urllib
+    _cffi_requests = None
+    HAS_CFFI_REQUESTS = False
+
 # YouTube player clients tried after the default, in order.
 YOUTUBE_CLIENT_CASCADE = (None, "tv", "android_vr", "web_safari")
 
@@ -439,6 +451,84 @@ def download_merged(url, height):
     return resp
 
 
+class _MediaFetchError(Exception):
+    """Every media-fetch path failed. ``code`` is the HTTP status the
+    upstream produced, or None when no response was received at all."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+def _read_chunks(resp, size=256 * 1024):
+    """Yield an urllib response body in chunks (empty read = EOF)."""
+    while True:
+        chunk = resp.read(size)
+        if not chunk:
+            break
+        yield chunk
+
+
+def _nonempty_chunks(iterable):
+    """Drop empty keep-alive chunks from a curl_cffi content iterator."""
+    for chunk in iterable:
+        if chunk:
+            yield chunk
+
+
+def _open_media_stream(media_url, headers):
+    """Open a streaming GET of a media URL for the /download proxy.
+
+    Returns (status, headers, chunk_iterator, close_callable); raises
+    _MediaFetchError if every path fails.
+
+    The impersonated curl_cffi fetch goes first: TikTok's CDN rejects
+    the plain urllib handshake with 403 even though /api/info succeeded
+    (extraction was already impersonated — the media fetch was not).
+
+    Fallback choice: ANY impersonated failure earns one second chance
+    through the original urllib path — connection-level errors because
+    impersonation may be unavailable/flaky, and HTTP error statuses
+    because some other CDN may dislike impersonation while tolerating a
+    plain request (the reverse of TikTok). Only when both paths fail do
+    we give up; the reported code is the HTTP status if either attempt
+    produced one (urllib's own status wins when it has one, as the most
+    recent answer), otherwise the failure is a reachability problem.
+    """
+    http_code = None
+
+    if HAS_CFFI_REQUESTS:
+        try:
+            resp = _cffi_requests.get(
+                media_url, headers=headers, impersonate="chrome",
+                stream=True, timeout=30)
+        except Exception as e:
+            app.logger.info(
+                "impersonated media fetch failed for %s; "
+                "falling back to urllib: %s", media_url, e)
+        else:
+            if resp.status_code < 400:
+                return (resp.status_code, resp.headers,
+                        _nonempty_chunks(
+                            resp.iter_content(chunk_size=256 * 1024)),
+                        resp.close)
+            http_code = resp.status_code
+            app.logger.info(
+                "impersonated media fetch returned %s for %s; "
+                "retrying with urllib", http_code, media_url)
+            resp.close()
+
+    req = urllib.request.Request(media_url, headers=headers, method="GET")
+    try:
+        upstream = urllib.request.urlopen(req, timeout=30)
+    except urllib.error.HTTPError as e:
+        raise _MediaFetchError(e.code)
+    except Exception:
+        raise _MediaFetchError(http_code)
+    return (upstream.status, upstream.headers,
+            _read_chunks(upstream), upstream.close)
+
+
 @app.route("/download")
 def download():
     url = clean_url(request.args.get("url", ""))
@@ -476,12 +566,12 @@ def download():
     if request.headers.get("Range"):
         headers["Range"] = request.headers["Range"]
 
-    req = urllib.request.Request(media_url, headers=headers, method="GET")
     try:
-        upstream = urllib.request.urlopen(req, timeout=30)
-    except urllib.error.HTTPError as e:
-        abort(502, f"Upstream returned {e.code}")
-    except Exception:
+        status, up_headers, chunks, close_upstream = _open_media_stream(
+            media_url, headers)
+    except _MediaFetchError as e:
+        if e.code is not None:
+            abort(502, f"Upstream returned {e.code}")
         abort(502, "Could not reach the media server.")
 
     ext = target.get("ext") or "mp4"
@@ -493,23 +583,19 @@ def download():
             f'attachment; filename="{ascii_name}"; '
             f"filename*=UTF-8''{quote(filename)}"
         ),
-        "Content-Type": upstream.headers.get("Content-Type", "application/octet-stream"),
+        "Content-Type": up_headers.get("Content-Type", "application/octet-stream"),
     }
     for h in ("Content-Length", "Content-Range", "Accept-Ranges"):
-        if upstream.headers.get(h):
-            resp_headers[h] = upstream.headers[h]
+        if up_headers.get(h):
+            resp_headers[h] = up_headers[h]
 
     def stream():
         try:
-            while True:
-                chunk = upstream.read(256 * 1024)
-                if not chunk:
-                    break
-                yield chunk
+            yield from chunks
         finally:
-            upstream.close()
+            close_upstream()
 
-    return Response(stream(), status=upstream.status, headers=resp_headers)
+    return Response(stream(), status=status, headers=resp_headers)
 
 
 @app.route("/sw.js")
