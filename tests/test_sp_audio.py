@@ -1,0 +1,185 @@
+"""Focused tests for the Script+Prompt AUDIO route fix.
+
+Bug covered: for a TikTok video whose own duration is 105 s, the
+audio route used yt-dlp "bestaudio/best" and downloaded a SEPARATE
+164 s music asset (no speech) instead of the video's own audio —
+Gemini then correctly reported no_speech for the wrong track.
+
+These tests monkeypatch yt_dlp.YoutubeDL with a fake that mimics
+that format table (a long standalone audio asset + a duration-
+matching muxed format) and assert that _sp_download_audio_mp3:
+  * prefers the muxed format and returns the video's own audio,
+  * rejects a duration-mismatched candidate via the guard,
+  * still falls back to bestaudio when it is the matching track,
+  * keeps the legacy behaviour when the duration is unknown.
+
+Run:  .venv/bin/python tests/test_sp_audio.py   (or under pytest)
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import app as qgrab  # noqa: E402
+
+FFMPEG = shutil.which("ffmpeg")
+VIDEO_SECONDS = 105     # the TikTok video's own duration
+MUSIC_SECONDS = 164     # the standalone "sound" asset's duration
+
+
+def _make_fixture(path, seconds, video=False):
+    """A silent-ish media file of an exact duration (sine tone)."""
+    args = [FFMPEG, "-y", "-v", "error"]
+    if video:
+        args += ["-f", "lavfi", "-i", "color=c=black:s=64x64:r=1"]
+    args += ["-f", "lavfi", "-i",
+             "sine=frequency=440:sample_rate=44100",
+             "-t", str(seconds)]
+    if video:
+        args += ["-codec:v", "libx264", "-pix_fmt", "yuv420p",
+                 "-codec:a", "aac", "-shortest"]
+    args.append(path)
+    subprocess.run(args, check=True)
+
+
+class _FakeYDL:
+    """Stands in for yt_dlp.YoutubeDL: 'downloads' the fixture the
+    format selector asks for — the muxed file for the combined
+    (vcodec+acodec) selector, the standalone asset for bestaudio.
+    A None fixture means that format does not exist on this source.
+    """
+    fixtures = {}
+
+    def __init__(self, opts):
+        self.opts = opts
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def extract_info(self, url, download=True):
+        selector = self.opts.get("format", "")
+        kind = "muxed" if "acodec" in selector else "bestaudio"
+        src = self.fixtures.get(kind)
+        if src is None:
+            raise Exception("Requested format is not available")
+        ext = os.path.splitext(src)[1].lstrip(".")
+        dest = self.opts["outtmpl"].replace("%(ext)s", ext)
+        shutil.copyfile(src, dest)
+        return {"duration": VIDEO_SECONDS}
+
+
+_FIXTURE_DIR = None
+_URL = "https://vm.tiktok.com/ZN8y4yboh/"
+
+
+def _setup():
+    global _FIXTURE_DIR
+    if _FIXTURE_DIR:
+        return _FIXTURE_DIR
+    d = tempfile.mkdtemp(prefix="qgrab-sp-test-")
+    _make_fixture(os.path.join(d, "muxed.mp4"), VIDEO_SECONDS,
+                  video=True)
+    _make_fixture(os.path.join(d, "music.mp3"), MUSIC_SECONDS)
+    _make_fixture(os.path.join(d, "matching.mp3"), VIDEO_SECONDS)
+    _FIXTURE_DIR = d
+    # One benign cascade attempt; the fake downloader does the rest.
+    qgrab._ordered_attempts = lambda url: [
+        {"client": None, "impersonate": False}]
+    qgrab.yt_dlp.YoutubeDL = _FakeYDL
+    return d
+
+
+def _fetch(expected):
+    return qgrab._sp_download_audio_mp3(_URL,
+                                        expected_duration=expected)
+
+
+def test_guard_predicate():
+    m = qgrab._sp_duration_mismatch
+    assert m(105, 164) is True     # the TikTok music-asset case
+    assert m(105, 100) is False    # small drift is fine
+    assert m(105, 105) is False
+    assert m(None, 164) is False   # unknown video duration: no guard
+    assert m(105, None) is False   # unprobeable candidate: no guard
+    # muxed is always the first strategy tried
+    assert qgrab.SP_AUDIO_STRATEGIES[0][0] == "muxed"
+    assert qgrab.SP_AUDIO_STRATEGIES[1][0] == "bestaudio"
+
+
+def test_muxed_preferred_over_music_asset():
+    d = _setup()
+    _FakeYDL.fixtures = {
+        "muxed": os.path.join(d, "muxed.mp4"),
+        "bestaudio": os.path.join(d, "music.mp3"),
+    }
+    mp3, tmpdir = _fetch(VIDEO_SECONDS)
+    try:
+        got = qgrab._sp_probe_duration(mp3)
+        assert got is not None and abs(got - VIDEO_SECONDS) < 3, got
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_bestaudio_fallback_when_it_matches():
+    d = _setup()
+    _FakeYDL.fixtures = {
+        "muxed": None,  # no muxed format on this source
+        "bestaudio": os.path.join(d, "matching.mp3"),
+    }
+    mp3, tmpdir = _fetch(VIDEO_SECONDS)
+    try:
+        got = qgrab._sp_probe_duration(mp3)
+        assert got is not None and abs(got - VIDEO_SECONDS) < 3, got
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_guard_rejects_mismatched_only_candidate():
+    d = _setup()
+    _FakeYDL.fixtures = {
+        "muxed": None,
+        "bestaudio": os.path.join(d, "music.mp3"),  # 164 s vs 105 s
+    }
+    try:
+        _fetch(VIDEO_SECONDS)
+    except qgrab._SpAudioFailed:
+        return
+    raise AssertionError(
+        "mismatched bestaudio candidate was accepted")
+
+
+def test_unknown_duration_keeps_legacy_behaviour():
+    d = _setup()
+    _FakeYDL.fixtures = {
+        "muxed": None,
+        "bestaudio": os.path.join(d, "music.mp3"),
+    }
+    mp3, tmpdir = _fetch(None)
+    try:
+        got = qgrab._sp_probe_duration(mp3)
+        assert got is not None and abs(got - MUSIC_SECONDS) < 3, got
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    tests = [(name, fn) for name, fn in sorted(globals().items())
+             if name.startswith("test_") and callable(fn)]
+    failed = 0
+    for name, fn in tests:
+        try:
+            fn()
+            print(f"PASS {name}")
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            print(f"FAIL {name}: {type(e).__name__}: {e}")
+    if _FIXTURE_DIR:
+        shutil.rmtree(_FIXTURE_DIR, ignore_errors=True)
+    sys.exit(1 if failed else 0)

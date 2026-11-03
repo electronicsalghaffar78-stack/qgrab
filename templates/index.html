@@ -125,6 +125,12 @@
   .spinner{display:none;margin:22px auto;width:34px;height:34px;border-radius:50%;
            border:4px solid var(--line);border-top-color:var(--accent);animation:sp 0.8s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
+  .fmt a.dl-wait{opacity:.65;pointer-events:none}
+  .fmt a .dlspin{display:inline-block;width:12px;height:12px;margin-inline-end:7px;
+       border-radius:50%;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;
+       vertical-align:-2px;animation:sp 0.8s linear infinite}
+  #dlStatus{display:none;margin-top:12px;text-align:center;color:var(--muted);
+       font-weight:600;font-size:.95rem}
 
   /* trust chips */
   .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
@@ -243,6 +249,7 @@
           </div>
         </div>
         <div class="formats" id="rFormats"></div>
+        <div id="dlStatus" role="status"></div>
       </div>
     </div>
 
@@ -443,6 +450,39 @@ const btn = document.getElementById('goBtn');
 const spinner = document.getElementById('spinner');
 const errBox = document.getElementById('error');
 const result = document.getElementById('result');
+
+/* Download waiting state: one delegated listener covers every
+   download link the result area renders — format/merge rows, MP3,
+   subtitles and transcript anchors. The clicked link and the shared
+   status line under the formats both show "Please wait". Proxied
+   downloads give no reliable "started" signal, so the state simply
+   restores itself after 5 seconds. (The Script + Prompts shortcut
+   is a <button>, not an <a>, so it keeps its own behaviour.) */
+const dlStatus = document.getElementById('dlStatus');
+let dlWaitSeq = 0;
+document.getElementById('rFormats').addEventListener('click', (e) => {
+  const a = e.target.closest('a');
+  if (!a || !a.getAttribute('href') || a.dataset.dlBusy) return;
+  const original = a.innerHTML;
+  a.dataset.dlBusy = '1';
+  a.classList.add('dl-wait');
+  const spin = document.createElement('span');
+  spin.className = 'dlspin';
+  a.replaceChildren(spin, document.createTextNode(I18N.sp_working));
+  const token = String(++dlWaitSeq);
+  dlStatus.dataset.tok = token;
+  dlStatus.textContent = I18N.sp_working;
+  dlStatus.style.display = 'block';
+  setTimeout(() => {
+    a.innerHTML = original;
+    a.classList.remove('dl-wait');
+    delete a.dataset.dlBusy;
+    if (dlStatus.dataset.tok === token) {
+      dlStatus.style.display = 'none';
+      dlStatus.textContent = '';
+    }
+  }, 5000);
+});
 
 function showError(msg){
   errBox.textContent = msg;

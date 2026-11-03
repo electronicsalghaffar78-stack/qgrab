@@ -110,15 +110,20 @@
   .review-text{color:var(--muted);font-size:.93rem;margin-top:6px;white-space:pre-line}
 
   /* video -> script + prompts tool (this round) */
-  .sp-box{max-width:760px;margin-left:auto;margin-right:auto;text-align:left}
+  .sp-box{max-width:none;margin-left:auto;margin-right:auto;text-align:left}
   [dir="rtl"] .sp-box{text-align:right}
+  /* roomier tool (owner: the paste box was too small to read in):
+     a tall URL field and slimmer card padding on phones */
+  .sp-box #spUrl{font-size:16px;padding:17px 16px}
+  @media (max-width:560px){ .sp-box{padding:14px 10px} }
   /* two generation buttons (Create Script / Create Prompts) */
   .sp-btns{display:flex;gap:10px;margin-top:10px}
   .sp-btns .btn{flex:1}
   @media (max-width:560px){ .sp-btns{flex-direction:column} }
-  /* the script preview is an editable box in the pane's own style */
+  /* the script preview is an editable box in the pane's own style;
+     a tall reading area so a full script can be read comfortably */
   textarea.sp-out{width:100%;box-sizing:border-box;resize:vertical;
-    min-height:200px}
+    min-height:340px;height:45vh;max-height:85vh}
   .sp-edit-hint{text-align:left;margin-top:8px}
   [dir="rtl"] .sp-edit-hint{text-align:right}
   /* Download / Regenerate row under a pane */
@@ -136,10 +141,10 @@
   .sp-copy:hover{border-color:var(--accent)}
   .sp-out{white-space:pre-wrap;word-break:break-word;background:var(--bg);
     border:1px solid var(--line);border-radius:10px;padding:14px;
-    font-family:inherit;font-size:.93rem;line-height:1.6;max-height:480px;
+    font-family:inherit;font-size:16px;line-height:1.7;max-height:480px;
     overflow:auto;color:var(--text)}
   .sp-prompt{position:relative;margin-bottom:10px}
-  .sp-prompt .sp-out{max-height:300px}
+  .sp-prompt .sp-out{max-height:max(340px,45vh)}
   .sp-prompt-n{position:absolute;top:-9px;left:12px;background:linear-gradient(90deg,var(--accent),var(--accent2));
     color:#fff;font-size:.75rem;font-weight:800;border-radius:999px;
     padding:2px 9px;z-index:1}

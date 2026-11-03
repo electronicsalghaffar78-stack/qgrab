@@ -629,8 +629,29 @@ def extract_info(url):
 
 
 def pick_formats(info):
-    """Turn yt-dlp's raw format list into a clean, user-friendly list."""
-    combined, video_only, audio_only = [], [], []
+    """Turn yt-dlp's raw format list into a clean, user-friendly list.
+
+    OWNER'S RULE (absolute): every video quality offered must
+    DOWNLOAD WITH the video's own audio. A video row is therefore
+    one of exactly two things:
+
+    (a) a true muxed format — vcodec and acodec both present (a
+        missing codec field counts as present: some sites report
+        their progressive formats that way; only an explicit "none"
+        means the stream is absent); or
+    (b) a synthetic "merge:{height}" row: when picked, /download
+        fetches the best video-only stream at that height plus the
+        best audio and joins them with ffmpeg into one mp4 WITH
+        sound (verified end-to-end: the delivered file carries a
+        full audio stream).
+
+    A bare video-only stream is NEVER listed as itself — that was
+    the original injury: silent downloads. Where a height has both
+    a muxed format and split streams, the muxed row wins (a direct
+    file beats a merge) — one video row per height.
+    """
+    best_by_height, unheighted, audio_only = {}, [], []
+    video_only_heights = set()
     for f in info.get("formats", []):
         if not f.get("url"):
             continue
@@ -638,8 +659,8 @@ def pick_formats(info):
         if proto.startswith("m3u8") and f.get("ext") not in ("mp4",):
             # HLS streams can't be proxied as a single file download in v1.
             continue
-        has_v = f.get("vcodec") not in (None, "none")
-        has_a = f.get("acodec") not in (None, "none")
+        has_v = f.get("vcodec") != "none"
+        has_a = f.get("acodec") != "none"
         height = f.get("height") or 0
         size = f.get("filesize") or f.get("filesize_approx")
         item = {
@@ -653,46 +674,64 @@ def pick_formats(info):
         if has_v and has_a:
             item["kind"] = "video+audio"
             item["label"] = f"{height}p" if height else (f.get("format_note") or "Video")
-            combined.append(item)
-        elif has_v:
-            item["kind"] = "video"
-            item["label"] = f"{height}p" if height else (f.get("format_note") or "Video")
-            video_only.append(item)
+            if height:
+                # One row per height: keep the best muxed encode. A
+                # watermark-free variant beats a watermarked one
+                # (TikTok serves both); after that the larger file
+                # (then the higher bitrate) is the better encode.
+                # Ties keep the earlier format — yt-dlp's own order
+                # (e.g. the first of two identical CDN mirrors).
+                rank = (
+                    0 if "watermark" in item["note"].lower() else 1,
+                    size or 0,
+                    f.get("tbr") or 0,
+                )
+                current = best_by_height.get(height)
+                if current is None or rank > current[0]:
+                    best_by_height[height] = (rank, item)
+            else:
+                # No height reported (e.g. Facebook's sd/hd
+                # progressive pair): genuinely distinct options —
+                # keep them all, in source order.
+                unheighted.append(item)
         elif has_a:
             item["kind"] = "audio"
             abr = f.get("abr") or 0
             item["label"] = f"Audio {int(abr)}kbps" if abr else "Audio"
             audio_only.append(item)
-    combined.sort(key=lambda x: x["height"], reverse=True)
-    video_only.sort(key=lambda x: x["height"], reverse=True)
+        elif has_v and height:
+            # has_v and not has_a: a silent video-only stream — never
+            # offered as itself (owner's rule), but its height can be
+            # offered as a "merge:" row below, whose download muxes
+            # the best audio in.
+            video_only_heights.add(height)
+    rows_by_height = {h: item for h, (_, item) in best_by_height.items()}
+    if audio_only:
+        # Split-stream heights with no muxed row of their own become
+        # merge rows, best heights first, capped at 1080p (files and
+        # merge time stay sane) and at 4 rows — the pre-rule shape.
+        merge_heights = sorted(
+            (h for h in video_only_heights
+             if h <= 1080 and h not in rows_by_height),
+            reverse=True)[:4]
+        for h in merge_heights:
+            rows_by_height[h] = {
+                "id": f"merge:{h}",
+                "ext": "mp4",
+                "height": h,
+                "size": None,
+                "size_h": None,
+                "note": "merged on download",
+                "kind": "video+audio",
+                "label": f"{h}p",
+            }
+    combined = [rows_by_height[h]
+                for h in sorted(rows_by_height, reverse=True)]
+    combined += unheighted
     audio_only.sort(key=lambda x: x["label"], reverse=True)
 
-    # Many sites (YouTube especially) now serve ONLY split video/audio
-    # streams. Offer "merged" options for those: when picked, /download
-    # fetches best video + best audio and joins them with ffmpeg into one
-    # mp4 with sound. Capped at 1080p to keep files and merge time sane.
-    merged = []
-    if video_only and audio_only:
-        seen = set()
-        for v in video_only:
-            h = v["height"]
-            if h and h <= 1080 and h not in seen:
-                seen.add(h)
-                merged.append({
-                    "id": f"merge:{h}",
-                    "ext": "mp4",
-                    "height": h,
-                    "size": None,
-                    "size_h": None,
-                    "note": "merged on download",
-                    "kind": "video+audio",
-                    "label": f"{h}p",
-                })
-            if len(merged) >= 4:
-                break
-
-    # Merged + combined (with sound) first, then video-only, then audio.
-    return (merged + combined + video_only[:5] + audio_only[:3])[:MAX_FORMATS]
+    # Video rows (every one downloads with sound) first, then audio.
+    return (combined + audio_only[:3])[:MAX_FORMATS]
 
 
 def pick_captions(info):
@@ -2349,14 +2388,72 @@ class _SpAudioFailed(Exception):
     """The audio could not be downloaded or converted at all."""
 
 
-def _sp_download_audio_mp3(url):
-    """Audio route, step 1: download the best audio with yt-dlp
-    (walking the same attempt cascade as the other downloads) and
+# Audio-route format strategies, in preference order. "muxed" comes
+# first on purpose: some sources (TikTok above all) expose a long
+# standalone "sound" asset next to the video, and a bare "bestaudio"
+# happily grabs THAT — a music track that can run LONGER than the
+# video itself and contain no speech at all (a 105 s story video
+# shipped a 164 s music file, and Gemini quite correctly reported
+# no_speech for it). A pre-merged (video+audio) format always
+# carries the video's OWN audio track, so it is tried first and
+# "bestaudio" survives only as a fallback for sources with no
+# suitable muxed format.
+SP_AUDIO_STRATEGIES = (
+    ("muxed",
+     "best[height<=720][vcodec!=none][acodec!=none]"
+     "/best[vcodec!=none][acodec!=none]"),
+    ("bestaudio", "bestaudio/best"),
+)
+# A candidate whose duration disagrees with the video's known
+# duration by more than this fraction cannot be the video's own
+# audio — it is rejected and the next strategy is tried.
+SP_AUDIO_DURATION_TOLERANCE = 0.20
+
+
+def _sp_probe_duration(path):
+    """Duration in seconds of a media file (ffprobe); None when it
+    cannot be determined — the duration guard then stays out of the
+    way rather than blocking on an unknown."""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries",
+             "format=duration", "-of",
+             "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, timeout=60)
+        return float((out.stdout or "").strip())
+    except Exception:
+        return None
+
+
+def _sp_duration_mismatch(expected, actual):
+    """True when a downloaded candidate cannot be the video's own
+    audio: both durations known and differing by more than the
+    tolerance. An unknown duration never counts as a mismatch."""
+    if not expected or not actual:
+        return False
+    return abs(actual - expected) \
+        > SP_AUDIO_DURATION_TOLERANCE * expected
+
+
+def _sp_download_audio_mp3(url, expected_duration=None):
+    """Audio route, step 1: fetch the VIDEO'S OWN audio (walking the
+    same attempt cascade as the other downloads, and inside each
+    attempt the SP_AUDIO_STRATEGIES format strategies in order) and
     convert it with ffmpeg to a mono 64 kbps MP3 — small enough to
-    send to Gemini inline (20 min ≈ 9.6 MB). Returns (mp3_path,
-    tmpdir); the CALLER owns deleting tmpdir. Raises _SpAudioTooBig
-    when the converted file passes the 18 MB cap and _SpAudioFailed
-    when every attempt fails."""
+    send to Gemini inline (20 min ≈ 9.6 MB).
+
+    When the video's duration is known (expected_duration, from the
+    extracted metadata), a candidate whose probed duration disagrees
+    by more than SP_AUDIO_DURATION_TOLERANCE is the wrong track (the
+    TikTok music-asset trap) — it is rejected and the next strategy
+    is tried instead of transcribing silence.
+
+    Returns (mp3_path, tmpdir); the CALLER owns deleting tmpdir.
+    Raises _SpAudioTooBig when the converted file passes the 18 MB
+    cap and _SpAudioFailed when every attempt fails."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise _SpAudioFailed("ffmpeg missing")
@@ -2364,48 +2461,58 @@ def _sp_download_audio_mp3(url):
     for spec in _ordered_attempts(url):
         if not _cascade_gate_open(spec, last_error):
             break
-        tmpdir = tempfile.mkdtemp(prefix="qgrab-sp-")
-        outtmpl = os.path.join(tmpdir, f"{uuid.uuid4().hex}.%(ext)s")
-        opts = _build_opts(spec, {
-            "format": "bestaudio/best",
-            "outtmpl": outtmpl,
-        }, url=url)
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.extract_info(url, download=True)
-        except Exception as e:
-            last_error = e
-            app.logger.info(
-                "script-prompt audio attempt failed (client=%s "
-                "impersonate=%s) for %s: %s",
-                spec.get("client"), spec.get("impersonate"), url, e)
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            continue
-        src = _find_produced_file(tmpdir)
-        if not src:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            continue
-        mp3 = os.path.join(tmpdir, "audio.mp3")
-        try:
-            proc = subprocess.run(
-                [ffmpeg, "-y", "-i", src, "-vn", "-ac", "1",
-                 "-codec:a", "libmp3lame", "-b:a", "64k", mp3],
-                capture_output=True, timeout=SP_FFMPEG_TIMEOUT)
-        except Exception as e:
-            last_error = e
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            continue
-        if proc.returncode != 0 or not os.path.exists(mp3) \
-                or os.path.getsize(mp3) == 0:
-            app.logger.info(
-                "script-prompt audio convert failed for %s", url)
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            continue
-        if os.path.getsize(mp3) > SP_AUDIO_MAX_BYTES:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            raise _SpAudioTooBig()
-        _remember_winner(url, spec)
-        return mp3, tmpdir
+        for strategy, selector in SP_AUDIO_STRATEGIES:
+            tmpdir = tempfile.mkdtemp(prefix="qgrab-sp-")
+            outtmpl = os.path.join(tmpdir, f"{uuid.uuid4().hex}.%(ext)s")
+            opts = _build_opts(spec, {
+                "format": selector,
+                "outtmpl": outtmpl,
+            }, url=url)
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.extract_info(url, download=True)
+            except Exception as e:
+                last_error = e
+                app.logger.info(
+                    "script-prompt audio attempt failed (strategy=%s "
+                    "client=%s impersonate=%s) for %s: %s",
+                    strategy, spec.get("client"),
+                    spec.get("impersonate"), url, e)
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue
+            src = _find_produced_file(tmpdir)
+            if not src:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue
+            actual = _sp_probe_duration(src)
+            if _sp_duration_mismatch(expected_duration, actual):
+                app.logger.info(
+                    "script-prompt audio rejected %s candidate for "
+                    "%s: duration %.1fs vs video %.1fs (wrong track)",
+                    strategy, url, actual, expected_duration)
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue
+            mp3 = os.path.join(tmpdir, "audio.mp3")
+            try:
+                proc = subprocess.run(
+                    [ffmpeg, "-y", "-i", src, "-vn", "-ac", "1",
+                     "-codec:a", "libmp3lame", "-b:a", "64k", mp3],
+                    capture_output=True, timeout=SP_FFMPEG_TIMEOUT)
+            except Exception as e:
+                last_error = e
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue
+            if proc.returncode != 0 or not os.path.exists(mp3) \
+                    or os.path.getsize(mp3) == 0:
+                app.logger.info(
+                    "script-prompt audio convert failed for %s", url)
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                continue
+            if os.path.getsize(mp3) > SP_AUDIO_MAX_BYTES:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                raise _SpAudioTooBig()
+            _remember_winner(url, spec)
+            return mp3, tmpdir
     raise _SpAudioFailed(str(last_error))
 
 
@@ -2551,7 +2658,8 @@ def api_script_prompt():
     if duration and duration > SP_AUDIO_MAX_SECONDS:
         return jsonify({"error": "too_long"}), 422
     try:
-        mp3_path, tmpdir = _sp_download_audio_mp3(url)
+        mp3_path, tmpdir = _sp_download_audio_mp3(
+            url, expected_duration=duration)
     except _SpAudioTooBig:
         return jsonify({"error": "audio_too_big"}), 422
     except _SpAudioFailed as e:
