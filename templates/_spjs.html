@@ -67,7 +67,16 @@
     spErr.style.display = 'none';
     spRes.style.display = 'none';
     spSpin.style.display = 'block';
-    spBtn.disabled = true; spBtn.textContent = I18N.sp_working;
+    spBtn.disabled = true; spBtn.textContent = I18N.sp_working_script;
+    /* Two-phase waiting label: the single request returns the
+       script and the prompts together, but while it runs the
+       button alternates between the two messages every 25 s. */
+    let spShowPrompt = false;
+    const spPhaseTimer = setInterval(function(){
+      spShowPrompt = !spShowPrompt;
+      spBtn.textContent = spShowPrompt ? I18N.sp_working_prompt
+                                       : I18N.sp_working_script;
+    }, 25000);
     try {
       const r = await fetch('/api/script-prompt', {
         method: 'POST',
@@ -81,6 +90,7 @@
     } catch (err) {
       spShowError(err.message || I18N.err_generic);
     } finally {
+      clearInterval(spPhaseTimer);
       spSpin.style.display = 'none';
       spBtn.disabled = false; spBtn.textContent = spBtnLabel;
       spBusy = false;
