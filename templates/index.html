@@ -87,18 +87,14 @@
   .ad{border:1.5px dashed var(--ad-line);background:var(--bg2);color:var(--faint);border-radius:10px;
       display:flex;align-items:center;justify-content:center;text-align:center;
       font-size:.8rem;letter-spacing:2px;text-transform:uppercase;margin:18px auto}
-  .ad-banner{height:90px;max-width:728px}
   .ad-incontent{height:250px;max-width:336px}
   .ad small{display:block;letter-spacing:.4px;text-transform:none;color:var(--faint2)}
 
-  /* hero */
-  .hero{text-align:center;padding:46px 0 10px}
-  .hero h1{font-size:2rem;line-height:1.2;font-weight:800;letter-spacing:-.5px}
-  .hero h1 .grad{background:linear-gradient(90deg,var(--accent),var(--accent2));
-                 -webkit-background-clip:text;background-clip:text;color:transparent}
-  .hero p{color:var(--muted);margin:12px auto 0;max-width:520px}
+  /* visually hidden (keeps the SEO h1 without showing hero text) */
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+           overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .grab{background:var(--card);border:1px solid var(--line);border-radius:16px;
-        padding:16px;margin-top:26px;box-shadow:0 12px 34px var(--sh-strong)}
+        padding:16px;margin-top:20px;box-shadow:0 12px 34px var(--sh-strong)}
   .grab-row{display:flex;gap:10px}
   .grab input{flex:1;min-width:0;background:var(--bg);border:1.5px solid var(--line);
     border-radius:10px;color:var(--text);font-size:1rem;padding:14px 14px;outline:none}
@@ -108,7 +104,7 @@
   .btn:active{transform:scale(.98)}
   .btn[disabled]{opacity:.55;cursor:wait}
   .hint{color:var(--muted);font-size:.85rem;margin-top:10px;text-align:left}
-  @media (max-width:560px){ .grab-row{flex-direction:column} .btn{width:100%} .hero h1{font-size:1.6rem} }
+  @media (max-width:560px){ .grab-row{flex-direction:column} .btn{width:100%} }
 
   /* result */
   #result{display:none;margin-top:20px;background:var(--card);border:1px solid var(--line);
@@ -129,10 +125,6 @@
   .spinner{display:none;margin:22px auto;width:34px;height:34px;border-radius:50%;
            border:4px solid var(--line);border-top-color:var(--accent);animation:sp 0.8s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
-
-  /* top announcement bar */
-  .topbar{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;
-          text-align:center;font-size:.88rem;font-weight:600;padding:8px 14px}
 
   /* trust chips */
   .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
@@ -220,8 +212,6 @@
 </head>
 <body>
 
-<div class="topbar">{{ t.topbar | safe }}</div>
-
 <header>
   <div class="wrap nav">
     <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo">Q<span>Grab</span></a>
@@ -232,14 +222,9 @@
 </header>
 
 <div class="wrap">
-  <!-- AD PLACEHOLDER: top banner (leaderboard 728x90) -->
-  <div class="ad ad-banner">AD<small>Advertisement space — top banner</small></div>
+  <h1 class="sr-only">{{ t.h1_free }} {{ t.h1_main }}</h1>
 
-  <div class="hero">
-    <h1>{{ t.h1_free }} <span class="grad">{{ t.h1_main }}</span></h1>
-    <p>{{ t.hero_sub | safe }}</p>
-
-    <div class="grab" id="download">
+  <div class="grab" id="download">
       <form class="grab-row" id="grabForm">
         <input id="urlInput" type="url" inputmode="url" autocomplete="off"
                placeholder="{{ t.ph_home }}" required>
@@ -260,7 +245,6 @@
         <div class="formats" id="rFormats"></div>
       </div>
     </div>
-  </div>
 
   <section id="script-prompt" class="sp-sec">
     <h2>{{ t.sp_h2 }}</h2>
