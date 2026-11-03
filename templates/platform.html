@@ -21,7 +21,7 @@
 <meta name="twitter:description" content="{{ page.description }}">
 <meta name="twitter:image" content="{{ site_url }}/static/icons/icon-512.png">
 <link rel="manifest" href="/static/manifest.webmanifest">
-<meta name="theme-color" content="#0e1013">
+{% include "_themehead.html" %}
 <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -34,7 +34,25 @@
     --bg:#0e1013; --bg2:#15181e; --card:#1a1e26; --line:#262c38;
     --text:#eef1f6; --muted:#9aa4b2; --accent:#ff4d5e; --accent2:#ff8a5c;
     --ok:#2fbf71;
+    --header-bg:rgba(14,16,19,.92); --err-bg:#3a1620; --err-line:#6e2434;
+    --err-text:#ffb3bc; --star:#ffb400; --star-off:#3a4254;
+    --sheen1:rgba(255,255,255,.05); --sheen2:rgba(255,255,255,.012);
+    --sh-soft:rgba(0,0,0,.26); --sh-strong:rgba(0,0,0,.4);
+    --faint:#5f6b80; --faint2:#48536a; --ad-line:#3a4254;
+    color-scheme:dark;
   }
+  html[data-theme="light"]{
+    --bg:#ffffff; --bg2:#f1f3f7; --card:#f8f9fb; --line:#e0e5ee;
+    --text:#131720; --muted:#5a6474; --accent:#dd2a42; --accent2:#e85a30;
+    --ok:#1c9d57;
+    --header-bg:rgba(255,255,255,.92); --err-bg:#fdeeee; --err-line:#f1b3bc;
+    --err-text:#9c1c30; --star:#f59e0b; --star-off:#d9dfe9;
+    --sheen1:rgba(15,23,42,.04); --sheen2:rgba(15,23,42,.015);
+    --sh-soft:rgba(16,24,40,.08); --sh-strong:rgba(16,24,40,.16);
+    --faint:#8b95a7; --faint2:#a6aebc; --ad-line:#c9d2df;
+    color-scheme:light;
+  }
+
   *{margin:0;padding:0;box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -43,7 +61,7 @@
   .wrap{max-width:860px;margin:0 auto;padding:0 16px}
 
   /* header */
-  header{position:sticky;top:0;background:rgba(14,16,19,.92);backdrop-filter:blur(8px);
+  header{position:sticky;top:0;background:var(--header-bg);backdrop-filter:blur(8px);
          border-bottom:1px solid var(--line);z-index:10}
   .nav{display:flex;align-items:center;justify-content:space-between;height:58px}
   .logo{display:flex;align-items:center;gap:9px;font-size:1.35rem;font-weight:800;letter-spacing:-.5px;color:var(--text)}
@@ -59,7 +77,7 @@
                  -webkit-background-clip:text;background-clip:text;color:transparent}
   .hero p{color:var(--muted);margin:12px auto 0;max-width:560px}
   .grab{background:var(--card);border:1px solid var(--line);border-radius:16px;
-        padding:16px;margin-top:24px;box-shadow:0 12px 34px rgba(0,0,0,.35)}
+        padding:16px;margin-top:24px;box-shadow:0 12px 34px var(--sh-strong)}
   .grab-row{display:flex;gap:10px}
   .grab input{flex:1;min-width:0;background:var(--bg);border:1.5px solid var(--line);
     border-radius:10px;color:var(--text);font-size:1rem;padding:14px 14px;outline:none}
@@ -85,7 +103,7 @@
   .fmt .d{color:var(--muted);font-size:.82rem}
   .fmt a{background:var(--ok);color:#fff;font-weight:700;font-size:.9rem;
          padding:8px 14px;border-radius:8px;white-space:nowrap}
-  #error{display:none;margin-top:16px;background:#3a1620;border:1px solid #6e2434;color:#ffb3bc;
+  #error{display:none;margin-top:16px;background:var(--err-bg);border:1px solid var(--err-line);color:var(--err-text);
          padding:12px 14px;border-radius:10px;text-align:left;font-size:.95rem}
   .spinner{display:none;margin:22px auto;width:34px;height:34px;border-radius:50%;
            border:4px solid var(--line);border-top-color:var(--accent);animation:sp 0.8s linear infinite}
@@ -108,7 +126,7 @@
   .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
   @media (max-width:640px){ .steps{grid-template-columns:1fr} }
   .step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;text-align:center;
-        box-shadow:0 8px 22px rgba(0,0,0,.25);transition:transform .18s ease}
+        box-shadow:0 8px 22px var(--sh-soft);transition:transform .18s ease}
   .step:hover{transform:translateY(-3px)}
   .step .n{width:38px;height:38px;margin:0 auto 10px;border-radius:50%;
            background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;
@@ -118,10 +136,10 @@
   /* link cards */
   .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
   @media (max-width:640px){ .cards{grid-template-columns:1fr} }
-  .fcard{background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.012));
+  .fcard{background:linear-gradient(160deg,var(--sheen1),var(--sheen2));
          border:1px solid var(--line);border-radius:16px;padding:22px;
-         box-shadow:0 10px 26px rgba(0,0,0,.28);transition:transform .18s ease,box-shadow .18s ease}
-  .fcard:hover{transform:translateY(-4px);box-shadow:0 16px 34px rgba(0,0,0,.42)}
+         box-shadow:0 10px 26px var(--sh-soft);transition:transform .18s ease,box-shadow .18s ease}
+  .fcard:hover{transform:translateY(-4px);box-shadow:0 16px 34px var(--sh-strong)}
   .fcard h3{font-size:1.05rem;margin-bottom:6px}
   .fcard p{color:var(--muted);font-size:.93rem}
   .try{display:inline-block;margin-top:12px;font-weight:700}
@@ -154,10 +172,7 @@
 <header>
   <div class="wrap nav">
     <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo">Q<span>Grab</span></a>
-    <nav>
-      <a href="/">{{ t.nav_home }}</a>
-      <a href="/#how">{{ t.nav_how }}</a>
-      <a href="/#faq">{{ t.nav_faq }}</a>
+    <nav class="hnav">
       {% include "_langmenu.html" %}
     </nav>
   </div>

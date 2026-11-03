@@ -1,0 +1,42 @@
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1013">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+<script>
+/* QGrab day/night theme — decided before the page CSS is applied, so
+   the first paint is already in the right mode (no flash):
+   1. the visitor's saved choice (localStorage "qgrab_theme"), else
+   2. the device's own setting — a phone in light mode gets the light
+      (day) site, a phone in dark mode gets the dark (night) site.
+   While no manual choice is saved, the site also follows the device
+   if its setting changes. The header toggle calls qgrabToggleTheme. */
+(function () {
+  var root = document.documentElement;
+  var saved = null;
+  try { saved = localStorage.getItem('qgrab_theme'); } catch (e) {}
+  var mq = window.matchMedia('(prefers-color-scheme: light)');
+  function resolve() {
+    if (saved === 'light' || saved === 'dark') return saved;
+    return mq.matches ? 'light' : 'dark';
+  }
+  function apply() {
+    var th = resolve();
+    root.setAttribute('data-theme', th);
+    var color = th === 'light' ? '#ffffff' : '#0e1013';
+    var metas = document.querySelectorAll('meta[name="theme-color"]');
+    for (var i = 0; i < metas.length; i++) {
+      metas[i].removeAttribute('media');
+      metas[i].setAttribute('content', color);
+    }
+  }
+  apply();
+  if (mq.addEventListener) {
+    mq.addEventListener('change', function () {
+      if (saved !== 'light' && saved !== 'dark') apply();
+    });
+  }
+  window.qgrabToggleTheme = function () {
+    saved = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    try { localStorage.setItem('qgrab_theme', saved); } catch (e) {}
+    apply();
+  };
+})();
+</script>

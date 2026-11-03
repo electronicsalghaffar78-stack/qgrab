@@ -21,7 +21,7 @@
 <meta name="twitter:description" content="Paste a video link and get its full script plus scene-by-scene AI video prompts — free, from the video's own subtitles.">
 <meta name="twitter:image" content="{{ site_url }}/static/icons/icon-512.png">
 <link rel="manifest" href="/static/manifest.webmanifest">
-<meta name="theme-color" content="#0e1013">
+{% include "_themehead.html" %}
 <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -33,7 +33,25 @@
     --bg:#0e1013; --bg2:#15181e; --card:#1a1e26; --line:#262c38;
     --text:#eef1f6; --muted:#9aa4b2; --accent:#ff4d5e; --accent2:#ff8a5c;
     --ok:#2fbf71;
+    --header-bg:rgba(14,16,19,.92); --err-bg:#3a1620; --err-line:#6e2434;
+    --err-text:#ffb3bc; --star:#ffb400; --star-off:#3a4254;
+    --sheen1:rgba(255,255,255,.05); --sheen2:rgba(255,255,255,.012);
+    --sh-soft:rgba(0,0,0,.26); --sh-strong:rgba(0,0,0,.4);
+    --faint:#5f6b80; --faint2:#48536a; --ad-line:#3a4254;
+    color-scheme:dark;
   }
+  html[data-theme="light"]{
+    --bg:#ffffff; --bg2:#f1f3f7; --card:#f8f9fb; --line:#e0e5ee;
+    --text:#131720; --muted:#5a6474; --accent:#dd2a42; --accent2:#e85a30;
+    --ok:#1c9d57;
+    --header-bg:rgba(255,255,255,.92); --err-bg:#fdeeee; --err-line:#f1b3bc;
+    --err-text:#9c1c30; --star:#f59e0b; --star-off:#d9dfe9;
+    --sheen1:rgba(15,23,42,.04); --sheen2:rgba(15,23,42,.015);
+    --sh-soft:rgba(16,24,40,.08); --sh-strong:rgba(16,24,40,.16);
+    --faint:#8b95a7; --faint2:#a6aebc; --ad-line:#c9d2df;
+    color-scheme:light;
+  }
+
   *{margin:0;padding:0;box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -42,7 +60,7 @@
   .wrap{max-width:860px;margin:0 auto;padding:0 16px}
 
   /* header */
-  header{position:sticky;top:0;background:rgba(14,16,19,.92);backdrop-filter:blur(8px);
+  header{position:sticky;top:0;background:var(--header-bg);backdrop-filter:blur(8px);
          border-bottom:1px solid var(--line);z-index:10}
   .nav{display:flex;align-items:center;justify-content:space-between;height:58px}
   .logo{display:flex;align-items:center;gap:9px;font-size:1.35rem;font-weight:800;letter-spacing:-.5px;color:var(--text)}
@@ -60,7 +78,7 @@
 
   /* tool box (same .grab language as the downloader) */
   .grab{background:var(--card);border:1px solid var(--line);border-radius:16px;
-        padding:16px;margin-top:26px;box-shadow:0 12px 34px rgba(0,0,0,.35)}
+        padding:16px;margin-top:26px;box-shadow:0 12px 34px var(--sh-strong)}
   .grab-row{display:flex;gap:10px}
   .grab input{flex:1;min-width:0;background:var(--bg);border:1.5px solid var(--line);
     border-radius:10px;color:var(--text);font-size:1rem;padding:14px 14px;outline:none}
@@ -105,10 +123,7 @@
 <header>
   <div class="wrap nav">
     <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo">Q<span>Grab</span></a>
-    <nav>
-      <a href="/">{{ t.nav_home }}</a>
-      <a href="/#how">{{ t.nav_how }}</a>
-      <a href="/#faq">{{ t.nav_faq }}</a>
+    <nav class="hnav">
       {% include "_langmenu.html" %}
     </nav>
   </div>
