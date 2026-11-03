@@ -1,0 +1,133 @@
+<script>
+/* --- Video -> Script + AI Prompts tool ---
+   OWNER'S HARD RULE: generation runs ONLY when the visitor presses
+   this tool's own Generate button (in the homepage section or on
+   the dedicated page). Nothing fires on page load, on paste, or
+   after /api/info. The download-result area's "Script + Prompts"
+   button (window.qgrabSpPrefill) only scrolls here and pre-fills
+   the link — it never starts a generation. All model output is
+   rendered with textContent only — never innerHTML. */
+(function(){
+  const spForm = document.getElementById('spForm');
+  if (!spForm || typeof I18N === 'undefined') return;
+  const spUrl = document.getElementById('spUrl');
+  const spBtn = document.getElementById('spBtn');
+  const spSpin = document.getElementById('spSpinner');
+  const spErr = document.getElementById('spError');
+  const spRes = document.getElementById('spResult');
+  const spScript = document.getElementById('spScript');
+  const spPrompts = document.getElementById('spPrompts');
+  const spBtnLabel = spBtn.textContent;
+  let spBusy = false;
+
+  /* Cross-page prefill: a platform page's result button stores the
+     link in sessionStorage before sending the visitor to the
+     homepage section. Consume it once — fill the box only; the
+     visitor still presses Generate themselves. */
+  try {
+    const pre = sessionStorage.getItem('qgrab_sp_prefill');
+    if (pre) {
+      sessionStorage.removeItem('qgrab_sp_prefill');
+      if (!spUrl.value) spUrl.value = pre;
+    }
+  } catch (e) {}
+
+  function spShowError(msg){
+    spErr.textContent = msg;
+    spErr.style.display = 'block';
+  }
+  function spErrorText(code){
+    if (code === 'no_subtitles') return I18N.sp_err_nosubs;
+    if (code === 'rate_limited') return I18N.sp_err_rate;
+    if (code === 'ai_unavailable') return I18N.sp_err_ai;
+    if (code === 'not_configured') return I18N.sp_err_setup;
+    if (code === 'invalid_url') return I18N.err_link;
+    return I18N.err_generic;
+  }
+  function spRender(data){
+    spScript.textContent = data.script || '';
+    spPrompts.textContent = '';
+    (data.prompts || []).forEach(function(p, i){
+      const wrap = document.createElement('div');
+      wrap.className = 'sp-prompt';
+      const n = document.createElement('span');
+      n.className = 'sp-prompt-n';
+      n.textContent = String(i + 1);
+      const pre = document.createElement('pre');
+      pre.className = 'sp-out';
+      pre.textContent = p;
+      wrap.append(n, pre);
+      spPrompts.appendChild(wrap);
+    });
+    spRes.style.display = 'block';
+  }
+  async function qgrabScriptPrompt(url){
+    if (spBusy || !url) return;
+    spBusy = true;
+    spErr.style.display = 'none';
+    spRes.style.display = 'none';
+    spSpin.style.display = 'block';
+    spBtn.disabled = true; spBtn.textContent = I18N.sp_working;
+    try {
+      const r = await fetch('/api/script-prompt', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url: url})
+      });
+      const data = await r.json().catch(function(){ return {}; });
+      if (!r.ok) throw new Error(spErrorText(data.error));
+      spRender(data);
+      spRes.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    } catch (err) {
+      spShowError(err.message || I18N.err_generic);
+    } finally {
+      spSpin.style.display = 'none';
+      spBtn.disabled = false; spBtn.textContent = spBtnLabel;
+      spBusy = false;
+    }
+  }
+  /* The ONE generation trigger: the tool's own Generate button. */
+  spForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    const url = spUrl.value.trim();
+    if (url) qgrabScriptPrompt(url);
+  });
+  /* The download-result area's button: scroll + prefill ONLY.
+     Generation still waits for the visitor to press Generate. */
+  window.qgrabSpPrefill = function(url){
+    spUrl.value = url;
+    const sec = document.getElementById('script-prompt');
+    if (sec) sec.scrollIntoView({behavior: 'smooth'});
+    spBtn.focus({preventScroll: true});
+  };
+  function spCopy(btn, text){
+    const done = function(){
+      const old = btn.textContent;
+      btn.textContent = I18N.sp_copied;
+      setTimeout(function(){ btn.textContent = old; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(function(){});
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {}
+      ta.remove();
+    }
+  }
+  const copyScript = document.getElementById('spCopyScript');
+  if (copyScript) copyScript.addEventListener('click', function(){
+    spCopy(copyScript, spScript.textContent);
+  });
+  const copyPrompts = document.getElementById('spCopyPrompts');
+  if (copyPrompts) copyPrompts.addEventListener('click', function(){
+    const parts = [];
+    spPrompts.querySelectorAll('.sp-out').forEach(function(el, i){
+      parts.push((i + 1) + '. ' + el.textContent);
+    });
+    spCopy(copyPrompts, parts.join('\n\n'));
+  });
+})();
+</script>

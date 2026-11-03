@@ -362,6 +362,21 @@ form.addEventListener('submit', async (e) => {
       row.append(sel, a1, a2);
       box.appendChild(row);
     }
+    /* Script + Prompts shortcut: sends the visitor to the tool on
+       the homepage with this link pre-filled — generation starts
+       only when they press that section's own Generate button. */
+    const spRow = document.createElement('div');
+    spRow.className = 'fmt sp-row';
+    const spB = document.createElement('button');
+    spB.type = 'button';
+    spB.className = 'sp-result-btn';
+    spB.textContent = I18N.sp_btn_result;
+    spB.addEventListener('click', () => {
+      try { sessionStorage.setItem('qgrab_sp_prefill', url); } catch (e) {}
+      window.location.href = '/#script-prompt';
+    });
+    spRow.appendChild(spB);
+    box.appendChild(spRow);
     result.style.display = 'block';
     result.scrollIntoView({behavior:'smooth', block:'nearest'});
   } catch (err) {

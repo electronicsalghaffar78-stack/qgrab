@@ -1044,6 +1044,14 @@ def _js_strings(t):
         "subs": t["js_subs"],
         "transcript": t["js_transcript"],
         "cap_lang": t["js_cap_lang"],
+        "sp_btn_result": t["sp_btn_result"],
+        "sp_working": t["sp_working"],
+        "sp_copy": t["sp_copy"],
+        "sp_copied": t["sp_copied"],
+        "sp_err_nosubs": t["sp_err_nosubs"],
+        "sp_err_rate": t["sp_err_rate"],
+        "sp_err_ai": t["sp_err_ai"],
+        "sp_err_setup": t["sp_err_setup"],
     }
 
 
@@ -1274,6 +1282,14 @@ def instagram_downloader():
     return _platform_view("instagram")
 
 
+@app.route("/video-to-script-prompt")
+def script_prompt_tool():
+    # The dedicated page for the Video -> Script + AI Prompts tool
+    # (the same tool is featured on the homepage). Title/meta stay
+    # English in the template (SEO), like the platform pages.
+    return render_template("scriptprompt.html", site_url=SITE_URL)
+
+
 @app.route("/sitemap.xml")
 def sitemap():
     import datetime
@@ -1281,6 +1297,7 @@ def sitemap():
     entries = [("/", "1.0", "weekly")]
     entries += [(p["path"], "0.9", "weekly")
                 for p in PLATFORM_PAGES.values()]
+    entries += [("/video-to-script-prompt", "0.8", "weekly")]
     entries += [("/terms", "0.3", "monthly"),
                 ("/privacy", "0.3", "monthly"),
                 ("/dmca", "0.3", "monthly")]
@@ -1905,6 +1922,375 @@ def download_captions(url, lang, as_transcript):
     return _send_temp_file(
         vpath, tmpdir, safe_filename(f"{title} - subtitles", "vtt"),
         "text/vtt")
+
+
+# ---------------------------------------------------------------------------
+# Video -> Script + AI Prompts (Google Gemini)
+#
+# The featured tool: a visitor pastes a video link and presses ONE
+# button; the server reads the video's own captions (the same
+# _fetch_caption_vtt pipeline as Subtitles/Transcript), turns them
+# into a timed script and asks Gemini to format a clean script and
+# write scene-by-scene AI video prompts in the approved sample's
+# shape (character + scene + exact dialogue line + audio rules +
+# camera + photorealistic, nobody looking at the camera).
+#
+# OWNER'S HARD RULE: generation happens ONLY on that explicit
+# button press. Nothing calls this endpoint on page load, on paste,
+# or after /api/info — the ONLY caller in the shipped JS is the
+# tool's own Generate button (homepage section + dedicated page).
+# The download-result area's "Script + Prompts" button merely
+# scrolls to the section and pre-fills its input; generation still
+# waits for the visitor to press Generate there.
+#
+# Config (environment only — the key is never logged, never returned
+# and never stored in the repo):
+#   GEMINI_API_KEY  required; without it the endpoint answers
+#                   503 {"error": "not_configured"} and the tool
+#                   shows its "being set up" message.
+#   GEMINI_MODEL    optional override of the primary model.
+# Models (verified against ai.google.dev on 2026-11-03 — the models
+# page + the pricing page's Free Tier column, "Free of charge"):
+#   primary  gemini-3.8-flash       (current flagship Flash)
+#   fallback gemini-3.6-flash       (previous-generation Flash)
+#   fallback gemini-3.5-flash-lite  (fastest / cheapest Flash)
+# API shape (official reference, ai.google.dev/api/generate-content):
+#   POST https://generativelanguage.googleapis.com/v1beta/models/
+#        {model}:generateContent     header: x-goog-api-key: <key>
+#   body: system_instruction + contents + generationConfig with
+#   responseMimeType "application/json"; the reply text lives in
+#   candidates[0].content.parts[].text.
+#
+# Abuse control is a soft per-IP limit: 6 generations per rolling
+# 24 h, kept in memory (a restart resets it — acceptable, the same
+# spirit as the one-rating-per-browser cookie). The IP comes from
+# the first X-Forwarded-For hop when present (Render's proxy sets
+# it), else the direct peer.
+# ---------------------------------------------------------------------------
+
+SP_INPUT_LIMIT = 24000        # max caption characters sent to Gemini
+SP_RATE_LIMIT = 6             # generations per IP ...
+SP_RATE_WINDOW = 24 * 60 * 60  # ... per rolling 24 hours
+SP_GEMINI_TIMEOUT = 100       # seconds, per model attempt
+SP_DEFAULT_MODEL = "gemini-3.8-flash"
+SP_FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
+GEMINI_API_URL = ("https://generativelanguage.googleapis.com/v1beta/"
+                  "models/{model}:generateContent")
+
+_sp_hits = {}
+_sp_lock = threading.Lock()
+
+SP_SYSTEM_INSTRUCTION = """You turn a video's timed captions into (1) a clean production script and (2) ready-to-use AI video generation prompts. Answer with STRICT JSON only: {"script": "...", "prompts": ["...", "..."]} — no markdown fences, no commentary, nothing outside the JSON object.
+
+SCRIPT rules:
+- Keep every spoken line EXACTLY as captioned — same words, same original language and script. Never translate the dialogue.
+- Group the lines into scenes. Start each scene with a heading line: SCENE n (start-end) — a few English words for the setting / what happens.
+- One line per speech: SPEAKER: <line>. Infer speaker labels from the words themselves (for example, someone addressed as "Amma" is the mother; the person calling her that is her child). Use short, consistent ALL-CAPS labels; use NARRATOR for voice-over, and UNKNOWN only when nothing at all can be inferred.
+- Mark stretches with no speech as a single line: (no dialogue — a brief English visual note).
+
+PROMPT rules — exactly one English prompt per scene, in the same order, each a single self-contained paragraph an AI video generator can use directly. EVERY prompt MUST carry ALL of these production rules — none may be dropped or softened:
+1. DIALOGUE DELIVERY: the speaking character delivers the exact dialogue line himself/herself, in the line's own language, lips moving with the words. Add verbatim: DIALOGUE — <SPEAKER> says exactly, in clear <the caption language>, lips moving with the words, in their own voice, spoken ONCE, slowly and clearly, never repeated: "<the exact original line(s)>". The line is NEVER dubbed by anyone else. Audio: ONLY that character's voice — no other voices, no background talking or chatter, no music over the dialogue.
+2. EYELINE: characters talk TO EACH OTHER — nobody ever looks at or into the camera. State this in every prompt ("looking at <the other character>, never at the camera").
+3. CAMERA: give an explicit virtual-camera direction in every scene — BOTH an angle/shot size (e.g. medium shot, close-up, over-the-shoulder, wide shot) AND a movement (e.g. slow push-in, gentle pan, static locked-off).
+4. LOOK: open every prompt with "Photorealistic cinematic video," and keep the whole prompt photorealistic, cinematic, like a real film — NEVER cartoon, animation or CGI-looking.
+5. EXPRESSIONS: give an explicit facial-expression direction for EACH character in the scene, matched to that scene's emotion (e.g. "AMMA: warm hiding-her-hunger smile; BETA: worried, eyes moist"). A character must never smile in a serious or sad scene.
+6. CONSISTENCY: first fix one character description block per character (name, age, face, hair, clothes). Repeat that block VERBATIM, word for word, in every scene prompt of this video, so the same person looks identical in every scene. Never re-describe a character differently between scenes.
+7. SILENT SCENES: for a scene without dialogue write explicitly: "Nobody speaks, mouths closed." — no dialogue block, no voice at all.
+8. ANTI-TEXT TAIL: end every prompt with exactly: "No subtitles, no captions, no text, no words, no letters, no numbers, no watermark, no logo anywhere in the frame — clean picture only."
+"""
+
+
+def _gemini_api_key():
+    return (os.environ.get("GEMINI_API_KEY") or "").strip() or None
+
+
+def _client_ip():
+    fwd = (request.headers.get("X-Forwarded-For") or "") \
+        .split(",")[0].strip()
+    return fwd or (request.remote_addr or "unknown")
+
+
+def _sp_rate_check(ip):
+    """True while this IP still has generations left in the window."""
+    now = time.time()
+    with _sp_lock:
+        hits = [ts for ts in _sp_hits.get(ip, [])
+                if now - ts < SP_RATE_WINDOW]
+        _sp_hits[ip] = hits
+        return len(hits) < SP_RATE_LIMIT
+
+
+def _sp_rate_record(ip):
+    with _sp_lock:
+        _sp_hits.setdefault(ip, []).append(time.time())
+
+
+_VTT_TS_RE = re.compile(r"(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})")
+
+
+def _vtt_ts_seconds(match):
+    hours = int(match.group(1) or 0)
+    ms = int(match.group(4).ljust(3, "0"))
+    return hours * 3600 + int(match.group(2)) * 60 \
+        + int(match.group(3)) + ms / 1000.0
+
+
+def _fmt_ts(seconds):
+    total = int(seconds)
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def _vtt_timed_script(vtt):
+    """Timestamped plain-text script from a WebVTT file: one
+    '[M:SS-M:SS] line' per cue, with the rolling duplicates
+    auto-captions repeat removed (the same cleaning vtt_to_transcript
+    does, but keeping each cue's time range for scene building)."""
+    cues = []           # [start, end, text]
+    start = end = None
+    buf = []
+
+    def _flush():
+        if start is None:
+            return
+        text = re.sub(r"<[^>]+>", "", " ".join(buf))
+        text = re.sub(r"\s+", " ", text).strip()
+        if text:
+            cues.append([start, end, text])
+
+    for raw in vtt.splitlines():
+        line = raw.strip()
+        if "-->" in line:
+            _flush()
+            start = end = None
+            buf = []
+            parts = line.split("-->")
+            m1 = _VTT_TS_RE.search(parts[0])
+            m2 = _VTT_TS_RE.search(parts[1]) if len(parts) > 1 else None
+            if m1:
+                start = _vtt_ts_seconds(m1)
+                end = _vtt_ts_seconds(m2) if m2 else start
+            continue
+        if start is None:
+            continue  # header, cue identifiers, NOTE/STYLE blocks
+        if not line:
+            _flush()
+            start = end = None
+            buf = []
+            continue
+        buf.append(line)
+    _flush()
+
+    out = []
+    for cue_start, cue_end, text in cues:
+        if out and text == out[-1][2]:
+            out[-1][1] = max(out[-1][1], cue_end)  # roll-up repeat
+            continue
+        if out and text.startswith(out[-1][2]) \
+                and len(text) > len(out[-1][2]):
+            out[-1][1] = cue_end  # same line, still growing word by word
+            out[-1][2] = text
+            continue
+        out.append([cue_start, cue_end, text])
+    return "\n".join(
+        f"[{_fmt_ts(s)}-{_fmt_ts(e)}] {t}" for s, e, t in out)
+
+
+def _sp_choose_caption(captions, requested):
+    """Pick the caption track for the script: the requested language
+    when a matching track exists, then Urdu, then English, then the
+    first track listed (pick_captions already puts the uploader's own
+    tracks and UI languages first)."""
+    if not captions:
+        return None
+    codes = [c["code"] for c in captions]
+
+    def _match(want):
+        want = (want or "").strip().lower()
+        if not want:
+            return None
+        for code in codes:
+            if code.lower() == want:
+                return code
+        base = want.split("-")[0]
+        for code in codes:
+            if code.lower().split("-")[0] == base:
+                return code
+        return None
+
+    return _match(requested) or _match("ur") or _match("en") or codes[0]
+
+
+class _GeminiUnavailable(Exception):
+    """Every model attempt failed (or a non-retryable error came
+    back); the endpoint turns this into a clean 502 ai_unavailable."""
+
+
+def _gemini_models():
+    primary = (os.environ.get("GEMINI_MODEL") or "").strip() \
+        or SP_DEFAULT_MODEL
+    models = [primary]
+    for model in SP_FALLBACK_MODELS:
+        if model not in models:
+            models.append(model)
+    return models[:3]  # primary + up to 2 fallbacks
+
+
+def _gemini_generate(timed_script, title, cap_lang):
+    """Ask Gemini for the script + prompts; returns (raw_text,
+    model_used). On 404/429/5xx and on network errors the next
+    fallback model is tried; anything else fails at once. The API
+    key travels in the x-goog-api-key header only — it is never put
+    in a URL, a log line or a response."""
+    payload = {
+        "system_instruction": {
+            "parts": [{"text": SP_SYSTEM_INSTRUCTION}],
+        },
+        "contents": [{
+            "role": "user",
+            "parts": [{"text": (
+                f"Video title: {title or 'Untitled'}\n"
+                f"Caption language code: {cap_lang}\n\n"
+                f"Timed captions:\n{timed_script}")}],
+        }],
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 8192,
+            "responseMimeType": "application/json",
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    last_error = None
+    for model in _gemini_models():
+        req = urllib.request.Request(
+            GEMINI_API_URL.format(model=model), data=body, method="POST",
+            headers={"Content-Type": "application/json",
+                     "x-goog-api-key": _gemini_api_key()})
+        try:
+            with urllib.request.urlopen(
+                    req, timeout=SP_GEMINI_TIMEOUT) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+        except urllib.error.HTTPError as e:
+            last_error = f"HTTP {e.code}"
+            app.logger.warning("gemini attempt failed: HTTP %s (model %s)",
+                               e.code, model)
+            if e.code in (404, 429) or 500 <= e.code < 600:
+                continue
+            raise _GeminiUnavailable(last_error)
+        except Exception as e:  # network error / timeout — try next model
+            last_error = type(e).__name__
+            app.logger.warning("gemini attempt failed: %s (model %s)",
+                               last_error, model)
+            continue
+        try:
+            parts = data["candidates"][0]["content"]["parts"]
+            text = "".join(p.get("text", "") for p in parts
+                           if isinstance(p, dict))
+        except (KeyError, IndexError, TypeError):
+            text = ""
+        if text.strip():
+            return text, model
+        last_error = "empty response"
+        app.logger.warning("gemini returned no text (model %s)", model)
+    raise _GeminiUnavailable(str(last_error))
+
+
+def _sp_parse_output(raw):
+    """Defensive parse of the model's reply -> (script, prompts,
+    partial). Strips markdown fences; when the JSON will not parse,
+    the raw text is handed back as the script with an empty prompts
+    list and partial=True so the visitor still gets something."""
+    text = (raw or "").strip()
+    cleaned = text
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    try:
+        data = json.loads(cleaned)
+    except ValueError:
+        return text, [], True
+    if not isinstance(data, dict):
+        return text, [], True
+    script = data.get("script")
+    if not isinstance(script, str) or not script.strip():
+        return text, [], True
+    prompts = data.get("prompts")
+    if not isinstance(prompts, list):
+        prompts = []
+    prompts = [str(p).strip() for p in prompts if str(p).strip()]
+    return script.strip(), prompts, False
+
+
+@app.route("/api/script-prompt", methods=["POST"])
+def api_script_prompt():
+    """Video -> Script + AI Prompts.
+
+    Called ONLY from the tool's own Generate button (homepage
+    section / dedicated page) — never automatically, and not by the
+    download-result area's button (that one only scrolls + fills
+    the tool's input). Error contract (the UI maps each code to a
+    clear, localized message): 400 invalid_url · 503 not_configured
+    · 429 rate_limited · 422 no_subtitles · 502 ai_unavailable."""
+    data = request.get_json(silent=True) or {}
+    url = clean_url(data.get("url", ""))
+    if not url:
+        return jsonify({"error": "invalid_url"}), 400
+    if not _gemini_api_key():
+        return jsonify({"error": "not_configured"}), 503
+    ip = _client_ip()
+    if not _sp_rate_check(ip):
+        return jsonify({"error": "rate_limited"}), 429
+    requested = str(data.get("lang") or "").strip()
+    if requested and not _CAPTION_LANG_RE.match(requested):
+        requested = ""
+    try:
+        info = extract_info(url)
+    except Exception as e:
+        # The video itself could not be read, so no captions can be
+        # obtained either — for THIS tool that is the honest answer.
+        app.logger.info("script-prompt info failed for %s: %s", url, e)
+        return jsonify({"error": "no_subtitles"}), 422
+    if info.get("_type") == "playlist":
+        entries = [e for e in info.get("entries") or [] if e]
+        if entries:
+            info = entries[0]
+    chosen = _sp_choose_caption(pick_captions(info), requested)
+    if not chosen:
+        return jsonify({"error": "no_subtitles"}), 422
+    try:
+        vtt, title = _fetch_caption_vtt(url, chosen)
+    except Exception as e:
+        app.logger.info("script-prompt captions failed for %s [%s]: %s",
+                        url, chosen, e)
+        return jsonify({"error": "no_subtitles"}), 422
+    timed = _vtt_timed_script(vtt)
+    if not timed.strip():
+        return jsonify({"error": "no_subtitles"}), 422
+    truncated = len(timed) > SP_INPUT_LIMIT
+    if truncated:
+        cut = timed[:SP_INPUT_LIMIT]
+        timed = cut[:cut.rfind("\n")].rstrip() if "\n" in cut else cut
+    _sp_rate_record(ip)  # a generation is about to happen — count it
+    try:
+        raw, model = _gemini_generate(
+            timed, title or info.get("title"), chosen)
+    except _GeminiUnavailable as e:
+        app.logger.warning("script-prompt gemini failed for %s: %s",
+                           url, e)
+        return jsonify({"error": "ai_unavailable"}), 502
+    script, prompts, partial = _sp_parse_output(raw)
+    return jsonify({
+        "title": title or info.get("title") or "Untitled",
+        "lang": chosen,
+        "script": script,
+        "prompts": prompts,
+        "truncated": truncated,
+        "partial": partial,
+        "model": model,
+    })
 
 
 def _download_via_ytdlp(url, format_id):

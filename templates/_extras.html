@@ -88,3 +88,41 @@
   .review-date{color:var(--muted);font-size:.8rem;margin-left:auto}
   [dir="rtl"] .review-date{margin-left:0;margin-right:auto}
   .review-text{color:var(--muted);font-size:.93rem;margin-top:6px;white-space:pre-line}
+
+  /* video -> script + prompts tool (this round) */
+  .sp-box{max-width:760px;margin-left:auto;margin-right:auto;text-align:left}
+  [dir="rtl"] .sp-box{text-align:right}
+  .sp-error{display:none;margin-top:16px;background:#3a1620;border:1px solid #6e2434;
+    color:#ffb3bc;padding:12px 14px;border-radius:10px;font-size:.95rem}
+  #spResult{display:none}
+  .sp-pane{margin-top:20px}
+  .sp-pane-head{display:flex;align-items:center;justify-content:space-between;
+    gap:10px;margin-bottom:8px}
+  .sp-pane-head h3{font-size:1.05rem}
+  .sp-copy{background:var(--bg2);border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:7px 13px;font-weight:700;cursor:pointer;font-size:.88rem;
+    white-space:nowrap}
+  .sp-copy:hover{border-color:var(--accent)}
+  .sp-out{white-space:pre-wrap;word-break:break-word;background:var(--bg);
+    border:1px solid var(--line);border-radius:10px;padding:14px;
+    font-family:inherit;font-size:.93rem;line-height:1.6;max-height:480px;
+    overflow:auto;color:var(--text)}
+  .sp-prompt{position:relative;margin-bottom:10px}
+  .sp-prompt .sp-out{max-height:300px}
+  .sp-prompt-n{position:absolute;top:-9px;left:12px;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    color:#fff;font-size:.75rem;font-weight:800;border-radius:999px;
+    padding:2px 9px;z-index:1}
+  [dir="rtl"] .sp-prompt-n{left:auto;right:12px}
+  /* standalone homepage section: gradient-ring card, clearly its
+     own block below the downloader */
+  .sp-sec .sp-box{border:1.5px solid transparent;
+    background:linear-gradient(var(--card),var(--card)) padding-box,
+               linear-gradient(120deg,var(--accent),var(--accent2)) border-box;
+    box-shadow:0 14px 36px rgba(0,0,0,.4)}
+  /* small link-style button in the download-result area:
+     scroll + prefill only, never a generation trigger */
+  .sp-row{justify-content:center}
+  .sp-result-btn{background:none;border:1.5px solid var(--line);color:var(--text);
+    border-radius:8px;font-weight:700;padding:9px 18px;cursor:pointer;
+    font-size:.92rem;font-family:inherit}
+  .sp-result-btn:hover{border-color:var(--accent);color:var(--accent2)}

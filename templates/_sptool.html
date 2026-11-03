@@ -1,0 +1,26 @@
+<div class="grab sp-box">
+  <form class="grab-row" id="spForm">
+    <input id="spUrl" type="url" inputmode="url" autocomplete="off"
+           placeholder="{{ t.sp_ph }}" required>
+    <button class="btn" id="spBtn" type="submit">{{ t.sp_btn }}</button>
+  </form>
+  <div class="hint">{{ t.sp_note }}</div>
+  <div class="spinner" id="spSpinner"></div>
+  <div class="sp-error" id="spError"></div>
+  <div id="spResult">
+    <div class="sp-pane">
+      <div class="sp-pane-head">
+        <h3>{{ t.sp_script_h }}</h3>
+        <button type="button" class="sp-copy" id="spCopyScript">{{ t.sp_copy }}</button>
+      </div>
+      <pre class="sp-out" id="spScript"></pre>
+    </div>
+    <div class="sp-pane">
+      <div class="sp-pane-head">
+        <h3>{{ t.sp_prompts_h }}</h3>
+        <button type="button" class="sp-copy" id="spCopyPrompts">{{ t.sp_copy }}</button>
+      </div>
+      <div id="spPrompts"></div>
+    </div>
+  </div>
+</div>

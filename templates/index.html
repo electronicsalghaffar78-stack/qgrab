@@ -246,6 +246,12 @@
     </div>
   </div>
 
+  <section id="script-prompt" class="sp-sec">
+    <h2>{{ t.sp_h2 }}</h2>
+    <p class="sub">{{ t.sp_sub }}</p>
+    {% include "_sptool.html" %}
+  </section>
+
   <div class="chips">
     <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>{{ t.chip_ssl }}</div>
     <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="8" r="4"/><path d="M3 21c.7-3.2 3.4-5 7-5 1.2 0 2.3.2 3.2.6"/><path d="M16 17l6 6M22 17l-6 6"/></svg>{{ t.chip_noreg }}</div>
@@ -531,6 +537,20 @@ form.addEventListener('submit', async (e) => {
       row.append(sel, a1, a2);
       box.appendChild(row);
     }
+    /* Script + Prompts shortcut: scrolls to the tool section below
+       and pre-fills its input — generation starts only when the
+       visitor presses that section's own Generate button. */
+    const spRow = document.createElement('div');
+    spRow.className = 'fmt sp-row';
+    const spB = document.createElement('button');
+    spB.type = 'button';
+    spB.className = 'sp-result-btn';
+    spB.textContent = I18N.sp_btn_result;
+    spB.addEventListener('click', () => {
+      if (window.qgrabSpPrefill) window.qgrabSpPrefill(url);
+    });
+    spRow.appendChild(spB);
+    box.appendChild(spRow);
     result.style.display = 'block';
     result.scrollIntoView({behavior:'smooth', block:'nearest'});
   } catch (err) {
@@ -541,5 +561,6 @@ form.addEventListener('submit', async (e) => {
   }
 });
 </script>
+{% include "_spjs.html" %}
 </body>
 </html>
