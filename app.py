@@ -21,7 +21,10 @@ cookies" below.
 Extraction is resilient to cloud-IP blocks: it walks a per-site cascade
 of yt-dlp configurations (alternate YouTube player clients, curl_cffi
 browser impersonation) until one returns formats — see "Extraction
-engine" below.
+engine" below. When every yt-dlp attempt still fails for a YouTube
+URL, a public Invidious instance is asked instead (no cookies, no
+sign-in) — see "Invidious fallback" below and
+YOUTUBE-FALLBACK-REPORT.md.
 """
 
 import base64
@@ -30,13 +33,14 @@ import mimetypes
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
 import urllib.request
 import urllib.error
 import uuid
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from flask import Flask, request, jsonify, render_template, Response, abort, send_file
 import yt_dlp
@@ -322,6 +326,235 @@ def _has_formats(info):
     return bool(entries and entries[0].get("formats"))
 
 
+# ---------------------------------------------------------------------------
+# Invidious fallback — YouTube only, no cookies / no sign-in / no payment
+#
+# When every yt-dlp attempt fails for a YouTube URL (the cloud-IP bot
+# wall: "Sign in to confirm you're not a bot"), QGrab asks a public
+# Invidious instance instead. Invidious is an open-source alternative
+# YouTube front-end; with ?local=true its API returns the video's
+# formats with stream URLs rewritten so the bytes are proxied through
+# the instance itself (its /videoplayback endpoint 307-redirects to a
+# companion proxy host) — which is what makes them fetchable from a
+# datacenter IP that googlevideo.com would refuse directly, because
+# the signed URLs are bound to the instance's IP, not ours.
+#
+# Verified live on 2026-11-03 (full evidence in
+# YOUTUBE-FALLBACK-REPORT.md): https://yt.chocolatemoo53.com was the
+# ONLY instance on the public api.invidious.io list with its API
+# enabled, and it delivered real, ffprobe-verified video+audio
+# streams for 5 of 6 test videos (one popular video answered with a
+# stale cached URL — "Videoplayback URL has expired" — and simply
+# falls through to the same friendly error as before). Public
+# instances come and go, so the list is overridable with the
+# QGRAB_INVIDIOUS_INSTANCES env var (comma-separated base URLs).
+#
+# Routes evaluated the same day and rejected: Cobalt — the official
+# api.cobalt.tools no longer lists YouTube among its services and
+# demands JWT/Turnstile auth (error.api.auth.jwt.missing); community
+# instances demand the same auth or answer error.api.youtube.login.
+# Piped — its public instances were bot-blocked by YouTube
+# themselves (SignInConfirmNotBotException).
+# ---------------------------------------------------------------------------
+
+INVIDIOUS_INSTANCES = tuple(
+    u.strip().rstrip("/")
+    for u in (os.environ.get("QGRAB_INVIDIOUS_INSTANCES")
+              or "https://yt.chocolatemoo53.com").split(",")
+    if u.strip()
+)
+
+_INVIDIOUS_UA = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/124.0 Safari/537.36",
+}
+
+
+def _youtube_video_id(url):
+    """Extract the 11-char video id from any YouTube URL shape
+    (watch?v=, youtu.be/, /shorts/, /embed/, /live/, /v/)."""
+    if not _is_youtube_url(url):
+        return None
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    candidate = ""
+    if host == "youtu.be" or host.endswith(".youtu.be"):
+        candidate = parsed.path.lstrip("/").split("/")[0]
+    else:
+        values = parse_qs(parsed.query).get("v")
+        if values:
+            candidate = values[0]
+        else:
+            parts = [p for p in parsed.path.split("/") if p]
+            if len(parts) >= 2 and parts[0] in ("shorts", "embed",
+                                                "live", "v"):
+                candidate = parts[1]
+    if candidate and re.fullmatch(r"[A-Za-z0-9_-]{11}", candidate):
+        return candidate
+    return None
+
+
+def _http_get_json(url, timeout=20):
+    req = urllib.request.Request(url, headers=_INVIDIOUS_UA)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _invidious_raw(video_id):
+    """Ask each configured Invidious instance for a video's formats
+    (locally-proxied stream URLs). Returns (instance_base, raw_json);
+    raises the last error when no instance answers usefully."""
+    last_error = None
+    for base in INVIDIOUS_INSTANCES:
+        api_url = f"{base}/api/v1/videos/{video_id}?local=true"
+        try:
+            data = _http_get_json(api_url)
+        except Exception as e:
+            last_error = e
+            app.logger.info("invidious info failed via %s: %s", base, e)
+            continue
+        if data.get("error"):
+            last_error = yt_dlp.utils.DownloadError(
+                f"Invidious error via {base}: {data.get('error')}")
+            continue
+        if data.get("formatStreams") or data.get("adaptiveFormats"):
+            return base, data
+        last_error = yt_dlp.utils.DownloadError(
+            f"Invidious returned no formats via {base}")
+    if last_error is not None:
+        raise last_error
+    raise yt_dlp.utils.DownloadError("No Invidious instance configured.")
+
+
+def _parse_height(fmt):
+    """Best-effort pixel height from an Invidious format entry."""
+    for key in ("height",):
+        try:
+            if fmt.get(key):
+                return int(fmt[key])
+        except (TypeError, ValueError):
+            pass
+    for key in ("resolution", "qualityLabel"):
+        m = re.match(r"(\d+)p", str(fmt.get(key) or ""))
+        if m:
+            return int(m.group(1))
+    return 0
+
+
+def _shape_invidious_info(base, data, url):
+    """Shape an Invidious API answer into the yt-dlp-style info dict
+    the rest of the app (pick_formats, /download) already consumes.
+    Format urls are the instance-proxied ones (?local=true), so the
+    existing /download proxy can fetch them like any media URL."""
+    formats = {}
+
+    def _add(entry):
+        fid = str(entry["format_id"])
+        old = formats.get(fid)
+        if old is None or (entry.get("filesize") or 0) > \
+                (old.get("filesize") or 0):
+            formats[fid] = entry
+
+    for f in data.get("formatStreams") or []:
+        # Muxed (video+audio in one file) formats.
+        if not f.get("url") or f.get("itag") is None:
+            continue
+        size = None
+        try:
+            size = int(f.get("contentLength") or f.get("clen") or 0) or None
+        except (TypeError, ValueError):
+            pass
+        _add({
+            "format_id": str(f["itag"]),
+            "url": f["url"],
+            "ext": f.get("container") or "mp4",
+            "protocol": "https",
+            "vcodec": "avc1",
+            "acodec": "mp4a",
+            "height": _parse_height(f),
+            "filesize": size,
+            "format_note": f.get("qualityLabel") or "",
+        })
+    for f in data.get("adaptiveFormats") or []:
+        # Split video-only / audio-only formats.
+        if not f.get("url") or f.get("itag") is None:
+            continue
+        mime = f.get("type") or ""
+        is_video = mime.startswith("video/")
+        is_audio = mime.startswith("audio/")
+        if not (is_video or is_audio):
+            continue
+        size = None
+        try:
+            size = int(f.get("contentLength") or f.get("clen") or 0) or None
+        except (TypeError, ValueError):
+            pass
+        _add({
+            "format_id": str(f["itag"]),
+            "url": f["url"],
+            "ext": f.get("container") or ("mp4" if is_video else "m4a"),
+            "protocol": "https",
+            "vcodec": ("avc1" if "avc1" in mime else "vp9")
+                      if is_video else "none",
+            "acodec": "mp4a" if is_audio else "none",
+            "height": _parse_height(f) if is_video else 0,
+            "filesize": size,
+            # Invidious reports bitrate as a string on some formats.
+            "abr": (int(f.get("bitrate") or 0) / 1000
+                    if is_audio else None),
+            "format_note": f.get("resolution") or "",
+        })
+
+    thumbs = data.get("videoThumbnails") or []
+    thumbnail = None
+    for quality in ("maxres", "sddefault", "high", "medium", "default"):
+        for t in thumbs:
+            if t.get("quality") == quality and t.get("url"):
+                thumbnail = t["url"]
+                break
+        if thumbnail:
+            break
+    if not thumbnail and thumbs:
+        thumbnail = thumbs[0].get("url")
+
+    duration = data.get("lengthSeconds")
+    duration_string = None
+    if duration:
+        duration_string = f"{int(duration) // 60}:{int(duration) % 60:02d}"
+
+    return {
+        "id": data.get("videoId"),
+        "title": data.get("title") or "Untitled",
+        "thumbnail": thumbnail,
+        "duration": duration,
+        "duration_string": duration_string,
+        "uploader": data.get("author"),
+        "webpage_url": url,
+        "extractor_key": "Youtube",
+        "formats": list(formats.values()),
+        "_qgrab_source": "invidious",
+        "_qgrab_instance": base,
+    }
+
+
+def _extract_info_invidious(url):
+    """extract_info()'s YouTube last resort: metadata + formats from
+    a public Invidious instance instead of yt-dlp."""
+    video_id = _youtube_video_id(url)
+    if not video_id:
+        raise yt_dlp.utils.DownloadError(
+            "Could not find a video id in that YouTube URL.")
+    base, data = _invidious_raw(video_id)
+    info = _shape_invidious_info(base, data, url)
+    if not _has_formats(info):
+        raise yt_dlp.utils.DownloadError(
+            "Invidious returned no usable formats.")
+    app.logger.info("invidious fallback succeeded via %s for %s",
+                    base, url)
+    return info
+
+
 def extract_info(url):
     """Extract metadata, walking the attempt cascade until one attempt
     returns formats. Raises the last error if every attempt fails."""
@@ -346,6 +579,15 @@ def extract_info(url):
                 "extract attempt failed (client=%s impersonate=%s) "
                 "for %s: %s",
                 spec.get("client"), spec.get("impersonate"), url, e)
+    if site_of(url) == "youtube":
+        # Every yt-dlp attempt failed (on a cloud IP this is the bot
+        # wall) — one last, cookie-free resort: a public Invidious
+        # instance. Only its failure surfaces the original error.
+        try:
+            return _extract_info_invidious(url)
+        except Exception as inv_error:
+            app.logger.info("invidious fallback failed for %s: %s",
+                            url, inv_error)
     if last_error is not None:
         raise last_error
     raise yt_dlp.utils.DownloadError("No extraction attempt was made.")
@@ -479,6 +721,140 @@ def api_info():
     })
 
 
+def _fetch_to_file(media_url, dest, timeout=120):
+    """Download media_url into dest, following redirects (the
+    Invidious /videoplayback endpoint answers 307 to a companion
+    proxy host). Impersonated curl_cffi goes first — the same
+    reasoning as _open_media_stream — urllib is the fallback.
+    Raises on failure; a normal return guarantees a non-empty file."""
+    if HAS_CFFI_REQUESTS:
+        try:
+            resp = _cffi_requests.get(
+                media_url, headers=_INVIDIOUS_UA, impersonate="chrome",
+                stream=True, timeout=timeout)
+            try:
+                if resp.status_code >= 400:
+                    raise _MediaFetchError(resp.status_code)
+                with open(dest, "wb") as out:
+                    for chunk in resp.iter_content(chunk_size=256 * 1024):
+                        if chunk:
+                            out.write(chunk)
+            finally:
+                resp.close()
+            if os.path.getsize(dest) > 0:
+                return
+            raise _MediaFetchError(None)
+        except Exception as e:
+            app.logger.info(
+                "invidious media fetch (impersonated) failed for %s: %s",
+                media_url, e)
+    req = urllib.request.Request(media_url, headers=_INVIDIOUS_UA)
+    with urllib.request.urlopen(req, timeout=timeout) as upstream, \
+            open(dest, "wb") as out:
+        shutil.copyfileobj(upstream, out, 256 * 1024)
+    if os.path.getsize(dest) == 0:
+        raise _MediaFetchError(None)
+
+
+def _download_merged_invidious(url, height):
+    """download_merged()'s Invidious twin: fetch the best split
+    video+audio pair (or a muxed stream, when that is all the
+    instance offers) through the instance's own proxy and join the
+    pair with ffmpeg. Returns a send_file response, or None when
+    Invidious cannot serve this video."""
+    video_id = _youtube_video_id(url)
+    if not video_id:
+        return None
+    try:
+        base, data = _invidious_raw(video_id)
+    except Exception as e:
+        app.logger.info("invidious merged: no info for %s: %s", url, e)
+        return None
+
+    videos = [f for f in data.get("adaptiveFormats") or []
+              if f.get("url")
+              and (f.get("type") or "").startswith("video/")]
+    audios = [f for f in data.get("adaptiveFormats") or []
+              if f.get("url")
+              and (f.get("type") or "").startswith("audio/")]
+    muxed = [f for f in data.get("formatStreams") or [] if f.get("url")]
+
+    video_pick = audio_pick = None
+    if videos and audios:
+        def _vkey(f):
+            mime = f.get("type") or ""
+            return (1 if "avc1" in mime else 0,
+                    int(f.get("bitrate") or 0))
+
+        fit = [f for f in videos
+               if _parse_height(f) and _parse_height(f) <= height]
+        video_pick = max(fit or videos, key=_vkey)
+
+        def _akey(f):
+            mime = f.get("type") or ""
+            return (1 if "mp4" in mime else 0,
+                    int(f.get("bitrate") or 0))
+
+        audio_pick = max(audios, key=_akey)
+    elif muxed:
+        fit = [f for f in muxed
+               if _parse_height(f) and _parse_height(f) <= height]
+        video_pick = max(fit or muxed, key=_parse_height)
+    if video_pick is None:
+        app.logger.info("invidious merged: no usable formats for %s",
+                        url)
+        return None
+
+    tmpdir = tempfile.mkdtemp(prefix="qgrab-inv-")
+    try:
+        vext = video_pick.get("container") or "mp4"
+        vpath = os.path.join(tmpdir, f"video.{vext}")
+        _fetch_to_file(video_pick["url"], vpath)
+        final = vpath
+        if audio_pick is not None:
+            aext = audio_pick.get("container") or "m4a"
+            apath = os.path.join(tmpdir, f"audio.{aext}")
+            _fetch_to_file(audio_pick["url"], apath)
+            ffmpeg = shutil.which("ffmpeg")
+            if not ffmpeg:
+                app.logger.warning(
+                    "invidious merged: ffmpeg missing, cannot merge")
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                return None
+            final = os.path.join(tmpdir, "merged.mp4")
+            for cmd in (
+                    [ffmpeg, "-y", "-i", vpath, "-i", apath,
+                     "-c", "copy", final],
+                    [ffmpeg, "-y", "-i", vpath, "-i", apath,
+                     "-c:v", "copy", "-c:a", "aac", final]):
+                if subprocess.run(cmd, capture_output=True,
+                                  timeout=300).returncode == 0 \
+                        and os.path.exists(final) \
+                        and os.path.getsize(final) > 0:
+                    break
+            else:
+                app.logger.info(
+                    "invidious merged: ffmpeg merge failed for %s", url)
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                return None
+    except Exception as e:
+        app.logger.info("invidious merged failed for %s: %s", url, e)
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return None
+
+    app.logger.info("invidious merged succeeded via %s for %s",
+                    base, url)
+    filename = safe_filename(data.get("title"), "mp4")
+    resp = send_file(final, as_attachment=True, download_name=filename,
+                     mimetype="video/mp4")
+
+    @resp.call_on_close
+    def _cleanup(tmpdir=tmpdir):
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    return resp
+
+
 def download_merged(url, height):
     """Download best video (<= height) + best audio and merge with ffmpeg.
 
@@ -528,6 +904,12 @@ def download_merged(url, height):
         _remember_winner(url, spec)
         break
     if not path:
+        # yt-dlp could not fetch it natively either — for YouTube,
+        # try the cookie-free Invidious proxy route before giving up.
+        if site_of(url) == "youtube":
+            inv_resp = _download_merged_invidious(url, height)
+            if inv_resp is not None:
+                return inv_resp
         if last_error is not None:
             app.logger.warning("merged download failed for %s: %s",
                                url, last_error)
