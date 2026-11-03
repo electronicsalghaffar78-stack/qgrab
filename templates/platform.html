@@ -66,7 +66,8 @@
   .nav{display:flex;align-items:center;justify-content:space-between;height:58px}
   .logo{display:flex;align-items:center;gap:9px;font-size:1.35rem;font-weight:800;letter-spacing:-.5px;color:var(--text)}
   .logo img{width:34px;height:34px;border-radius:9px;display:block}
-  .logo span{color:var(--accent)}
+  .logo .wm{white-space:nowrap}
+  .logo .wm>span{color:var(--accent)}
   .nav nav a{color:var(--muted);margin-left:18px;font-size:.95rem}
   .nav nav a:hover{color:var(--text)}
 
@@ -167,7 +168,8 @@
   .foot-col .flogo{display:flex;align-items:center;gap:9px;font-size:1.2rem;font-weight:800;
                    letter-spacing:-.5px;color:var(--text);margin-bottom:10px}
   .foot-col .flogo img{width:30px;height:30px;border-radius:8px;display:block}
-  .foot-col .flogo span{color:var(--accent)}
+  .foot-col .flogo .wm{white-space:nowrap}
+  .foot-col .flogo .wm>span{color:var(--accent)}
   .foot-bottom{border-top:1px solid var(--line);margin-top:28px;padding-top:18px;
                text-align:center;font-size:.82rem;line-height:1.65}
 {% include "_extras.html" %}
@@ -177,7 +179,7 @@
 
 <header>
   <div class="wrap nav">
-    <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo">Q<span>Grab</span></a>
+    <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
     <nav class="hnav">
       {% include "_langmenu.html" %}
     </nav>
