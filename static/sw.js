@@ -1,7 +1,7 @@
 /* QGrab service worker — caches the app shell so the installed app
    opens instantly and the homepage works offline. API calls and media
    downloads are NEVER cached; they always go to the network. */
-const CACHE = "qgrab-shell-v4";
+const CACHE = "qgrab-shell-v5";
 const SHELL = [
   "/",
   "/static/manifest.webmanifest",
@@ -38,8 +38,14 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request)
         .then((resp) => {
-          const copy = resp.clone();
-          caches.open(CACHE).then((cache) => cache.put("/", copy));
+          // Refresh the cached shell ONLY from the homepage itself.
+          // (Audit fix: this used to store EVERY navigation's
+          // response under "/", so after visiting e.g. /terms the
+          // offline fallback served the Terms page as the homepage.)
+          if (url.pathname === "/" && resp && resp.status === 200) {
+            const copy = resp.clone();
+            caches.open(CACHE).then((cache) => cache.put("/", copy));
+          }
           return resp;
         })
         .catch(() => caches.match("/"))

@@ -1313,7 +1313,43 @@ def _persist_lang(resp):
     lang = (request.args.get("lang") or "").strip().lower()
     if i18n.is_valid(lang):
         resp.set_cookie(i18n.COOKIE_NAME, lang, max_age=31536000,
-                        path="/", samesite="Lax")
+                        path="/", samesite="Lax", secure=True,
+                        httponly=True)
+    return resp
+
+
+@app.after_request
+def _security_headers(resp):
+    """Baseline hardening headers on every response (audit pass,
+    2026-11-04): the app set none of these itself, so the live
+    site answered without HSTS / nosniff / frame protection and
+    scored a D on Mozilla Observatory. Values are chosen to be
+    safe for this site: it is HTTPS-only behind Render's proxy
+    (which redirects http -> https), it never needs to be framed
+    by third parties, and it uses no camera/mic/geolocation/
+    payment APIs. No full Content-Security-Policy on purpose: the
+    pages rely on inline scripts/styles, so a CSP would have to
+    allow 'unsafe-inline' anyway; X-Frame-Options covers the
+    clickjacking case without that risk."""
+    resp.headers.setdefault("Strict-Transport-Security",
+                            "max-age=31536000; includeSubDomains")
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Referrer-Policy",
+                            "strict-origin-when-cross-origin")
+    resp.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=()")
+    # Static assets (icons, logo) are immutable in practice: let
+    # browsers and the CDN keep them for a week instead of the
+    # no-cache Flask's send_file defaults to. The web manifest
+    # stays uncached so PWA metadata changes are seen at once,
+    # and /sw.js (served from its own route, not /static/) keeps
+    # its explicit no-cache.
+    if request.method == "GET" and resp.status_code == 200 \
+            and request.path.startswith("/static/") \
+            and not request.path.endswith(".webmanifest"):
+        resp.headers["Cache-Control"] = "public, max-age=604800"
     return resp
 
 
@@ -2367,19 +2403,43 @@ def _client_ip():
     return fwd or (request.remote_addr or "unknown")
 
 
-def _sp_rate_check(ip):
-    """True while this IP still has generations left in the window."""
+def _sp_rate_try_take(ip):
+    """Atomically check this IP's limit and record one hit; True
+    when the generation may proceed. Check and record happen in a
+    single lock acquisition (audit fix, 2026-11-04): the previous
+    check-then-record pair let simultaneous requests from one IP
+    each pass the check before any of them recorded, overshooting
+    the limit by up to the thread count. The stored hits are
+    pruned to the rolling window on every call, and once the
+    table grows past 10k IPs the fully-expired entries are swept,
+    so the dict cannot grow without bound."""
     now = time.time()
     with _sp_lock:
         hits = [ts for ts in _sp_hits.get(ip, [])
                 if now - ts < SP_RATE_WINDOW]
+        if len(hits) >= SP_RATE_LIMIT:
+            _sp_hits[ip] = hits
+            return False
+        hits.append(now)
         _sp_hits[ip] = hits
-        return len(hits) < SP_RATE_LIMIT
+        if len(_sp_hits) > 10000:
+            stale = [k for k, v in _sp_hits.items()
+                     if not any(now - ts < SP_RATE_WINDOW
+                                for ts in v)]
+            for k in stale:
+                del _sp_hits[k]
+        return True
 
 
-def _sp_rate_record(ip):
+def _sp_rate_give_back(ip):
+    """Undo one hit taken by _sp_rate_try_take — used when a
+    later pre-check (the daily counter) still rejects the
+    request, so a rejected generation never burns the visitor's
+    per-IP allowance."""
     with _sp_lock:
-        _sp_hits.setdefault(ip, []).append(time.time())
+        hits = _sp_hits.get(ip)
+        if hits:
+            hits.pop()
 
 
 _VTT_TS_RE = re.compile(r"(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})")
@@ -3051,7 +3111,7 @@ def api_script_prompt():
     if not _gemini_api_key():
         return jsonify({"error": "not_configured"}), 503
     ip = _client_ip()
-    if not _sp_rate_check(ip):
+    if not _sp_rate_try_take(ip):
         return jsonify({"error": "rate_limited"}), 429
     mode = str(data.get("mode") or "").strip().lower()
     if mode not in ("script", "prompts"):
@@ -3060,9 +3120,11 @@ def api_script_prompt():
     if requested and not _CAPTION_LANG_RE.match(requested):
         requested = ""
     if not _sp_quota_reserve(mode):
+        # The daily counter is full: hand the per-IP hit back so
+        # this rejection costs the visitor nothing.
+        _sp_rate_give_back(ip)
         return jsonify({"error": "daily_limit"}), 429
     _sp_jobs_prune()
-    _sp_rate_record(ip)  # one count per generation, at POST time
     job_id = _sp_job_create(mode)
     worker = threading.Thread(
         target=_sp_job_run,
@@ -3564,7 +3626,7 @@ def api_rate():
             return jsonify({"error": t["rate_err_save"]}), 500
     resp = jsonify({"ok": True, **ratings_summary()})
     resp.set_cookie(RATINGS_COOKIE, "1", max_age=31536000, path="/",
-                    samesite="Lax")
+                    samesite="Lax", secure=True, httponly=True)
     return resp
 
 
