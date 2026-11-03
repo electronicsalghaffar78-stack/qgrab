@@ -1,17 +1,30 @@
-"""Focused tests for the Script+Prompt AUDIO route fix.
+"""Focused tests for the Script+Prompt AUDIO route.
 
-Bug covered: for a TikTok video whose own duration is 105 s, the
-audio route used yt-dlp "bestaudio/best" and downloaded a SEPARATE
-164 s music asset (no speech) instead of the video's own audio —
-Gemini then correctly reported no_speech for the wrong track.
+Original bug covered: for a TikTok video whose own duration is
+105 s, the audio route used yt-dlp "bestaudio/best" and downloaded
+a SEPARATE 164 s music asset (no speech) instead of the video's own
+audio — Gemini then correctly reported no_speech for the wrong
+track. The muxed-first order + duration guard fixed that.
+
+Speed pass (2026-11-04) covered here: when the duration is KNOWN,
+the small audio-only download is tried FIRST (the guard still
+rejects a mismatched candidate — the 164 s trap — and the muxed
+format is used instead); when it is UNKNOWN, muxed still goes
+first. The audio fetch is bounded to the first 2 cascade attempts,
+and the audio route's Gemini call is capped at 2 models.
 
 These tests monkeypatch yt_dlp.YoutubeDL with a fake that mimics
-that format table (a long standalone audio asset + a duration-
-matching muxed format) and assert that _sp_download_audio_mp3:
-  * prefers the muxed format and returns the video's own audio,
-  * rejects a duration-mismatched candidate via the guard,
+the TikTok format table (a long standalone audio asset + a
+duration-matching muxed format) and assert that
+_sp_download_audio_mp3:
+  * tries audio-only first when the duration is known and the
+    track matches (no video-sized download happens),
+  * rejects a duration-mismatched audio candidate via the guard
+    and falls back to the muxed format,
   * still falls back to bestaudio when it is the matching track,
-  * keeps the legacy behaviour when the duration is unknown.
+  * keeps the muxed-first behaviour when the duration is unknown,
+  * tries at most the first 2 attempts of the cascade,
+and that _gemini_call honours its max_models cap.
 
 Run:  .venv/bin/python tests/test_sp_audio.py   (or under pytest)
 """
@@ -48,11 +61,15 @@ def _make_fixture(path, seconds, video=False):
 
 class _FakeYDL:
     """Stands in for yt_dlp.YoutubeDL: 'downloads' the fixture the
-    format selector asks for — the muxed file for the combined
-    (vcodec+acodec) selector, the standalone asset for bestaudio.
-    A None fixture means that format does not exist on this source.
+    format selector asks for — the muxed file for any selector that
+    names a video codec, an audio fixture for the bestaudio-family
+    selectors. A None fixture means that format does not exist on
+    this source. Every selector and cascade client seen is recorded
+    in .used / .clients so tests can assert the fetch order.
     """
     fixtures = {}
+    used = []
+    clients = []
 
     def __init__(self, opts):
         self.opts = opts
@@ -65,7 +82,12 @@ class _FakeYDL:
 
     def extract_info(self, url, download=True):
         selector = self.opts.get("format", "")
-        kind = "muxed" if "acodec" in selector else "bestaudio"
+        _FakeYDL.used.append(selector)
+        args = (self.opts.get("extractor_args") or {}).get(
+            "youtube") or {}
+        client = (args.get("player_client") or [None])[0]
+        _FakeYDL.clients.append(client)
+        kind = "muxed" if "vcodec" in selector else "bestaudio"
         src = self.fixtures.get(kind)
         if src is None:
             raise Exception("Requested format is not available")
@@ -97,6 +119,8 @@ def _setup():
 
 
 def _fetch(expected):
+    _FakeYDL.used = []
+    _FakeYDL.clients = []
     return qgrab._sp_download_audio_mp3(_URL,
                                         expected_duration=expected)
 
@@ -108,9 +132,16 @@ def test_guard_predicate():
     assert m(105, 105) is False
     assert m(None, 164) is False   # unknown video duration: no guard
     assert m(105, None) is False   # unprobeable candidate: no guard
-    # muxed is always the first strategy tried
+    # unknown duration: muxed is always the first strategy tried
     assert qgrab.SP_AUDIO_STRATEGIES[0][0] == "muxed"
     assert qgrab.SP_AUDIO_STRATEGIES[1][0] == "bestaudio"
+    # duration-aware order: audio-first when the guard can vet the
+    # result, muxed-first when it cannot
+    known = [name for name, _ in
+             qgrab._sp_audio_strategies(VIDEO_SECONDS)]
+    assert known == ["audio", "muxed", "bestaudio"], known
+    unknown = [name for name, _ in qgrab._sp_audio_strategies(None)]
+    assert unknown == ["muxed", "bestaudio"], unknown
 
 
 def test_muxed_preferred_over_music_asset():
@@ -167,6 +198,109 @@ def test_unknown_duration_keeps_legacy_behaviour():
         assert got is not None and abs(got - MUSIC_SECONDS) < 3, got
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_audio_first_when_duration_known_and_matching():
+    """Speed path: with a known duration and a matching audio-only
+    track, the audio strategy wins outright — no video-sized
+    (vcodec) download is ever attempted."""
+    d = _setup()
+    _FakeYDL.fixtures = {
+        "muxed": os.path.join(d, "muxed.mp4"),
+        "bestaudio": os.path.join(d, "matching.mp3"),
+    }
+    mp3, tmpdir = _fetch(VIDEO_SECONDS)
+    try:
+        got = qgrab._sp_probe_duration(mp3)
+        assert got is not None and abs(got - VIDEO_SECONDS) < 3, got
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    assert len(_FakeYDL.used) == 1, _FakeYDL.used
+    assert "vcodec" not in _FakeYDL.used[0], _FakeYDL.used
+
+
+def test_unknown_duration_muxed_first():
+    """Without a known duration the guard is blind, so the muxed
+    format (the video's own audio by construction) is tried first
+    even when an audio-only track also exists."""
+    d = _setup()
+    _FakeYDL.fixtures = {
+        "muxed": os.path.join(d, "muxed.mp4"),
+        "bestaudio": os.path.join(d, "matching.mp3"),
+    }
+    mp3, tmpdir = _fetch(None)
+    try:
+        got = qgrab._sp_probe_duration(mp3)
+        assert got is not None and abs(got - VIDEO_SECONDS) < 3, got
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    assert _FakeYDL.used and "vcodec" in _FakeYDL.used[0], \
+        _FakeYDL.used
+
+
+def test_audio_cascade_bounded_to_two_attempts():
+    """The SP audio fetch walks at most the first 2 attempts of the
+    downloader cascade, even when every strategy fails."""
+    _setup()
+    _FakeYDL.fixtures = {"muxed": None, "bestaudio": None}
+    orig = qgrab._ordered_attempts
+    qgrab._ordered_attempts = lambda url: [
+        {"client": "c1", "impersonate": False},
+        {"client": "c2", "impersonate": False},
+        {"client": "c3", "impersonate": False},
+    ]
+    try:
+        try:
+            _fetch(VIDEO_SECONDS)
+        except qgrab._SpAudioFailed:
+            pass
+        else:
+            raise AssertionError("expected _SpAudioFailed")
+    finally:
+        qgrab._ordered_attempts = orig
+    seen = set(_FakeYDL.clients)
+    assert seen == {"c1", "c2"}, seen
+
+
+def test_gemini_model_cap():
+    """_gemini_call with max_models=2 makes at most 2 requests when
+    every model fails retryably; without a cap it walks all 3."""
+    import urllib.error
+
+    calls = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(req.full_url)
+        raise urllib.error.HTTPError(
+            req.full_url, 429, "rate limited", None, None)
+
+    orig_urlopen = qgrab.urllib.request.urlopen
+    orig_key = os.environ.get("GEMINI_API_KEY")
+    os.environ["GEMINI_API_KEY"] = "test-key"
+    qgrab.urllib.request.urlopen = fake_urlopen
+    try:
+        try:
+            qgrab._gemini_call([{"text": "x"}], "sys", 5,
+                               max_models=2)
+        except qgrab._GeminiUnavailable:
+            pass
+        else:
+            raise AssertionError("expected _GeminiUnavailable")
+        assert len(calls) == 2, calls
+        calls.clear()
+        try:
+            qgrab._gemini_call([{"text": "x"}], "sys", 5)
+        except qgrab._GeminiUnavailable:
+            pass
+        else:
+            raise AssertionError("expected _GeminiUnavailable")
+        assert len(calls) == 3, calls
+    finally:
+        qgrab.urllib.request.urlopen = orig_urlopen
+        if orig_key is None:
+            os.environ.pop("GEMINI_API_KEY", None)
+        else:
+            os.environ["GEMINI_API_KEY"] = orig_key
 
 
 if __name__ == "__main__":

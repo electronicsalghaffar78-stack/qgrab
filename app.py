@@ -2223,7 +2223,9 @@ SP_RATE_WINDOW = 24 * 60 * 60  # ... per rolling 24 hours
 SP_GEMINI_TIMEOUT = 100       # seconds, per model attempt (text route)
 SP_AUDIO_MAX_SECONDS = 1200   # audio route: videos up to 20 minutes
 SP_AUDIO_MAX_BYTES = 18 * 1024 * 1024  # converted MP3 hard cap
-SP_AUDIO_GEMINI_TIMEOUT = 240  # seconds, per model attempt (audio)
+SP_AUDIO_GEMINI_TIMEOUT = 150  # seconds, per model attempt (audio)
+SP_AUDIO_MAX_MODELS = 2       # audio route: primary + 1 fallback only
+SP_AUDIO_MAX_ATTEMPTS = 2     # audio route: first 2 cascade attempts
 SP_FFMPEG_TIMEOUT = 300       # seconds for the MP3 conversion
 SP_DEFAULT_MODEL = "gemini-3.8-flash"
 SP_FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
@@ -2455,12 +2457,15 @@ def _gemini_models():
     return models[:3]  # primary + up to 2 fallbacks
 
 
-def _gemini_call(parts, system_instruction, timeout):
+def _gemini_call(parts, system_instruction, timeout, max_models=None):
     """One generateContent call with model fallbacks; returns
     (raw_text, model_used). On 404/429/5xx and on network errors the
-    next fallback model is tried; anything else fails at once. The
-    API key travels in the x-goog-api-key header only — it is never
-    put in a URL, a log line or a response."""
+    next fallback model is tried; anything else fails at once. When
+    max_models is given, at most that many models are tried (the
+    audio route caps itself at SP_AUDIO_MAX_MODELS to bound its
+    worst case; the text routes leave it unset and keep the full
+    chain). The API key travels in the x-goog-api-key header only —
+    it is never put in a URL, a log line or a response."""
     payload = {
         "system_instruction": {
             "parts": [{"text": system_instruction}],
@@ -2477,7 +2482,10 @@ def _gemini_call(parts, system_instruction, timeout):
     }
     body = json.dumps(payload).encode("utf-8")
     last_error = None
-    for model in _gemini_models():
+    models = _gemini_models()
+    if max_models:
+        models = models[:max_models]
+    for model in models:
         req = urllib.request.Request(
             GEMINI_API_URL.format(model=model), data=body, method="POST",
             headers={"Content-Type": "application/json",
@@ -2536,7 +2544,8 @@ def _gemini_generate_audio(mp3_path, title, mode):
             "The attached MP3 is the video's complete audio track. "
             "Follow the system instruction exactly.")},
     ]
-    return _gemini_call(parts, system, SP_AUDIO_GEMINI_TIMEOUT)
+    return _gemini_call(parts, system, SP_AUDIO_GEMINI_TIMEOUT,
+                        max_models=SP_AUDIO_MAX_MODELS)
 
 
 def _gemini_generate_prompts_from_script(script_text):
@@ -2587,22 +2596,43 @@ class _SpAudioFailed(Exception):
     """The audio could not be downloaded or converted at all."""
 
 
-# Audio-route format strategies, in preference order. "muxed" comes
-# first on purpose: some sources (TikTok above all) expose a long
-# standalone "sound" asset next to the video, and a bare "bestaudio"
-# happily grabs THAT — a music track that can run LONGER than the
-# video itself and contain no speech at all (a 105 s story video
-# shipped a 164 s music file, and Gemini quite correctly reported
-# no_speech for it). A pre-merged (video+audio) format always
-# carries the video's OWN audio track, so it is tried first and
-# "bestaudio" survives only as a fallback for sources with no
-# suitable muxed format.
-SP_AUDIO_STRATEGIES = (
-    ("muxed",
-     "best[height<=720][vcodec!=none][acodec!=none]"
-     "/best[vcodec!=none][acodec!=none]"),
-    ("bestaudio", "bestaudio/best"),
-)
+# Audio-route format strategies. The trap these guard against:
+# some sources (TikTok above all) expose a long standalone "sound"
+# asset next to the video, and a bare "bestaudio" happily grabs
+# THAT — a music track that can run LONGER than the video itself
+# and contain no speech at all (a 105 s story video shipped a 164 s
+# music file, and Gemini quite correctly reported no_speech for
+# it). Two defences, combined:
+#
+# * The duration guard (below): when the video's duration is known,
+#   a candidate that disagrees with it is rejected as the wrong
+#   track, whatever strategy produced it.
+# * The strategy ORDER depends on whether that guard can protect
+#   the fetch:
+#   - Duration KNOWN — the small audio-only download goes first
+#     (a matching track is a fraction of the video's size, so this
+#     is the fast path; a mismatched one is caught by the guard),
+#     then the muxed format, then plain "bestaudio/best".
+#   - Duration UNKNOWN — the guard is blind, so the pre-merged
+#     (video+audio) format goes first: it always carries the
+#     video's OWN audio track. "bestaudio" is only the fallback.
+_SP_AUDIO_ONLY = ("audio", "bestaudio[acodec!=none]/bestaudio")
+_SP_AUDIO_MUXED = (
+    "muxed",
+    "best[height<=720][vcodec!=none][acodec!=none]"
+    "/best[vcodec!=none][acodec!=none]")
+_SP_AUDIO_BEST = ("bestaudio", "bestaudio/best")
+SP_AUDIO_STRATEGIES = (_SP_AUDIO_MUXED, _SP_AUDIO_BEST)
+SP_AUDIO_STRATEGIES_KNOWN_DURATION = (
+    _SP_AUDIO_ONLY, _SP_AUDIO_MUXED, _SP_AUDIO_BEST)
+
+
+def _sp_audio_strategies(expected_duration):
+    """Strategy order for one audio fetch: audio-first when the
+    duration guard can vet the result, muxed-first when it cannot."""
+    if expected_duration:
+        return SP_AUDIO_STRATEGIES_KNOWN_DURATION
+    return SP_AUDIO_STRATEGIES
 # A candidate whose duration disagrees with the video's known
 # duration by more than this fraction cannot be the video's own
 # audio — it is rejected and the next strategy is tried.
@@ -2638,11 +2668,14 @@ def _sp_duration_mismatch(expected, actual):
 
 
 def _sp_download_audio_mp3(url, expected_duration=None):
-    """Audio route, step 1: fetch the VIDEO'S OWN audio (walking the
-    same attempt cascade as the other downloads, and inside each
-    attempt the SP_AUDIO_STRATEGIES format strategies in order) and
-    convert it with ffmpeg to a mono 64 kbps MP3 — small enough to
-    send to Gemini inline (20 min ≈ 9.6 MB).
+    """Audio route, step 1: fetch the VIDEO'S OWN audio and convert
+    it with ffmpeg to a mono 64 kbps MP3 — small enough to send to
+    Gemini inline (20 min ≈ 9.6 MB). To bound the visitor's wait,
+    the fetch walks at most the first SP_AUDIO_MAX_ATTEMPTS cascade
+    attempts (the download endpoints keep the full cascade), and
+    inside each attempt the format strategies in the order given by
+    _sp_audio_strategies (audio-first when the duration is known,
+    muxed-first when it is not).
 
     When the video's duration is known (expected_duration, from the
     extracted metadata), a candidate whose probed duration disagrees
@@ -2657,10 +2690,12 @@ def _sp_download_audio_mp3(url, expected_duration=None):
     if not ffmpeg:
         raise _SpAudioFailed("ffmpeg missing")
     last_error = None
-    for spec in _ordered_attempts(url):
+    attempts = _ordered_attempts(url)[:SP_AUDIO_MAX_ATTEMPTS]
+    for spec in attempts:
         if not _cascade_gate_open(spec, last_error):
             break
-        for strategy, selector in SP_AUDIO_STRATEGIES:
+        for strategy, selector in _sp_audio_strategies(
+                expected_duration):
             tmpdir = tempfile.mkdtemp(prefix="qgrab-sp-")
             outtmpl = os.path.join(tmpdir, f"{uuid.uuid4().hex}.%(ext)s")
             opts = _build_opts(spec, {
