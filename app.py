@@ -2750,9 +2750,89 @@ def _sp_download_audio_mp3(url, expected_duration=None):
     raise _SpAudioFailed(str(last_error))
 
 
+# ---------------------------------------------------------------------------
+# Script+Prompt background jobs (v3 reliability pass)
+#
+# Generation can take a minute or more (the audio route listens to
+# the whole video), and a synchronous request leaves the visitor's
+# page hanging on one fragile connection the entire time — on a
+# slow phone the response is simply lost and the wait was for
+# nothing. So POST now only runs the cheap synchronous pre-checks,
+# starts the UNCHANGED generation logic on a daemon thread, and
+# answers 202 at once; the client polls /api/script-prompt/status
+# until the job is done or has failed with the same error code the
+# synchronous flow would have produced. Jobs live in memory only
+# (the same spirit as the rate limiter): a restart drops them, and
+# a lazy janitor on each POST/status call drops jobs older than
+# SP_JOB_TTL_SECONDS.
+# ---------------------------------------------------------------------------
+
+SP_JOB_TTL_SECONDS = 20 * 60  # jobs are dropped 20 minutes after creation
+
+_sp_jobs = {}
+_sp_jobs_lock = threading.Lock()
+
+
+def _sp_jobs_prune(now=None):
+    """Lazy janitor: drop jobs older than the TTL. Called on each
+    POST and each status poll — no background sweeper needed."""
+    now = time.time() if now is None else now
+    with _sp_jobs_lock:
+        stale = [job_id for job_id, job in _sp_jobs.items()
+                 if now - job["created"] > SP_JOB_TTL_SECONDS]
+        for job_id in stale:
+            del _sp_jobs[job_id]
+
+
+def _sp_job_create():
+    job_id = uuid.uuid4().hex
+    job = {
+        "status": "running",
+        "created": time.time(),
+        "finished": None,
+        "result": None,
+        "error": None,
+        "http": None,
+    }
+    with _sp_jobs_lock:
+        _sp_jobs[job_id] = job
+    return job_id
+
+
+def _sp_job_finish(job_id, payload, http_status):
+    with _sp_jobs_lock:
+        job = _sp_jobs.get(job_id)
+        if job is None:
+            return
+        job["finished"] = time.time()
+        if http_status == 200:
+            job["status"] = "done"
+            job["result"] = payload
+        else:
+            job["status"] = "error"
+            job["error"] = (payload or {}).get("error") \
+                or "ai_unavailable"
+            job["http"] = http_status
+
+
+def _sp_job_run(job_id, data, url, mode, requested):
+    """Worker thread body: run the existing generation logic and
+    file its outcome on the job. Any unexpected failure becomes the
+    same ai_unavailable the UI already knows how to show."""
+    try:
+        payload, http_status = _sp_generate_payload(
+            data, url, mode, requested)
+    except Exception as e:
+        app.logger.warning(
+            "script-prompt job %s crashed for %s: %s",
+            job_id, url, e)
+        payload, http_status = {"error": "ai_unavailable"}, 502
+    _sp_job_finish(job_id, payload, http_status)
+
+
 @app.route("/api/script-prompt", methods=["POST"])
 def api_script_prompt():
-    """Video -> Script + AI Prompts (v2).
+    """Video -> Script + AI Prompts (v3, asynchronous).
 
     Called ONLY from the tool's own two buttons (homepage section /
     dedicated page) — never automatically, and not by the
@@ -2764,17 +2844,16 @@ def api_script_prompt():
     from the preview box — becomes the source instead, and nothing
     is fetched.
 
-    Routes: the video's own captions when a usable track exists;
-    otherwise the AUDIO route — the audio is downloaded, converted
-    to a small MP3 and transcribed by Gemini (videos up to 20
-    minutes; caption-route videos have no length limit).
-
-    Error contract (the UI maps each code to a clear, localized
-    message): 400 invalid_url · 503 not_configured · 429
-    rate_limited · 422 no_subtitles (the video could not be read at
-    all) · 422 too_long · 422 audio_too_big · 422 no_speech ·
-    502 ai_unavailable. One generation — either mode, either
-    route — counts once against the per-IP limit."""
+    This POST runs only the synchronous pre-checks and answers
+    them exactly as before — 400 invalid_url · 503 not_configured
+    · 429 rate_limited — counting the generation against the
+    per-IP limit once, here at POST time. On success it starts the
+    generation as a background job and returns 202 {"job_id",
+    "status": "running"}; the outcome (the exact payload the old
+    synchronous flow returned, or one of its error codes — 422
+    no_subtitles · 422 too_long · 422 audio_too_big · 422
+    no_speech · 502 ai_unavailable) is delivered by
+    GET /api/script-prompt/status."""
     data = request.get_json(silent=True) or {}
     url = clean_url(data.get("url", ""))
     if not url:
@@ -2790,6 +2869,54 @@ def api_script_prompt():
     requested = str(data.get("lang") or "").strip()
     if requested and not _CAPTION_LANG_RE.match(requested):
         requested = ""
+    _sp_jobs_prune()
+    _sp_rate_record(ip)  # one count per generation, at POST time
+    job_id = _sp_job_create()
+    worker = threading.Thread(
+        target=_sp_job_run,
+        args=(job_id, dict(data), url, mode, requested),
+        daemon=True)
+    worker.start()
+    return jsonify({"job_id": job_id, "status": "running"}), 202
+
+
+@app.route("/api/script-prompt/status", methods=["GET"])
+def api_script_prompt_status():
+    """Poll a background generation job. 200 {"status": "running"}
+    while it works; on success 200 {"status": "done", ...the exact
+    payload the generation produced...}; on failure 200
+    {"status": "error", "error": <code>, "http": <the status the
+    synchronous flow would have answered>}. An unknown or expired
+    job id is a plain 404 {"error": "job_not_found"}."""
+    _sp_jobs_prune()
+    job_id = (request.args.get("id") or "").strip()
+    with _sp_jobs_lock:
+        job = _sp_jobs.get(job_id)
+        snapshot = dict(job) if job is not None else None
+    if snapshot is None:
+        return jsonify({"error": "job_not_found"}), 404
+    if snapshot["status"] == "running":
+        return jsonify({"status": "running"})
+    if snapshot["status"] == "done":
+        payload = dict(snapshot["result"] or {})
+        payload["status"] = "done"
+        return jsonify(payload)
+    return jsonify({
+        "status": "error",
+        "error": snapshot["error"],
+        "http": snapshot["http"],
+    })
+
+
+def _sp_generate_payload(data, url, mode, requested):
+    """The generation itself (v2 logic, unchanged): the video's
+    own captions when a usable track exists, otherwise the AUDIO
+    route — the audio is downloaded, converted to a small MP3 and
+    transcribed by Gemini (videos up to 20 minutes; caption-route
+    videos have no length limit). Runs on a worker thread and
+    returns (payload, http_status) instead of a Flask response;
+    the per-IP rate limit was already counted once by the POST
+    handler, so nothing is recorded here."""
     # Preview flow: prompts built from the visitor's own script
     # text (the editable script box). A non-empty script within the
     # input cap is the source — the caption/audio fetch is skipped
@@ -2800,7 +2927,6 @@ def api_script_prompt():
         provided = data.get("script")
         if isinstance(provided, str) and provided.strip() \
                 and len(provided) <= SP_INPUT_LIMIT:
-            _sp_rate_record(ip)  # a generation is about to happen
             try:
                 raw, model = _gemini_generate_prompts_from_script(
                     provided.strip())
@@ -2808,9 +2934,9 @@ def api_script_prompt():
                 app.logger.warning(
                     "script-prompt gemini (user script) failed for "
                     "%s: %s", url, e)
-                return jsonify({"error": "ai_unavailable"}), 502
+                return {"error": "ai_unavailable"}, 502
             _s, prompts, partial, _ns = _sp_parse_output(raw)
-            return jsonify({
+            return {
                 "title": "Untitled",
                 "lang": None,
                 "mode": mode,
@@ -2820,7 +2946,7 @@ def api_script_prompt():
                 "truncated": False,
                 "partial": partial or not prompts,
                 "model": model,
-            })
+            }, 200
     info = None
     try:
         info = extract_info(url)
@@ -2856,14 +2982,13 @@ def api_script_prompt():
             cut = timed[:SP_INPUT_LIMIT]
             timed = cut[:cut.rfind("\n")].rstrip() if "\n" in cut \
                 else cut
-        _sp_rate_record(ip)  # a generation is about to happen
         try:
             raw, model = _gemini_generate_text(
                 timed, title, chosen, mode)
         except _GeminiUnavailable as e:
             app.logger.warning(
                 "script-prompt gemini failed for %s: %s", url, e)
-            return jsonify({"error": "ai_unavailable"}), 502
+            return {"error": "ai_unavailable"}, 502
         script, prompts, partial, _ns = _sp_parse_output(raw)
         if mode == "script":
             if not script:
@@ -2875,7 +3000,7 @@ def api_script_prompt():
         else:
             script = ""
             partial = partial or not prompts
-        return jsonify({
+        return {
             "title": title or "Untitled",
             "lang": chosen,
             "mode": mode,
@@ -2885,43 +3010,42 @@ def api_script_prompt():
             "truncated": truncated,
             "partial": partial,
             "model": model,
-        })
+        }, 200
 
     # --- Route 2: listen to the audio (Gemini transcription) -------
     duration = (info or {}).get("duration")
     if duration and duration > SP_AUDIO_MAX_SECONDS:
-        return jsonify({"error": "too_long"}), 422
+        return {"error": "too_long"}, 422
     try:
         mp3_path, tmpdir = _sp_download_audio_mp3(
             url, expected_duration=duration)
     except _SpAudioTooBig:
-        return jsonify({"error": "audio_too_big"}), 422
+        return {"error": "audio_too_big"}, 422
     except _SpAudioFailed as e:
         # Neither captions nor audio could be obtained — for THIS
         # tool the video is simply unreadable (v1's catch-all).
         app.logger.info("script-prompt audio failed for %s: %s",
                         url, e)
-        return jsonify({"error": "no_subtitles"}), 422
+        return {"error": "no_subtitles"}, 422
     try:
-        _sp_rate_record(ip)  # a generation is about to happen
         try:
             raw, model = _gemini_generate_audio(mp3_path, title, mode)
         except _GeminiUnavailable as e:
             app.logger.warning(
                 "script-prompt gemini (audio) failed for %s: %s",
                 url, e)
-            return jsonify({"error": "ai_unavailable"}), 502
+            return {"error": "ai_unavailable"}, 502
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
     script, prompts, partial, no_speech = _sp_parse_output(raw)
     if no_speech or (not script and not prompts):
-        return jsonify({"error": "no_speech"}), 422
+        return {"error": "no_speech"}, 422
     if mode == "script":
         prompts = []
     else:
         script = ""
         partial = partial or not prompts
-    return jsonify({
+    return {
         "title": title or "Untitled",
         "lang": None,
         "mode": mode,
@@ -2931,7 +3055,7 @@ def api_script_prompt():
         "truncated": False,
         "partial": partial,
         "model": model,
-    })
+    }, 200
 
 
 def _download_via_ytdlp(url, format_id):

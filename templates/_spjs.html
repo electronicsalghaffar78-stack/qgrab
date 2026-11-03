@@ -83,42 +83,124 @@
     s = Math.max(0, Math.round(s));
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   }
-  async function qgrabScriptPrompt(url, mode, btn){
-    if (spBusy || !url) return;
+  /* --- Background jobs + polling (v3) ---
+     Generation runs server-side as a job; this page only starts
+     it and polls for the outcome, so a dropped connection, a
+     sleeping phone or a reloaded tab no longer loses the result:
+     the running job is kept in sessionStorage and polling resumes
+     on page load. The countdown beside "Please wait" is PURELY
+     COSMETIC — a holding aid only. It never gates the job: the
+     result is rendered the instant a poll sees it (even with
+     time left on the clock), and the clock reaching or passing
+     zero never cancels, blocks or hides anything — it just
+     switches to counting up. */
+  const SP_JOB_KEY = 'sp_job';
+  const SP_POLL_MS = 3000;
+  const SP_MAX_WAIT_MS = 12 * 60 * 1000;
+
+  function spStoreJob(job){
+    try { sessionStorage.setItem(SP_JOB_KEY, JSON.stringify(job)); }
+    catch (e) {}
+  }
+  function spClearStoredJob(){
+    try { sessionStorage.removeItem(SP_JOB_KEY); } catch (e) {}
+  }
+  function spSleep(ms){
+    return new Promise(function(res){ setTimeout(res, ms); });
+  }
+  /* Busy state + the cosmetic countdown. The estimate starts at
+     a default (script 60s, prompts 150s) and sharpens when the
+     parallel /api/info lookup reports the video's duration; that
+     lookup never delays the generation itself. Returns a small
+     controller: sharpen(duration) refines the estimate, stop()
+     tears the busy state down and restores the button label. */
+  function spStartWaitUI(btn, mode, t0){
     spBusy = true;
     spErr.style.display = 'none';
     spSpin.style.display = 'block';
     spButtons.forEach(function(b){ b.disabled = true; });
-    /* Countdown beside "Please wait" (owner's order): it counts
-       DOWN from an estimate so the visitor can see the wait, and
-       if the job overruns it switches to counting UP — it never
-       freezes at 0:00 and never restarts. The estimate starts at
-       a default (script 60s, prompts 90s) and sharpens when the
-       parallel /api/info lookup reports the video's duration;
-       that lookup never delays the generation itself. */
-    const spT0 = Date.now();
-    let spEstimate = mode === 'prompts' ? 90 : 60;
-    let spTimerAlive = true;
-    function spTick(){
-      const elapsed = (Date.now() - spT0) / 1000;
-      const remaining = spEstimate - elapsed;
+    let estimate = mode === 'prompts' ? 150 : 60;
+    let alive = true;
+    function tick(){
+      const elapsed = (Date.now() - t0) / 1000;
+      const remaining = estimate - elapsed;
       btn.textContent = I18N.sp_working + '… ' + spFmtTime(
         remaining > 0 ? Math.ceil(remaining) : Math.floor(elapsed));
     }
-    spTick();
-    const spTimer = setInterval(spTick, 1000);
+    tick();
+    const timer = setInterval(tick, 1000);
+    return {
+      sharpen: function(duration){
+        if (!alive || !(duration > 0)) return;
+        const est = mode === 'prompts'
+          ? Math.round(45 + 1.3 * duration)
+          : Math.round(20 + 0.5 * duration);
+        estimate = Math.min(300, Math.max(25, est));
+        tick();
+      },
+      stop: function(){
+        alive = false;
+        clearInterval(timer);
+        spSpin.style.display = 'none';
+        spButtons.forEach(function(b){ b.disabled = false; });
+        btn.textContent = spLabels[btn.id];
+        spBusy = false;
+      }
+    };
+  }
+  function spSharpenFromInfo(url, ui){
     fetch('/api/info', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({url: url})
     }).then(function(r){ return r.json(); }).then(function(d){
-      if (!spTimerAlive || !d || !(d.duration > 0)) return;
-      const est = mode === 'prompts'
-        ? Math.round(30 + 0.6 * d.duration)
-        : Math.round(15 + 0.3 * d.duration);
-      spEstimate = Math.min(240, Math.max(20, est));
-      spTick();
+      if (d && d.duration > 0) ui.sharpen(d.duration);
     }).catch(function(){});
+  }
+  function spRenderResult(data, mode){
+    if (mode === 'prompts') spRenderPrompts(data);
+    else spRenderScript(data);
+    spRes.style.display = 'block';
+    spRes.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  }
+  /* Poll until the job resolves. A poll that itself fails
+     (network hiccup) is simply retried on the next tick — it is
+     never treated as the job failing. A 404 means the server has
+     forgotten the job (expired/restarted): that wait is over, so
+     the generic AI-unavailable message is shown, the same one the
+     12-minute client cap falls back to. */
+  async function spPollJob(jobId, t0){
+    const statusUrl = '/api/script-prompt/status?id=' +
+      encodeURIComponent(jobId);
+    for (;;) {
+      if (Date.now() - t0 > SP_MAX_WAIT_MS) {
+        throw new Error(spErrorText('ai_unavailable'));
+      }
+      let data = null;
+      try {
+        const r = await fetch(statusUrl);
+        if (r.status === 404) {
+          const gone = new Error(spErrorText('ai_unavailable'));
+          gone.spJobGone = true;
+          throw gone;
+        }
+        data = await r.json().catch(function(){ return null; });
+      } catch (err) {
+        if (err && err.spJobGone) throw err;
+        data = null;  /* network-level failure: retry next tick */
+      }
+      if (data && data.status === 'done') return data;
+      if (data && data.status === 'error') {
+        throw new Error(spErrorText(data.error));
+      }
+      await spSleep(SP_POLL_MS);
+    }
+  }
+  async function qgrabScriptPrompt(url, mode, btn){
+    if (spBusy || !url) return;
+    const t0 = Date.now();
+    const ui = spStartWaitUI(btn, mode, t0);
+    spSharpenFromInfo(url, ui);
     try {
       const body = {url: url, mode: mode};
       /* Forward flow: prompts are made from the script in the
@@ -133,22 +215,59 @@
         body: JSON.stringify(body)
       });
       const data = await r.json().catch(function(){ return {}; });
-      if (!r.ok) throw new Error(spErrorText(data.error));
-      if (mode === 'prompts') spRenderPrompts(data);
-      else spRenderScript(data);
-      spRes.style.display = 'block';
-      spRes.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      if (r.status === 202 && data.job_id) {
+        spStoreJob({job_id: data.job_id, mode: mode, url: url,
+                    started_at: t0});
+        const finalData = await spPollJob(data.job_id, t0);
+        spRenderResult(finalData, mode);
+      } else if (!r.ok) {
+        throw new Error(spErrorText(data.error));
+      } else {
+        /* A non-202 success should not happen; if it ever does,
+           treat its payload as the finished result. */
+        spRenderResult(data, mode);
+      }
     } catch (err) {
       spShowError(err.message || I18N.err_generic);
     } finally {
-      spTimerAlive = false;
-      clearInterval(spTimer);
-      spSpin.style.display = 'none';
-      spButtons.forEach(function(b){ b.disabled = false; });
-      btn.textContent = spLabels[btn.id];
-      spBusy = false;
+      spClearStoredJob();
+      ui.stop();
     }
   }
+  /* Resume a job that was still running when this page went
+     away (reload, connection drop, tab restore): if a stored job
+     younger than the 12-minute cap exists, re-enter the busy UI
+     and keep polling for the SAME job instead of losing it. */
+  (function spResumeStoredJob(){
+    let stored = null;
+    try {
+      stored = JSON.parse(
+        sessionStorage.getItem(SP_JOB_KEY) || 'null');
+    } catch (e) {}
+    if (!stored || !stored.job_id ||
+        typeof stored.started_at !== 'number') return;
+    if (Date.now() - stored.started_at > SP_MAX_WAIT_MS) {
+      spClearStoredJob();
+      return;
+    }
+    const mode = stored.mode === 'prompts' ? 'prompts' : 'script';
+    const btn = mode === 'prompts' ? spBtnPrompts : spBtnScript;
+    if (stored.url && !spUrl.value) spUrl.value = stored.url;
+    const ui = spStartWaitUI(btn, mode, stored.started_at);
+    if (stored.url) spSharpenFromInfo(stored.url, ui);
+    (async function(){
+      try {
+        const finalData = await spPollJob(
+          stored.job_id, stored.started_at);
+        spRenderResult(finalData, mode);
+      } catch (err) {
+        spShowError(err.message || I18N.err_generic);
+      } finally {
+        spClearStoredJob();
+        ui.stop();
+      }
+    })();
+  })();
   /* The ONLY generation triggers: the tool's own two buttons.
      (Pressing Enter in the link box runs the Script job.) */
   spBtnScript.addEventListener('click', function(){
