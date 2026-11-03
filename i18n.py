@@ -289,6 +289,10 @@ EN = {
     "sp_edit_hint": "You can edit this script right here — your prompts will be made from the edited script.",
     "sp_download": "Download (.txt)",
     "sp_regenerate": "Regenerate",
+    "sp_left_script": "Scripts left today: {n}",
+    "sp_left_prompts": "Prompts left today: {n}",
+    "sp_refresh_at": "Counters refresh daily at {time}",
+    "sp_err_daily_limit": "Today's free limit for this tool is finished — please come back tomorrow.",
 }
 
 TRANSLATIONS = {"en": EN}

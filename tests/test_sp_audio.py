@@ -10,8 +10,10 @@ Speed pass (2026-11-04) covered here: when the duration is KNOWN,
 the small audio-only download is tried FIRST (the guard still
 rejects a mismatched candidate — the 164 s trap — and the muxed
 format is used instead); when it is UNKNOWN, muxed still goes
-first. The audio fetch is bounded to the first 2 cascade attempts,
-and the audio route's Gemini call is capped at 2 models.
+first. The audio fetch is bounded to the first 2 cascade attempts.
+The Gemini cascade walks a 6-model chain while failures are fast
+(quota 429s) and caps at 2 attempts once failures are slow —
+see tests/test_sp_gemini_cascade.py.
 
 These tests monkeypatch yt_dlp.YoutubeDL with a fake that mimics
 the TikTok format table (a long standalone audio asset + a
@@ -264,7 +266,8 @@ def test_audio_cascade_bounded_to_two_attempts():
 
 def test_gemini_model_cap():
     """_gemini_call with max_models=2 makes at most 2 requests when
-    every model fails retryably; without a cap it walks all 3."""
+    every model fails retryably; without a cap it walks the whole
+    6-model chain (every failure here is an instant 429 = fast)."""
     import urllib.error
 
     calls = []
@@ -294,7 +297,7 @@ def test_gemini_model_cap():
             pass
         else:
             raise AssertionError("expected _GeminiUnavailable")
-        assert len(calls) == 3, calls
+        assert len(calls) == 6, calls
     finally:
         qgrab.urllib.request.urlopen = orig_urlopen
         if orig_key is None:

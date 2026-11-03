@@ -24,6 +24,9 @@
   const spRes = document.getElementById('spResult');
   const spScript = document.getElementById('spScript');
   const spPrompts = document.getElementById('spPrompts');
+  const spLeftScript = document.getElementById('spLeftScript');
+  const spLeftPrompts = document.getElementById('spLeftPrompts');
+  const spRefreshAt = document.getElementById('spRefreshAt');
   const spButtons = [spBtnScript, spBtnPrompts, spRegen];
   const spLabels = {};
   spButtons.forEach(function(b){ spLabels[b.id] = b.textContent; });
@@ -51,6 +54,7 @@
     if (code === 'audio_too_big') return I18N.sp_err_audiobig;
     if (code === 'no_speech') return I18N.sp_err_nospeech;
     if (code === 'rate_limited') return I18N.sp_err_rate;
+    if (code === 'daily_limit') return I18N.sp_err_daily_limit;
     if (code === 'ai_unavailable') return I18N.sp_err_ai;
     if (code === 'not_configured') return I18N.sp_err_setup;
     if (code === 'invalid_url') return I18N.err_link;
@@ -83,6 +87,40 @@
     s = Math.max(0, Math.round(s));
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   }
+  /* --- Daily counters (the owner's TAAFT-style counter) ---
+     Two small lines in the box: how many script / prompt
+     generations are left today, counted DOWN from the daily cap
+     by the server — real, enforced numbers, not decoration —
+     plus the refresh time, rendered in the VISITOR's own local
+     time from the server's resets_at epoch. This fetch is
+     read-only (it can never start a generation): it runs on
+     page load and again whenever a generation finishes, done
+     or error, so the numbers on screen track the server. */
+  function spRefreshQuota(){
+    fetch('/api/script-prompt/quota').then(function(r){
+      return r.json();
+    }).then(function(d){
+      if (!d) return;
+      if (spLeftScript && typeof d.script_left === 'number' &&
+          I18N.sp_left_script) {
+        spLeftScript.textContent = I18N.sp_left_script.replace(
+          '{n}', String(d.script_left));
+      }
+      if (spLeftPrompts && typeof d.prompts_left === 'number' &&
+          I18N.sp_left_prompts) {
+        spLeftPrompts.textContent = I18N.sp_left_prompts.replace(
+          '{n}', String(d.prompts_left));
+      }
+      if (spRefreshAt && d.resets_at && I18N.sp_refresh_at) {
+        const when = new Date(d.resets_at * 1000);
+        const timeStr = when.toLocaleTimeString([], {
+          hour: 'numeric', minute: '2-digit'});
+        spRefreshAt.textContent = I18N.sp_refresh_at.replace(
+          '{time}', timeStr);
+      }
+    }).catch(function(){});
+  }
+  spRefreshQuota();
   /* --- Background jobs + polling (v3) ---
      Generation runs server-side as a job; this page only starts
      it and polls for the outcome, so a dropped connection, a
@@ -232,6 +270,7 @@
     } finally {
       spClearStoredJob();
       ui.stop();
+      spRefreshQuota();
     }
   }
   /* Resume a job that was still running when this page went
@@ -265,6 +304,7 @@
       } finally {
         spClearStoredJob();
         ui.stop();
+        spRefreshQuota();
       }
     })();
   })();

@@ -38,6 +38,8 @@ import tempfile
 import threading
 import time
 import urllib.request
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import urllib.error
 import uuid
 from urllib.parse import parse_qs, quote, urlparse
@@ -1278,6 +1280,10 @@ def _js_strings(t):
         "sp_err_toolong": t["sp_err_toolong"],
         "sp_err_audiobig": t["sp_err_audiobig"],
         "sp_err_nospeech": t["sp_err_nospeech"],
+        "sp_err_daily_limit": t["sp_err_daily_limit"],
+        "sp_left_script": t["sp_left_script"],
+        "sp_left_prompts": t["sp_left_prompts"],
+        "sp_refresh_at": t["sp_refresh_at"],
     }
 
 
@@ -2197,12 +2203,19 @@ def download_captions(url, lang, as_transcript):
 #   GEMINI_API_KEY  required; without it the endpoint answers
 #                   503 {"error": "not_configured"} and the tool
 #                   shows its "being set up" message.
+#   GEMINI_API_KEY_2 / GEMINI_API_KEY_3
+#                   optional extra keys (other Google projects).
+#                   Quota is per project AND per model, so each
+#                   extra key multiplies the daily capacity; the
+#                   cascade rotates through (model, key) pairs.
 #   GEMINI_MODEL    optional override of the primary model.
 # Models (verified against ai.google.dev on 2026-11-03 — the models
-# page + the pricing page's Free Tier column, "Free of charge"):
-#   primary  gemini-3.8-flash       (current flagship Flash)
-#   fallback gemini-3.6-flash       (previous-generation Flash)
-#   fallback gemini-3.5-flash-lite  (fastest / cheapest Flash)
+# page + the pricing page's Free Tier column, "Free of charge").
+# The cascade walks SP_MODEL_CHAIN (an env GEMINI_MODEL override
+# leads when set). Each model carries its OWN free-tier daily
+# quota, so a quota-exhausted model (fast HTTP 429) falls through
+# to the next one; the attempt policy in _gemini_call keeps slow
+# failures (timeouts) from multiplying the visitor's wait.
 # API shape (official reference, ai.google.dev/api/generate-content):
 #   POST https://generativelanguage.googleapis.com/v1beta/models/
 #        {model}:generateContent     header: x-goog-api-key: <key>
@@ -2224,11 +2237,21 @@ SP_GEMINI_TIMEOUT = 100       # seconds, per model attempt (text route)
 SP_AUDIO_MAX_SECONDS = 1200   # audio route: videos up to 20 minutes
 SP_AUDIO_MAX_BYTES = 18 * 1024 * 1024  # converted MP3 hard cap
 SP_AUDIO_GEMINI_TIMEOUT = 150  # seconds, per model attempt (audio)
-SP_AUDIO_MAX_MODELS = 2       # audio route: primary + 1 fallback only
-SP_AUDIO_MAX_ATTEMPTS = 2     # audio route: first 2 cascade attempts
+SP_AUDIO_MAX_ATTEMPTS = 2     # audio route: first 2 fetch attempts
 SP_FFMPEG_TIMEOUT = 300       # seconds for the MP3 conversion
 SP_DEFAULT_MODEL = "gemini-3.8-flash"
-SP_FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
+# The Gemini cascade, in order. Every model has its own free-tier
+# daily quota, so widening the chain stretches the day's total.
+SP_MODEL_CHAIN = ["gemini-3.8-flash", "gemini-3.6-flash",
+                  "gemini-3.5-flash", "gemini-3.7-flash",
+                  "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+# Attempt policy (see _gemini_call): a failure that comes back in
+# under this many seconds is the quota/error signature and the
+# cascade keeps walking the chain; once a failure is SLOW (a
+# timeout or a long attempt), total attempts cap at
+# SP_GEMINI_SLOW_MAX_ATTEMPTS so the worst-case wait stays bounded.
+SP_GEMINI_FAST_FAIL = 20      # seconds; faster failure = fast
+SP_GEMINI_SLOW_MAX_ATTEMPTS = 2  # attempt cap once failures are slow
 GEMINI_API_URL = ("https://generativelanguage.googleapis.com/v1beta/"
                   "models/{model}:generateContent")
 
@@ -2318,8 +2341,24 @@ SP_AUDIO_INSTRUCTION_PROMPTS = (
     + "\n\n" + SP_PROMPT_RULES)
 
 
+def _gemini_api_keys():
+    """All configured Gemini API keys, in env order: GEMINI_API_KEY,
+    then GEMINI_API_KEY_2, then GEMINI_API_KEY_3. Blanks are skipped
+    and duplicates removed, order preserved. Quota is per Google
+    project AND per model, so every extra key multiplies the day's
+    capacity — _gemini_call rotates through (model, key) pairs."""
+    keys = []
+    for name in ("GEMINI_API_KEY", "GEMINI_API_KEY_2",
+                 "GEMINI_API_KEY_3"):
+        key = (os.environ.get(name) or "").strip()
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
 def _gemini_api_key():
-    return (os.environ.get("GEMINI_API_KEY") or "").strip() or None
+    keys = _gemini_api_keys()
+    return keys[0] if keys else None
 
 
 def _client_ip():
@@ -2448,23 +2487,40 @@ class _GeminiUnavailable(Exception):
 
 
 def _gemini_models():
+    """The cascade order: the env GEMINI_MODEL override first when
+    set (else the default primary), then SP_MODEL_CHAIN in order,
+    deduplicated — up to the full 6-model chain."""
     primary = (os.environ.get("GEMINI_MODEL") or "").strip() \
         or SP_DEFAULT_MODEL
     models = [primary]
-    for model in SP_FALLBACK_MODELS:
+    for model in SP_MODEL_CHAIN:
         if model not in models:
             models.append(model)
-    return models[:3]  # primary + up to 2 fallbacks
+    return models
 
 
 def _gemini_call(parts, system_instruction, timeout, max_models=None):
-    """One generateContent call with model fallbacks; returns
+    """One generateContent call with model + key fallbacks; returns
     (raw_text, model_used). On 404/429/5xx and on network errors the
-    next fallback model is tried; anything else fails at once. When
-    max_models is given, at most that many models are tried (the
-    audio route caps itself at SP_AUDIO_MAX_MODELS to bound its
-    worst case; the text routes leave it unset and keep the full
-    chain). The API key travels in the x-goog-api-key header only —
+    next (model, key) pair is tried; anything else fails at once.
+    When max_models is given, at most that many models are tried
+    (each on every configured key).
+
+    Pair order: MODELS OUTER, KEYS INNER — the best model is tried
+    on every configured key before the cascade moves to the next
+    model, because quota is per project AND per model, so a
+    quota-dead (project, model) pair says nothing about the same
+    model under another project's key.
+
+    Attempt policy: each pair has its own free-tier daily quota,
+    and a quota failure comes back FAST (a 429 in well under a
+    second), so while attempts keep failing fast the cascade walks
+    all the pairs. A SLOW failure (an attempt that consumed
+    SP_GEMINI_FAST_FAIL seconds or more — a timeout, an overloaded
+    model) flips the call into the bounded mode: total attempts
+    then cap at SP_GEMINI_SLOW_MAX_ATTEMPTS, the same effective
+    cap the speed pass imposed, so the worst-case wait does not
+    grow. An API key travels in the x-goog-api-key header only —
     it is never put in a URL, a log line or a response."""
     payload = {
         "system_instruction": {
@@ -2485,11 +2541,20 @@ def _gemini_call(parts, system_instruction, timeout, max_models=None):
     models = _gemini_models()
     if max_models:
         models = models[:max_models]
-    for model in models:
+    # Models outer, keys inner (see docstring). With a single key
+    # configured this is exactly the old model-only cascade.
+    pairs = [(model, api_key) for model in models
+             for api_key in _gemini_api_keys()]
+    attempts = 0
+    failures_fast = True  # until an attempt proves slow (see policy)
+    for model, api_key in pairs:
+        attempts += 1
+        started = time.monotonic()
         req = urllib.request.Request(
             GEMINI_API_URL.format(model=model), data=body, method="POST",
             headers={"Content-Type": "application/json",
-                     "x-goog-api-key": _gemini_api_key()})
+                     "x-goog-api-key": api_key})
+        failed = False
         try:
             with urllib.request.urlopen(
                     req, timeout=timeout) as resp:
@@ -2499,23 +2564,34 @@ def _gemini_call(parts, system_instruction, timeout, max_models=None):
             app.logger.warning("gemini attempt failed: HTTP %s (model %s)",
                                e.code, model)
             if e.code in (404, 429) or 500 <= e.code < 600:
-                continue
-            raise _GeminiUnavailable(last_error)
+                failed = True
+            else:
+                raise _GeminiUnavailable(last_error)
         except Exception as e:  # network error / timeout — try next model
             last_error = type(e).__name__
             app.logger.warning("gemini attempt failed: %s (model %s)",
                                last_error, model)
-            continue
-        try:
-            resp_parts = data["candidates"][0]["content"]["parts"]
-            text = "".join(p.get("text", "") for p in resp_parts
-                           if isinstance(p, dict))
-        except (KeyError, IndexError, TypeError):
-            text = ""
-        if text.strip():
-            return text, model
-        last_error = "empty response"
-        app.logger.warning("gemini returned no text (model %s)", model)
+            failed = True
+        if not failed:
+            try:
+                resp_parts = data["candidates"][0]["content"]["parts"]
+                text = "".join(p.get("text", "") for p in resp_parts
+                               if isinstance(p, dict))
+            except (KeyError, IndexError, TypeError):
+                text = ""
+            if text.strip():
+                return text, model
+            last_error = "empty response"
+            app.logger.warning("gemini returned no text (model %s)", model)
+        # This attempt failed (retryable HTTP error, network error
+        # or an empty reply). A fast failure is the quota signature
+        # — keep walking the chain. A slow one bounds the call:
+        # stop once the slow-mode attempt cap is reached.
+        if time.monotonic() - started >= SP_GEMINI_FAST_FAIL:
+            failures_fast = False
+        if not failures_fast \
+                and attempts >= SP_GEMINI_SLOW_MAX_ATTEMPTS:
+            break
     raise _GeminiUnavailable(str(last_error))
 
 
@@ -2544,8 +2620,7 @@ def _gemini_generate_audio(mp3_path, title, mode):
             "The attached MP3 is the video's complete audio track. "
             "Follow the system instruction exactly.")},
     ]
-    return _gemini_call(parts, system, SP_AUDIO_GEMINI_TIMEOUT,
-                        max_models=SP_AUDIO_MAX_MODELS)
+    return _gemini_call(parts, system, SP_AUDIO_GEMINI_TIMEOUT)
 
 
 def _gemini_generate_prompts_from_script(script_text):
@@ -2751,6 +2826,113 @@ def _sp_download_audio_mp3(url, expected_duration=None):
 
 
 # ---------------------------------------------------------------------------
+# Script+Prompt daily counters (the owner's TAAFT-style counter)
+#
+# The tool is free and the Google quota behind it is finite, so the
+# box shows two honest counters — "Scripts left today: N" and
+# "Prompts left today: N" — one per mode, each capped at
+# SP_DAILY_CAP_* successful generations and counting DOWN, exactly
+# like the clip counters on the owner's video tool. The counters
+# are REAL, enforced here on the server: a slot is RESERVED when a
+# job starts (so simultaneous visitors cannot overshoot the cap),
+# a success turns the reservation into a counted generation, and a
+# failure REFUNDS it — the same shape as the video tool refunding
+# credits for a failed clip. The "day" is the Google quota day:
+# it rolls over at midnight in America/Los_Angeles, and
+# /api/script-prompt/quota reports that next reset as a UTC epoch
+# so the page can show the refresh time in the visitor's own local
+# time. State is in memory only, like the per-IP limiter — a
+# restart starts a fresh day early, never a stricter one.
+# ---------------------------------------------------------------------------
+
+# Cap derivation: the free capacity behind the tool is the stacked
+# Gemini free quotas — 3 API keys (3 projects) x 6 cascade models
+# x ~20 free requests/day per model per project (the observed
+# free-tier floor) = ~360 generations/day in one shared pool. The
+# per-mode caps below sum to 300, deliberately under that floor,
+# so a counter-full day still leaves the cascade headroom. Retune
+# here if keys or models are added, or if the quotas change.
+SP_DAILY_CAP_SCRIPT = 150     # successful script generations per day
+SP_DAILY_CAP_PROMPTS = 150    # successful prompt generations per day
+SP_DAILY_CAPS = {"script": SP_DAILY_CAP_SCRIPT,
+                 "prompts": SP_DAILY_CAP_PROMPTS}
+_SP_QUOTA_TZ = ZoneInfo("America/Los_Angeles")
+
+_sp_daily_lock = threading.Lock()
+_sp_daily = {"date": None,
+             "done": {"script": 0, "prompts": 0},
+             "reserved": {"script": 0, "prompts": 0}}
+
+
+def _sp_quota_now():
+    """Now on the Google quota clock (America/Los_Angeles)."""
+    return datetime.now(_SP_QUOTA_TZ)
+
+
+def _sp_next_reset():
+    """The next Pacific midnight — when the counters refresh."""
+    now = _sp_quota_now()
+    nxt = now.date() + timedelta(days=1)
+    return datetime(nxt.year, nxt.month, nxt.day,
+                    tzinfo=_SP_QUOTA_TZ)
+
+
+def _sp_quota_rollover_locked():
+    """Reset the counts when the Pacific date has rolled over.
+    Caller holds _sp_daily_lock."""
+    today = _sp_quota_now().date()
+    if _sp_daily["date"] != today:
+        _sp_daily["date"] = today
+        _sp_daily["done"] = {"script": 0, "prompts": 0}
+        _sp_daily["reserved"] = {"script": 0, "prompts": 0}
+
+
+def _sp_quota_reserve(mode):
+    """Reserve one slot for a job that is about to start. False
+    when the mode's day is already full (successes + in-flight
+    reservations at the cap)."""
+    with _sp_daily_lock:
+        _sp_quota_rollover_locked()
+        used = _sp_daily["done"][mode] \
+            + _sp_daily["reserved"][mode]
+        if used >= SP_DAILY_CAPS[mode]:
+            return False
+        _sp_daily["reserved"][mode] += 1
+        return True
+
+
+def _sp_quota_settle(mode, success):
+    """Settle a finished job's reservation: a success becomes a
+    counted generation; a failure refunds the slot."""
+    if mode not in SP_DAILY_CAPS:
+        return
+    with _sp_daily_lock:
+        _sp_quota_rollover_locked()
+        _sp_daily["reserved"][mode] = max(
+            0, _sp_daily["reserved"][mode] - 1)
+        if success:
+            _sp_daily["done"][mode] += 1
+
+
+def _sp_quota_snapshot():
+    """The public counter state served by
+    GET /api/script-prompt/quota (read-only; never generates)."""
+    with _sp_daily_lock:
+        _sp_quota_rollover_locked()
+        left = {mode: max(0, SP_DAILY_CAPS[mode]
+                          - _sp_daily["done"][mode]
+                          - _sp_daily["reserved"][mode])
+                for mode in SP_DAILY_CAPS}
+    return {
+        "script_left": left["script"],
+        "prompts_left": left["prompts"],
+        "script_max": SP_DAILY_CAP_SCRIPT,
+        "prompts_max": SP_DAILY_CAP_PROMPTS,
+        "resets_at": int(_sp_next_reset().timestamp()),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Script+Prompt background jobs (v3 reliability pass)
 #
 # Generation can take a minute or more (the audio route listens to
@@ -2784,7 +2966,7 @@ def _sp_jobs_prune(now=None):
             del _sp_jobs[job_id]
 
 
-def _sp_job_create():
+def _sp_job_create(mode=None):
     job_id = uuid.uuid4().hex
     job = {
         "status": "running",
@@ -2793,6 +2975,7 @@ def _sp_job_create():
         "result": None,
         "error": None,
         "http": None,
+        "mode": mode,
     }
     with _sp_jobs_lock:
         _sp_jobs[job_id] = job
@@ -2828,6 +3011,10 @@ def _sp_job_run(job_id, data, url, mode, requested):
             job_id, url, e)
         payload, http_status = {"error": "ai_unavailable"}, 502
     _sp_job_finish(job_id, payload, http_status)
+    # Settle the daily-counter slot reserved at POST time: a
+    # success counts, a failure is refunded. Runs exactly once
+    # per job, whatever the outcome was.
+    _sp_quota_settle(mode, http_status == 200)
 
 
 @app.route("/api/script-prompt", methods=["POST"])
@@ -2846,8 +3033,11 @@ def api_script_prompt():
 
     This POST runs only the synchronous pre-checks and answers
     them exactly as before — 400 invalid_url · 503 not_configured
-    · 429 rate_limited — counting the generation against the
-    per-IP limit once, here at POST time. On success it starts the
+    · 429 rate_limited · 429 daily_limit (the mode's daily
+    counter is full) — counting the generation against the
+    per-IP limit once, here at POST time, and reserving one slot
+    of the mode's daily counter (refunded if the job fails). On
+    success it starts the
     generation as a background job and returns 202 {"job_id",
     "status": "running"}; the outcome (the exact payload the old
     synchronous flow returned, or one of its error codes — 422
@@ -2869,9 +3059,11 @@ def api_script_prompt():
     requested = str(data.get("lang") or "").strip()
     if requested and not _CAPTION_LANG_RE.match(requested):
         requested = ""
+    if not _sp_quota_reserve(mode):
+        return jsonify({"error": "daily_limit"}), 429
     _sp_jobs_prune()
     _sp_rate_record(ip)  # one count per generation, at POST time
-    job_id = _sp_job_create()
+    job_id = _sp_job_create(mode)
     worker = threading.Thread(
         target=_sp_job_run,
         args=(job_id, dict(data), url, mode, requested),
@@ -2906,6 +3098,17 @@ def api_script_prompt_status():
         "error": snapshot["error"],
         "http": snapshot["http"],
     })
+
+
+@app.route("/api/script-prompt/quota", methods=["GET"])
+def api_script_prompt_quota():
+    """The daily counters, read-only: how many script / prompt
+    generations are left today (the America/Los_Angeles day),
+    each mode's cap, and "resets_at" — the next Pacific midnight
+    as a UTC epoch, so the page can show the refresh time in the
+    visitor's own local time. Reading it never generates
+    anything and never touches the counters."""
+    return jsonify(_sp_quota_snapshot())
 
 
 def _sp_generate_payload(data, url, mode, requested):
