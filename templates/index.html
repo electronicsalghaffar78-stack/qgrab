@@ -98,9 +98,9 @@
   .ad-incontent{height:250px;max-width:336px}
   .ad small{display:block;letter-spacing:.4px;text-transform:none;color:var(--faint2)}
 
-  /* visually hidden (keeps the SEO h1 without showing hero text) */
-  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
-           overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  /* visible hero headline above the download box (fixed brand line) */
+  .hero-h{font-size:clamp(1.45rem,4.6vw,2.25rem);font-weight:800;letter-spacing:-.5px;
+          color:var(--text);text-align:center;line-height:1.25;margin:28px 0 2px}
   .grab{background:var(--card);border:1px solid var(--line);border-radius:16px;
         padding:16px;margin-top:20px;box-shadow:0 12px 34px var(--sh-strong)}
   .grab-row{display:flex;gap:10px}
@@ -237,7 +237,7 @@
 </header>
 
 <div class="wrap">
-  <h1 class="sr-only">{{ t.h1_free }} {{ t.h1_main }}</h1>
+  <h1 class="hero-h">Download Videos From Every Platform Easy &amp; Fast</h1>
 
   <div class="grab" id="download">
       <form class="grab-row" id="grabForm">
