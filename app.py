@@ -777,9 +777,13 @@ def safe_filename(title, ext):
 # so search engines can index a focused page per platform instead of
 # only the single homepage. Each renders templates/platform.html with
 # the same downloader tool, so a visitor landing from a search result
-# can download immediately. All copy is honest: it describes only what
-# QGrab actually does (see the live-verified notes at the top of this
-# file) — no invented numbers or testimonials.
+# can download immediately. Two more entries (/video-script-generator
+# and /ai-video-prompt-generator, marked "tool": True) are landing
+# pages for the Video -> Script + AI Prompts tool and render the same
+# template with a CTA hero instead of the downloader form. All copy
+# is honest: it describes only what QGrab actually does (see the
+# live-verified notes at the top of this file) — no invented numbers
+# or testimonials.
 # ---------------------------------------------------------------------------
 
 SITE_URL = "https://qgrab.onrender.com"
@@ -1032,6 +1036,186 @@ PLATFORM_PAGES = {
              "by the ads shown on the page."),
         ],
     },
+    # The next two entries are NOT downloaders: they are landing
+    # pages for the Video -> Script + AI Prompts tool. "tool": True
+    # switches platform.html to a CTA hero (the tool itself lives on
+    # /video-to-script-prompt) and keeps these pages out of the
+    # "other downloaders" cards. Copy is English-only SEO copy, like
+    # the downloaders' titles/meta; platform_strings() has no entries
+    # for these keys, so the English body is used in every language.
+    "script": {
+        "path": "/video-script-generator",
+        "name": "Video Script",
+        "tool": True,
+        "title": "Video Script Generator — Video to Script, Free "
+                 "Online | QGrab",
+        "description": "Free video to script generator: paste a "
+                       "YouTube, TikTok, Facebook or Instagram link "
+                       "and get the video's full script — from its "
+                       "subtitles, or from the audio itself. No "
+                       "sign-up.",
+        "h1": "Video Script Generator",
+        "tagline": "Turn any video into its written script. Paste a "
+                   "link from YouTube, TikTok, Facebook or Instagram "
+                   "and QGrab writes out everything that is said — "
+                   "free, with no sign-up.",
+        "keywords": "video to script, video script generator, video "
+                    "scripting, get script from a video, youtube "
+                    "video to script, tiktok video to script, "
+                    "facebook video to script, instagram video to "
+                    "script, video script maker, qgrab",
+        "cta_text": "The generator itself lives on the tool page — "
+                    "paste your video link there, press Create "
+                    "Script, and read or edit your script.",
+        "cta_label": "Open the Video to Script Tool →",
+        "cta_href": "/video-to-script-prompt",
+        "howto_h2": "How to Get a Video's Script in 3 Steps",
+        "howto_sub": "From a video link to a written script in "
+                     "about a minute — nothing is generated until "
+                     "you press the button.",
+        "faq_h2": "Video Script Generator — Frequently Asked "
+                  "Questions",
+        "faq_sub": "Quick answers about turning videos into "
+                   "scripts with QGrab.",
+        "placeholder": "Paste a video link here… e.g. "
+                       "https://www.youtube.com/watch?v=…",
+        "steps": [
+            ("Copy the video link",
+             "Open the video on YouTube, TikTok, Facebook or "
+             "Instagram and copy its link — Share → Copy link in "
+             "the app, or copy the address bar in a browser."),
+            ("Paste it into the tool",
+             "Open the Video to Script + Prompts tool, paste the "
+             "link and press Create Script. The script is only "
+             "created when you press the button — never "
+             "automatically."),
+            ("Read, edit & download",
+             "The script appears in an editable preview. Fix "
+             "anything you like, then download it as a text file — "
+             "or go on to create AI video prompts from it."),
+        ],
+        "sections": [
+            ("Get the Script from a Video — Without Typing It "
+             "Yourself",
+             "Video scripting by hand means pausing and rewinding "
+             "for every line. QGrab does the listening for you: "
+             "give it the link and it writes out the video's spoken "
+             "words as a clean, readable script you can quote, "
+             "study, subtitle or rebuild from."),
+            ("Works from Subtitles — or from the Audio Itself",
+             "When a video has subtitles or captions, the script "
+             "is built from them. When it has none, QGrab listens "
+             "to the video's own audio and transcribes what is "
+             "said — that route works for videos up to 20 minutes. "
+             "If a video has neither subtitles nor clear speech, "
+             "the tool says so honestly instead of inventing a "
+             "script."),
+            ("A Note on Personal Use", PERSONAL_USE_NOTE),
+        ],
+        "faq": [
+            ("Is the video script generator free?",
+             "Yes. It is completely free to use — no account, no "
+             "sign-up and nothing to install."),
+            ("Which videos can I turn into a script?",
+             "Any public video you can link to on YouTube, TikTok, "
+             "Facebook or Instagram. Subtitled videos are scripted "
+             "from their captions; videos without subtitles are "
+             "transcribed from their own audio (up to 20 "
+             "minutes)."),
+            ("Can I edit the script it makes?",
+             "Yes. The script opens in an editable preview — "
+             "correct names or lines right on the page, then "
+             "download it as a .txt file. From the same script you "
+             "can also generate scene-by-scene AI video prompts."),
+        ],
+    },
+    "prompts": {
+        "path": "/ai-video-prompt-generator",
+        "name": "Video Prompt",
+        "tool": True,
+        "title": "AI Video Prompt Generator — Make Prompts from "
+                 "Any Video | QGrab",
+        "description": "Free AI video prompt generator: QGrab turns "
+                       "a video's own script into ready-to-use, "
+                       "scene-by-scene prompts for AI video tools. "
+                       "Edit the script first, then generate. No "
+                       "sign-up.",
+        "h1": "AI Video Prompt Generator",
+        "tagline": "Make prompts from a video: QGrab first writes "
+                   "the video's script, then turns it into "
+                   "scene-by-scene AI video prompts you can paste "
+                   "into your video generator. Free, no sign-up.",
+        "keywords": "ai video prompt generator, video to prompt, "
+                    "video prompt maker, make prompts from a video, "
+                    "video to ai prompt, ai video prompts, prompt "
+                    "generator for ai video, scene by scene video "
+                    "prompts, qgrab",
+        "cta_text": "The generator itself lives on the tool page — "
+                    "paste a video link there, create the script, "
+                    "check it, then press Create Prompts.",
+        "cta_label": "Open the Script + Prompts Tool →",
+        "cta_href": "/video-to-script-prompt",
+        "howto_h2": "How to Make Video Prompts in 3 Steps",
+        "howto_sub": "From a video link to ready-to-paste prompts "
+                     "— the script comes first, so the prompts "
+                     "match what the video really says.",
+        "faq_h2": "AI Video Prompt Generator — Frequently Asked "
+                  "Questions",
+        "faq_sub": "Quick answers about making AI video prompts "
+                   "from a video with QGrab.",
+        "placeholder": "Paste a video link here… e.g. "
+                       "https://www.youtube.com/watch?v=…",
+        "steps": [
+            ("Copy the video link",
+             "Open the video on YouTube, TikTok, Facebook or "
+             "Instagram and copy its link — Share → Copy link in "
+             "the app, or copy the address bar in a browser."),
+            ("Create the script first",
+             "In the tool, press Create Script. QGrab writes the "
+             "video's script from its subtitles — or from the "
+             "audio itself — and shows it in an editable preview."),
+            ("Generate the prompts",
+             "Edit the script if you want to, then press Create "
+             "Prompts. You get one ready-to-use prompt per scene, "
+             "which you can copy, download as a text file, or "
+             "regenerate."),
+        ],
+        "sections": [
+            ("Video to Prompt — Scene by Scene",
+             "Each prompt describes a single scene: who is in it, "
+             "what happens, the exact dialogue, the camera work "
+             "and the mood. Because the prompts are built from the "
+             "video's own script — not from its title or guesswork "
+             "— they follow what the video actually shows and "
+             "says."),
+            ("Prompts Written Like a Real Film Shoot",
+             "Every prompt carries the same production rules: "
+             "dialogue spoken once, clearly, with lip-sync; "
+             "characters talking to each other, never into the "
+             "camera; complete camera angles and movement; "
+             "expressions that match the scene's mood; the same "
+             "character looking consistent in every scene; and no "
+             "text or logos inside the picture."),
+            ("A Note on Personal Use", PERSONAL_USE_NOTE),
+        ],
+        "faq": [
+            ("Is the AI video prompt generator free?",
+             "Yes — completely free, with no account and no "
+             "sign-up."),
+            ("Can QGrab make the video itself?",
+             "No. QGrab creates the script and the prompts; you "
+             "paste the prompts into an AI video tool (such as "
+             "Google Flow / Veo or a similar generator) to create "
+             "the video. The prompts are plain text, so they work "
+             "with any generator that accepts written prompts."),
+            ("Do the prompts work for videos without subtitles?",
+             "Yes. The script they are built from can come from "
+             "the video's subtitles or — for videos up to 20 "
+             "minutes — from listening to the video's own audio. "
+             "You can also edit the script before the prompts are "
+             "made, so the prompts follow your version."),
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -1162,6 +1346,11 @@ def _platform_view(key):
     others = []
     for k, p in PLATFORM_PAGES.items():
         if k == key:
+            continue
+        if p.get("tool"):
+            # Tool landing pages never appear as "other downloaders"
+            # cards; on the tool pages themselves this leaves the
+            # four real downloaders as the cards.
             continue
         other = {"name": p["name"], "path": p["path"], "h1": p["h1"]}
         otr = i18n.platform_strings(lang, k)
@@ -1322,6 +1511,16 @@ def facebook_downloader():
 @app.route("/instagram-video-downloader")
 def instagram_downloader():
     return _platform_view("instagram")
+
+
+@app.route("/video-script-generator")
+def video_script_generator():
+    return _platform_view("script")
+
+
+@app.route("/ai-video-prompt-generator")
+def ai_video_prompt_generator():
+    return _platform_view("prompts")
 
 
 @app.route("/video-to-script-prompt")

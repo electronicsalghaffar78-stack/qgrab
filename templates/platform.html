@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ page.title }}</title>
 <meta name="description" content="{{ page.description }}">
-<meta name="keywords" content="{{ page.name|lower }} video downloader, download {{ page.name|lower }} videos, {{ page.name|lower }} downloader, free video downloader, qgrab">
+<meta name="keywords" content="{{ page.keywords or (page.name|lower ~ ' video downloader, download ' ~ page.name|lower ~ ' videos, ' ~ page.name|lower ~ ' downloader, free video downloader, qgrab') }}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="{{ site_url }}{{ page.path }}">
 {% for h in hreflangs %}<link rel="alternate" hreflang="{{ h.code }}" href="{{ h.url }}">
@@ -187,10 +187,19 @@
 </header>
 
 <div class="wrap">
+  {% macro tool_cta(page) %}
+    <div class="grab" style="text-align:center">
+      <p style="color:var(--muted);max-width:520px;margin:0 auto 14px">{{ page.cta_text }}</p>
+      <a class="btn" href="{{ page.cta_href }}" style="display:inline-block">{{ page.cta_label }}</a>
+    </div>
+  {% endmacro %}
   <div class="hero">
     <h1>{{ page.h1 }}</h1>
     <p>{{ page.tagline }}</p>
 
+    {% if page.tool %}
+    {{ tool_cta(page) }}
+    {% else %}
     <div class="grab" id="download">
       <form class="grab-row" id="grabForm">
         <input id="urlInput" type="url" inputmode="url" autocomplete="off"
@@ -213,6 +222,7 @@
         <div id="dlStatus" role="status"></div>
       </div>
     </div>
+    {% endif %}
   </div>
 
   <div class="chips">
@@ -224,8 +234,8 @@
   </div>
 
   <section>
-    <h2>{{ t.howto_h2.format(name=page.name) }}</h2>
-    <p class="sub">{{ t.howto_sub }}</p>
+    <h2>{{ page.howto_h2 or t.howto_h2.format(name=page.name) }}</h2>
+    <p class="sub">{{ page.howto_sub or t.howto_sub }}</p>
     <div class="steps">
       {% for title, text in page.steps %}
       <div class="step"><div class="n">{{ loop.index }}</div><strong>{{ title }}</strong>
@@ -241,11 +251,11 @@
   </section>
   {% endfor %}
 
-  {% include "_specs.html" %}
+  {% if not page.tool %}{% include "_specs.html" %}{% endif %}
 
   <section class="faq">
-    <h2>{{ t.plat_faq_h2.format(name=page.name) }}</h2>
-    <p class="sub">{{ t.plat_faq_sub.format(name=page.name) }}</p>
+    <h2>{{ page.faq_h2 or t.plat_faq_h2.format(name=page.name) }}</h2>
+    <p class="sub">{{ page.faq_sub or t.plat_faq_sub.format(name=page.name) }}</p>
     {% for q, a in page.faq %}
     <details>
       <summary>{{ q }}</summary>
@@ -253,6 +263,12 @@
     </details>
     {% endfor %}
   </section>
+
+  {% if page.tool %}
+  <section>
+    {{ tool_cta(page) }}
+  </section>
+  {% endif %}
 
   <section>
     <h2>{{ t.more_h2 }}</h2>
@@ -283,7 +299,9 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   });
 }
-
+</script>
+{% if not page.tool %}
+<script>
 /* --- Downloader UI (same mechanism as the homepage) --- */
 const I18N = {{ js_strings | tojson }};
 const form = document.getElementById('grabForm');
@@ -444,5 +462,6 @@ form.addEventListener('submit', async (e) => {
   }
 });
 </script>
+{% endif %}
 </body>
 </html>

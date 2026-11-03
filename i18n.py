@@ -250,6 +250,8 @@ EN = {
     "tool_subs_p": "Download a video's subtitles as an .srt file.",
     "tool_tr_t": "YouTube Transcript",
     "tool_tr_p": "Turn a video's captions into a clean text transcript.",
+    "tool_sp_t": "Video to Script + Prompts",
+    "tool_sp_p": "Get a video's full script plus scene-by-scene AI video prompts.",
     "foot_tools": "All Tools",
     "rate_h2": "Rate QGrab",
     "rate_sub": "Used QGrab? Tap the stars to rate it — real ratings from real visitors, shown exactly as they are.",
