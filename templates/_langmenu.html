@@ -1,0 +1,7 @@
+<details class="langsw">
+  <summary aria-label="Language">🌐 {{ current_lang_name }}</summary>
+  <div class="langmenu">
+    {% for l in languages %}<a href="{{ lang_url(l.code) }}"{% if l.code == lang %} class="on" aria-current="true"{% endif %}>{{ l.name }}</a>
+    {% endfor %}
+  </div>
+</details>

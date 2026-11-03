@@ -45,6 +45,8 @@ from urllib.parse import parse_qs, quote, urlparse
 from flask import Flask, request, jsonify, render_template, Response, abort, send_file
 import yt_dlp
 
+import i18n
+
 app = Flask(__name__)
 
 # ---------------------------------------------------------------------------
@@ -99,6 +101,9 @@ def human_size(num):
 #             fallback — impersonation is what fixes the broken-webpage
 #             failure.
 #   Facebook: plain first (it works), one impersonation retry on failure.
+#   Pinterest / VK / X: impersonation first, plain as fallback — all
+#             three were verified (2026-11-03) to need impersonation
+#             from a cloud IP, exactly like TikTok.
 #   Others  : plain first, one impersonation retry only when the error
 #             looks like a webpage/403-style block.
 #
@@ -238,6 +243,13 @@ def site_of(url):
         return "tiktok"
     if "facebook" in host or host == "fb.watch":
         return "facebook"
+    if "pinterest" in host or host == "pin.it":
+        return "pinterest"
+    if "vk.com" in host or host.endswith(".vk.ru") \
+            or host.endswith(".vkvideo.ru"):
+        return "vk"
+    if "twitter" in host or host == "x.com" or host.endswith(".x.com"):
+        return "twitter"
     return "other"
 
 
@@ -263,6 +275,16 @@ def _attempt_plan(url):
         plan = [{"client": None, "impersonate": False}]
         if HAS_IMPERSONATION:
             plan.append({"client": None, "impersonate": True})
+        return plan
+    if site in ("pinterest", "vk", "twitter"):
+        # Verified 2026-11-03 (FEATURES-TEST-REPORT.md): from a cloud
+        # IP all three extract reliably only WITH browser
+        # impersonation, so — like TikTok — impersonation goes first
+        # and plain is the fallback (not the other way round).
+        plan = []
+        if HAS_IMPERSONATION:
+            plan.append({"client": None, "impersonate": True})
+        plan.append({"client": None, "impersonate": False})
         return plan
     plan = [{"client": None, "impersonate": False}]
     if HAS_IMPERSONATION:
@@ -523,7 +545,7 @@ def _shape_invidious_info(base, data, url):
     if duration:
         duration_string = f"{int(duration) // 60}:{int(duration) % 60:02d}"
 
-    return {
+    shaped = {
         "id": data.get("videoId"),
         "title": data.get("title") or "Untitled",
         "thumbnail": thumbnail,
@@ -536,6 +558,19 @@ def _shape_invidious_info(base, data, url):
         "_qgrab_source": "invidious",
         "_qgrab_instance": base,
     }
+
+    # The API also lists the video's caption tracks; shape them like
+    # yt-dlp's "subtitles" dict so the Subtitles / Transcript options
+    # work on the Invidious path too.
+    captions = {}
+    for c in data.get("captions") or []:
+        code = c.get("language_code") or c.get("languageCode")
+        if code:
+            captions[code] = [{"ext": "vtt",
+                               "name": c.get("label") or code}]
+    if captions:
+        shaped["subtitles"] = captions
+    return shaped
 
 
 def _extract_info_invidious(url):
@@ -660,10 +695,520 @@ def pick_formats(info):
     return (merged + combined + video_only[:5] + audio_only[:3])[:MAX_FORMATS]
 
 
+def pick_captions(info):
+    """Caption tracks for the Subtitles / Transcript options.
+
+    The uploader's own subtitle tracks win; YouTube's automatic
+    captions are the fallback (the same preference yt-dlp itself
+    uses). Returns [{"code": ..., "name": ...}] — empty when the
+    video simply has no captions, in which case the page hides the
+    options. Languages the UI itself speaks are listed first.
+    """
+    subs = info.get("subtitles") or {}
+    auto = info.get("automatic_captions") or {}
+    source = subs if subs else auto
+    out = []
+    for code, fmts in source.items():
+        name = None
+        for f in fmts or []:
+            if f.get("name"):
+                name = f["name"]
+                break
+        out.append({"code": code, "name": name or code})
+    order = {c: i for i, c in enumerate(i18n.LANG_CODES)}
+
+    def _rank(item):
+        base = item["code"].split("-")[0].lower()
+        return (0, order[base]) if base in order else (1, item["code"])
+
+    out.sort(key=_rank)
+    return out[:60]
+
+
 def safe_filename(title, ext):
     name = re.sub(r"[^\w\s.-]+", "", title or "video", flags=re.UNICODE).strip()
     name = re.sub(r"\s+", " ", name)[:80].strip() or "video"
     return f"{name}.{ext}"
+
+
+# ---------------------------------------------------------------------------
+# SEO — canonical site URL, per-platform landing pages, sitemap, robots
+#
+# The four landing pages (/youtube-video-downloader and friends) exist
+# so search engines can index a focused page per platform instead of
+# only the single homepage. Each renders templates/platform.html with
+# the same downloader tool, so a visitor landing from a search result
+# can download immediately. All copy is honest: it describes only what
+# QGrab actually does (see the live-verified notes at the top of this
+# file) — no invented numbers or testimonials.
+# ---------------------------------------------------------------------------
+
+SITE_URL = "https://qgrab.onrender.com"
+
+PERSONAL_USE_NOTE = (
+    "QGrab is a personal-use tool. Please download only videos that you "
+    "own, that you created yourself, or that you have the owner's "
+    "permission to save — and keep them for your own offline viewing. "
+    "Copyrighted content belongs to its creators."
+)
+
+PLATFORM_PAGES = {
+    "youtube": {
+        "path": "/youtube-video-downloader",
+        "name": "YouTube",
+        "title": "YouTube Video Downloader — Download YouTube Videos Free "
+                 "in HD | QGrab",
+        "description": "Download YouTube videos free with QGrab. Save "
+                       "videos in HD up to 1080p with sound, or save the "
+                       "audio only. No sign-up and nothing to install.",
+        "h1": "YouTube Video Downloader",
+        "tagline": "Download YouTube videos free — in HD with sound, or "
+                   "as audio only. Paste the link, pick a quality, and "
+                   "save the file to your device. No sign-up, nothing to "
+                   "install.",
+        "placeholder": "Paste a YouTube link here… e.g. "
+                       "https://www.youtube.com/watch?v=…",
+        "steps": [
+            ("Copy the YouTube link",
+             "Open the video on YouTube and copy its link — Share → "
+             "Copy link in the app, or copy the address bar in a "
+             "browser."),
+            ("Paste it here",
+             "Paste the link into the box at the top of this page and "
+             "press the Download button."),
+            ("Pick a quality & save",
+             "Choose a format — the ones marked \u201cwith sound\u201d "
+             "play anywhere — and the download starts right away."),
+        ],
+        "sections": [
+            ("Download YouTube Videos in HD, With Sound",
+             "Many YouTube videos are served as separate picture and "
+             "sound streams. QGrab lists the ready-to-watch formats "
+             "with sound first — including merged options up to 1080p "
+             "HD that it joins into a single MP4 file for you — plus "
+             "audio-only options for when you only want the sound."),
+            ("Free, With Nothing to Install",
+             "QGrab runs entirely in your browser, on phones, tablets "
+             "and computers alike. There is no account to create and no "
+             "app or software to download first, and using the "
+             "downloader is completely free."),
+            ("A Note on Personal Use", PERSONAL_USE_NOTE),
+        ],
+        "faq": [
+            ("Is the YouTube video downloader free?",
+             "Yes. QGrab is completely free to use — no account, no "
+             "sign-up and nothing to install. The site is supported by "
+             "the ads shown on the page."),
+            ("What quality can I download YouTube videos in?",
+             "Whatever the video itself offers, up to 1080p HD. Where "
+             "YouTube serves picture and sound as separate streams, "
+             "QGrab lists \u201cmerged on download\u201d options that "
+             "it joins into a single MP4 file with sound for you."),
+            ("Can I download just the audio from a YouTube video?",
+             "Yes. When a video offers audio-only formats, they appear "
+             "in the list marked \u201caudio only\u201d — handy for "
+             "music, talks and lectures that you have the right to "
+             "save."),
+            ("Why did my YouTube link fail?",
+             "Private, age-restricted or region-locked videos may not "
+             "work, and platforms change their systems from time to "
+             "time. Check that the link opens in your browser, then "
+             "try again."),
+        ],
+    },
+    "tiktok": {
+        "path": "/tiktok-video-downloader",
+        "name": "TikTok",
+        "title": "TikTok Video Downloader — Download TikTok Videos "
+                 "Without Watermark | QGrab",
+        "description": "Download TikTok videos without the watermark, "
+                       "free with QGrab. Paste the TikTok link, pick a "
+                       "quality and save the clean video to your phone "
+                       "or PC.",
+        "h1": "TikTok Video Downloader — No Watermark",
+        "tagline": "Save TikTok videos to your phone or computer "
+                   "without the watermark. Paste the link, choose a "
+                   "quality, download — no TikTok account or app needed.",
+        "placeholder": "Paste a TikTok link here… e.g. "
+                       "https://www.tiktok.com/@user/video/…",
+        "steps": [
+            ("Copy the TikTok link",
+             "Open the video in TikTok and tap Share → Copy link. You "
+             "can also copy the link from the video's page in a "
+             "browser."),
+            ("Paste it here",
+             "Paste the link into the box at the top of this page and "
+             "press the Download button."),
+            ("Pick a quality & save",
+             "Choose the quality you want and the clean, "
+             "watermark-free video saves straight to your device."),
+        ],
+        "sections": [
+            ("Download TikTok Videos Without a Watermark",
+             "QGrab saves the video file itself rather than recording "
+             "your screen, so TikTok downloads arrive clean — the "
+             "picture has no TikTok watermark moving across it, "
+             "exactly as the original file looks."),
+            ("Works on Phone and PC",
+             "There is nothing to install and no account to create. "
+             "QGrab works in the browser on Android and iPhone as well "
+             "as on tablets and computers, and it is free to use."),
+            ("A Note on Personal Use", PERSONAL_USE_NOTE),
+        ],
+        "faq": [
+            ("Do TikTok downloads really have no watermark?",
+             "Yes. QGrab downloads the video file itself instead of "
+             "recording the screen, so the saved video carries no "
+             "TikTok watermark."),
+            ("Do I need a TikTok account to use this?",
+             "No. You only need the link to a public TikTok video — no "
+             "login and no TikTok app are required."),
+            ("Where do downloaded TikTok videos go?",
+             "They save to your device like any other download — "
+             "usually your Downloads folder, or your browser's "
+             "downloads list on a phone."),
+            ("Why did my TikTok link fail?",
+             "Private videos may not work, and platforms change their "
+             "systems from time to time. Check that the link opens in "
+             "your browser, then try again."),
+        ],
+    },
+    "facebook": {
+        "path": "/facebook-video-downloader",
+        "name": "Facebook",
+        "title": "Facebook Video Downloader — Download Facebook Videos "
+                 "& Reels Free | QGrab",
+        "description": "Download Facebook videos and reels free with "
+                       "QGrab. Paste a public Facebook video link, "
+                       "choose the quality and save the video straight "
+                       "to your device.",
+        "h1": "Facebook Video Downloader",
+        "tagline": "Download Facebook videos and reels for free. Paste "
+                   "a public video link, pick the quality you want, and "
+                   "save the file to your phone or computer.",
+        "placeholder": "Paste a Facebook link here… e.g. "
+                       "https://www.facebook.com/watch/?v=…",
+        "steps": [
+            ("Copy the Facebook link",
+             "Open the video or reel on Facebook and copy its link — "
+             "Share → Copy link in the app, or copy the address bar in "
+             "a browser."),
+            ("Paste it here",
+             "Paste the link into the box at the top of this page and "
+             "press the Download button."),
+            ("Pick a quality & save",
+             "Choose the quality you want and the download starts "
+             "right away."),
+        ],
+        "sections": [
+            ("Download Facebook Videos and Reels",
+             "Paste a link to a public Facebook video or reel and "
+             "QGrab lists the qualities the video offers, so you can "
+             "pick a smaller file for your phone or a sharper one for "
+             "a bigger screen — then save it straight to your device."),
+            ("Public Videos Only",
+             "QGrab can only fetch videos that are publicly visible. "
+             "Videos that are private, or shared only with the "
+             "poster's friends, cannot be downloaded by any tool "
+             "without logging in — and QGrab never asks for your "
+             "Facebook password."),
+            ("A Note on Personal Use", PERSONAL_USE_NOTE),
+        ],
+        "faq": [
+            ("Can I download Facebook reels too?",
+             "Yes. Reels are videos, and a public reel link works in "
+             "the same box — paste it, pick a quality, and save."),
+            ("Why can't I download a private Facebook video?",
+             "Private videos, and videos shared only with friends, are "
+             "visible only to people logged in with permission to see "
+             "them. QGrab has no access to those, so only public "
+             "videos can be downloaded."),
+            ("Is the Facebook video downloader free?",
+             "Yes. QGrab is completely free to use — no account, no "
+             "sign-up and nothing to install. The site is supported "
+             "by the ads shown on the page."),
+            ("Which quality should I pick?",
+             "Higher numbers (1080p, 720p) mean a sharper picture and "
+             "a bigger file; lower numbers download faster and take "
+             "less space. Formats marked \u201cwith sound\u201d "
+             "include the audio in a single file."),
+        ],
+    },
+    "instagram": {
+        "path": "/instagram-video-downloader",
+        "name": "Instagram",
+        "title": "Instagram Video Downloader — Download Instagram "
+                 "Videos & Reels Free | QGrab",
+        "description": "Download Instagram videos and reels from "
+                       "public posts, free with QGrab. Paste the link, "
+                       "pick a quality and save the video — no login "
+                       "needed.",
+        "h1": "Instagram Video Downloader",
+        "tagline": "Download videos and reels from public Instagram "
+                   "posts, free. Paste the post link, pick a quality, "
+                   "and save the video to your device — no Instagram "
+                   "login required.",
+        "placeholder": "Paste an Instagram link here… e.g. "
+                       "https://www.instagram.com/reel/…",
+        "steps": [
+            ("Copy the Instagram link",
+             "Open the video post or reel and copy its link — tap the "
+             "Share icon (or the \u22ef menu) → Copy link."),
+            ("Paste it here",
+             "Paste the link into the box at the top of this page and "
+             "press the Download button."),
+            ("Pick a quality & save",
+             "Choose the quality you want and the video saves "
+             "straight to your device."),
+        ],
+        "sections": [
+            ("Download Instagram Videos and Reels",
+             "QGrab works with videos and reels from public Instagram "
+             "posts. Paste the link and QGrab lists the available "
+             "formats, so you can save the video to your phone or "
+             "computer in the quality you choose."),
+            ("Only Public Posts — No Login",
+             "Only posts from public accounts can be fetched, because "
+             "private content is visible only to approved followers "
+             "who are logged in. QGrab never asks for your Instagram "
+             "password — you only ever paste a link."),
+            ("A Note on Personal Use", PERSONAL_USE_NOTE),
+        ],
+        "faq": [
+            ("Can I download Instagram reels?",
+             "Yes — reels from public accounts work in the same box. "
+             "Paste the reel's link, pick a quality, and save."),
+            ("Do I need to log in to Instagram?",
+             "No — and you should never type your Instagram password "
+             "into a downloader site. QGrab only needs the link to a "
+             "public post."),
+            ("Why did my Instagram link fail?",
+             "Links from private accounts cannot be fetched, and "
+             "platforms change their systems from time to time. "
+             "Check that the post opens in your browser without "
+             "logging in, then try again."),
+            ("Is the Instagram video downloader free?",
+             "Yes. QGrab is completely free to use — no account, no "
+             "sign-up and nothing to install. The site is supported "
+             "by the ads shown on the page."),
+        ],
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Internationalisation — 30 languages (see i18n.py)
+#
+# Language choice: ?lang=xx wins, then the qgrab_lang cookie, else
+# English. A valid ?lang= is persisted in the cookie by _persist_lang.
+# The canonical URL of every page stays the plain (English) URL; the
+# language variants are advertised to search engines via hreflang.
+# ---------------------------------------------------------------------------
+
+def _current_lang():
+    lang = (request.args.get("lang") or "").strip().lower()
+    if i18n.is_valid(lang):
+        return lang
+    lang = (request.cookies.get(i18n.COOKIE_NAME) or "").strip().lower()
+    if i18n.is_valid(lang):
+        return lang
+    return i18n.DEFAULT_LANG
+
+
+def _hreflangs(path):
+    out = []
+    for code in i18n.LANG_CODES:
+        url = SITE_URL + path if code == "en" else f"{SITE_URL}{path}?lang={code}"
+        out.append({"code": code, "url": url})
+    out.append({"code": "x-default", "url": SITE_URL + path})
+    return out
+
+
+def _js_strings(t):
+    """The strings the page JavaScript needs, in the current language."""
+    return {
+        "working": t["btn_working"],
+        "download": t["btn_download"],
+        "length": t["js_length"],
+        "by": t["js_by"],
+        "dl": t["js_dl"],
+        "kind_va": t["js_kind_va"],
+        "kind_v": t["js_kind_v"],
+        "kind_a": t["js_kind_a"],
+        "err_formats": t["js_err_formats"],
+        "err_link": t["js_err_link"],
+        "err_generic": t["js_err_generic"],
+        "group_video": t["js_group_video"],
+        "group_mp3": t["js_group_mp3"],
+        "mp3": t["js_mp3"],
+        "group_caps": t["js_group_caps"],
+        "subs": t["js_subs"],
+        "transcript": t["js_transcript"],
+        "cap_lang": t["js_cap_lang"],
+    }
+
+
+@app.context_processor
+def _i18n_context():
+    lang = _current_lang()
+    t = i18n.get_strings(lang)
+    path = request.path
+
+    def lang_url(code):
+        return path if code == "en" else f"{path}?lang={code}"
+
+    return {
+        "lang": lang,
+        "dir": "rtl" if lang in i18n.RTL_LANGS else "ltr",
+        "t": t,
+        "languages": i18n.LANGUAGES,
+        "current_lang_name": i18n.language_name(lang),
+        "lang_url": lang_url,
+        "hreflangs": _hreflangs(path),
+        "js_strings": _js_strings(t),
+    }
+
+
+@app.after_request
+def _persist_lang(resp):
+    lang = (request.args.get("lang") or "").strip().lower()
+    if i18n.is_valid(lang):
+        resp.set_cookie(i18n.COOKIE_NAME, lang, max_age=31536000,
+                        path="/", samesite="Lax")
+    return resp
+
+
+def _faq_jsonld(faq):
+    """FAQPage structured data built from the same (question, answer)
+    pairs the page renders visibly, so the two can never drift apart."""
+    return {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": q,
+                "acceptedAnswer": {"@type": "Answer", "text": a},
+            }
+            for q, a in faq
+        ],
+    }
+
+
+def _platform_view(key):
+    lang = _current_lang()
+    t = i18n.get_strings(lang)
+    page = dict(PLATFORM_PAGES[key])
+    tr = i18n.platform_strings(lang, key)
+    if tr:
+        # Translated body copy; <title>/meta description stay English.
+        page["h1"] = tr["h1"]
+        page["tagline"] = tr["tagline"]
+        page["placeholder"] = tr["placeholder"]
+        page["steps"] = [tuple(s) for s in tr["steps"]]
+        page["sections"] = [tuple(s) for s in tr["sections"]] + [
+            (t["sect_personal_h"], t["personal_use"])
+        ]
+        page["faq"] = [tuple(f) for f in tr["faq"]]
+    others = []
+    for k, p in PLATFORM_PAGES.items():
+        if k == key:
+            continue
+        other = {"name": p["name"], "path": p["path"], "h1": p["h1"]}
+        otr = i18n.platform_strings(lang, k)
+        if otr:
+            other["h1"] = otr["h1"]
+        others.append(other)
+    return render_template(
+        "platform.html",
+        page=page,
+        page_hint=t["hint_platform"].format(name=page["name"]),
+        site_url=SITE_URL,
+        others=others,
+        faq_ld=_faq_jsonld(page["faq"]),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Visitor ratings & reviews — real submissions only
+#
+# The homepage "Rate QGrab" widget stores every rating a visitor
+# actually submits in a JSON file on the server, and the average,
+# the filled stars and the "(N ratings)" line are computed from
+# those stored submissions — nothing is seeded, rounded up or
+# invented; with zero submissions the widget says exactly that.
+#
+# Storage is a plain JSON file (data/ratings.json next to app.py,
+# overridable with QGRAB_DATA_DIR). Render's free tier has an
+# ephemeral disk, so the file survives restarts of the process but
+# NOT a redeploy or a filesystem reset — ratings collected between
+# deploys are real but not permanent (see FEATURES-REPORT.md).
+# The data/ directory is gitignored: user data is never committed.
+#
+# Abuse controls are deliberately light for v1: one rating per
+# browser via a cookie flag (a soft limit — clearing cookies resets
+# it), length caps, and Jinja's autoescaping when reviews render.
+# There is no admin panel; moderation = editing the JSON file.
+# ---------------------------------------------------------------------------
+
+DATA_DIR = os.environ.get("QGRAB_DATA_DIR") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data")
+RATINGS_FILE = os.path.join(DATA_DIR, "ratings.json")
+RATINGS_COOKIE = "qgrab_rated"
+MAX_REVIEW_NAME = 40
+MAX_REVIEW_TEXT = 300
+MAX_STORED_RATINGS = 500
+MAX_LISTED_REVIEWS = 20
+_ratings_lock = threading.Lock()
+
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+except OSError:
+    pass  # _save_ratings retries the mkdir on every write
+
+
+def _load_ratings():
+    try:
+        with open(RATINGS_FILE, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, list):
+            return [r for r in data if isinstance(r, dict)
+                    and isinstance(r.get("stars"), int)]
+    except (OSError, ValueError):
+        pass
+    return []
+
+
+def _save_ratings(ratings):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = RATINGS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(ratings, fh, ensure_ascii=False)
+    os.replace(tmp, RATINGS_FILE)
+
+
+def ratings_summary():
+    """{count, average, reviews} computed from the stored ratings.
+
+    average is None until at least one real rating exists; reviews
+    (the submissions that included text) come newest first."""
+    ratings = _load_ratings()
+    count = len(ratings)
+    average = None
+    if count:
+        average = round(
+            sum(r.get("stars", 0) for r in ratings) / count, 1)
+    reviews = []
+    for r in reversed(ratings):
+        if r.get("text"):
+            reviews.append({
+                "name": r.get("name") or "",
+                "stars": r.get("stars", 0),
+                "text": r.get("text") or "",
+                "date": r.get("date") or "",
+            })
+        if len(reviews) >= MAX_LISTED_REVIEWS:
+            break
+    return {"count": count, "average": average, "reviews": reviews}
 
 
 # ---------------------------------------------------------------------------
@@ -672,7 +1217,26 @@ def safe_filename(title, ext):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    faq = i18n.home_faq(_current_lang())
+    t = i18n.get_strings(_current_lang())
+    rate_js = {
+        "thanks": t["rate_thanks"],
+        "already": t["rate_already"],
+        "err_stars": t["rate_err_stars"],
+        "err_save": t["rate_err_save"],
+        "ratings": t["rate_ratings"],
+        "one": t["rate_one"],
+        "none": t["rate_none"],
+        "reviews_h": t["rate_reviews_h"],
+    }
+    return render_template(
+        "index.html",
+        home_faq=faq,
+        home_faq_ld=_faq_jsonld(faq),
+        ratings=ratings_summary(),
+        already_rated=bool(request.cookies.get(RATINGS_COOKIE)),
+        rate_js=rate_js,
+    )
 
 
 @app.route("/terms")
@@ -690,24 +1254,84 @@ def dmca():
     return render_template("dmca.html")
 
 
+@app.route("/youtube-video-downloader")
+def youtube_downloader():
+    return _platform_view("youtube")
+
+
+@app.route("/tiktok-video-downloader")
+def tiktok_downloader():
+    return _platform_view("tiktok")
+
+
+@app.route("/facebook-video-downloader")
+def facebook_downloader():
+    return _platform_view("facebook")
+
+
+@app.route("/instagram-video-downloader")
+def instagram_downloader():
+    return _platform_view("instagram")
+
+
+@app.route("/sitemap.xml")
+def sitemap():
+    import datetime
+    lastmod = datetime.date.today().isoformat()
+    entries = [("/", "1.0", "weekly")]
+    entries += [(p["path"], "0.9", "weekly")
+                for p in PLATFORM_PAGES.values()]
+    entries += [("/terms", "0.3", "monthly"),
+                ("/privacy", "0.3", "monthly"),
+                ("/dmca", "0.3", "monthly")]
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<urlset xmlns="http://www.sitemaps.org/schemas/'
+             'sitemap/0.9">']
+    for path, priority, freq in entries:
+        lines.append("  <url>")
+        lines.append(f"    <loc>{SITE_URL}{path}</loc>")
+        lines.append(f"    <lastmod>{lastmod}</lastmod>")
+        lines.append(f"    <changefreq>{freq}</changefreq>")
+        lines.append(f"    <priority>{priority}</priority>")
+        lines.append("  </url>")
+    lines.append("</urlset>")
+    return Response("\n".join(lines) + "\n", mimetype="application/xml")
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    body = ("User-agent: *\n"
+            "Allow: /\n"
+            "\n"
+            f"Sitemap: {SITE_URL}/sitemap.xml\n")
+    return Response(body, mimetype="text/plain")
+
+
 @app.route("/api/info", methods=["POST"])
 def api_info():
     data = request.get_json(silent=True) or {}
     url = clean_url(data.get("url", ""))
     if not url:
-        return jsonify({"error": "Please paste a valid video link (http/https)."}), 400
+        return jsonify({"error": i18n.get_strings(_current_lang())["api_invalid"]}), 400
     try:
         info = extract_info(url)
     except Exception as e:
         # Raw yt-dlp errors (bot walls, extractor internals) stay in the
         # server log; visitors get one short, friendly message.
         app.logger.warning("info failed for %s: %s", url, e)
-        return jsonify({"error": FRIENDLY_ERROR}), 422
+        return jsonify({"error": i18n.get_strings(_current_lang())["api_friendly"]}), 422
 
     if info.get("_type") == "playlist":
         entries = [e for e in info.get("entries") or [] if e]
         if entries:
             info = entries[0]
+
+    # An MP3 can be produced whenever some format carries audio. A
+    # missing acodec field means a combined/progressive format (X and
+    # Pinterest report it that way); only acodec="none" is audio-less.
+    has_audio = any(
+        f.get("acodec") != "none"
+        for f in info.get("formats", []) if f.get("url"))
 
     return jsonify({
         "title": info.get("title") or "Untitled",
@@ -718,6 +1342,11 @@ def api_info():
         "uploader": info.get("uploader"),
         "webpage_url": info.get("webpage_url") or url,
         "formats": pick_formats(info),
+        # Extra download options (see download_mp3/download_captions):
+        # an MP3 transcode whenever the source has any audio at all,
+        # and Subtitles/Transcript whenever caption tracks exist.
+        "mp3": has_audio,
+        "captions": pick_captions(info),
     })
 
 
@@ -926,6 +1555,358 @@ def download_merged(url, height):
     return resp
 
 
+def _send_temp_file(path, tmpdir, filename, mimetype):
+    """send_file() a file inside a temp dir, deleting the dir when
+    the response closes (the pattern the merged download uses)."""
+    resp = send_file(path, as_attachment=True, download_name=filename,
+                     mimetype=mimetype)
+
+    @resp.call_on_close
+    def _cleanup(tmpdir=tmpdir):
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    return resp
+
+
+def _find_produced_file(tmpdir, prefer_ext=None):
+    """The file a yt-dlp download left behind in tmpdir (never a
+    .part), preferring a given extension; None when there is none."""
+    files = [f for f in os.listdir(tmpdir) if not f.endswith(".part")]
+    if prefer_ext:
+        for f in files:
+            if f.lower().endswith(prefer_ext):
+                return os.path.join(tmpdir, f)
+    if files:
+        return os.path.join(tmpdir, files[0])
+    return None
+
+
+# ---------------------------------------------------------------------------
+# MP3 / audio-only download
+#
+# The approach FEATURES-TEST-REPORT.md verified with the CLI
+# (yt-dlp -f bestaudio -x --audio-format mp3): download bestaudio and
+# let yt-dlp's FFmpegExtractAudio post-processor transcode to MP3
+# with ffmpeg. Sources that are already MP3 (TikTok's sound track)
+# pass through untouched; YouTube's Opus/M4A becomes a real MP3.
+# Like every other download this walks the attempt cascade, and for
+# YouTube the Invidious proxy route is the last resort.
+# ---------------------------------------------------------------------------
+
+def _download_mp3_invidious(url):
+    """download_mp3()'s Invidious twin: fetch the best audio-only
+    adaptive format through the instance's proxy and transcode it to
+    MP3 with ffmpeg. Returns a send_file response, or None."""
+    video_id = _youtube_video_id(url)
+    if not video_id:
+        return None
+    try:
+        base, data = _invidious_raw(video_id)
+    except Exception as e:
+        app.logger.info("invidious mp3: no info for %s: %s", url, e)
+        return None
+    audios = [f for f in data.get("adaptiveFormats") or []
+              if f.get("url")
+              and (f.get("type") or "").startswith("audio/")]
+    if not audios:
+        return None
+
+    def _akey(f):
+        mime = f.get("type") or ""
+        return (1 if "mp4" in mime else 0, int(f.get("bitrate") or 0))
+
+    pick = max(audios, key=_akey)
+    tmpdir = tempfile.mkdtemp(prefix="qgrab-inv-mp3-")
+    try:
+        ext = pick.get("container") or "m4a"
+        src = os.path.join(tmpdir, f"audio.{ext}")
+        _fetch_to_file(pick["url"], src)
+        final = src
+        if ext.lower() != "mp3":
+            ffmpeg = shutil.which("ffmpeg")
+            if not ffmpeg:
+                app.logger.warning("invidious mp3: ffmpeg missing")
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                return None
+            final = os.path.join(tmpdir, "audio.mp3")
+            proc = subprocess.run(
+                [ffmpeg, "-y", "-i", src, "-vn", "-codec:a",
+                 "libmp3lame", "-q:a", "2", final],
+                capture_output=True, timeout=300)
+            if proc.returncode != 0 or not os.path.exists(final) \
+                    or os.path.getsize(final) == 0:
+                app.logger.info("invidious mp3: transcode failed")
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                return None
+    except Exception as e:
+        app.logger.info("invidious mp3 failed for %s: %s", url, e)
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return None
+    app.logger.info("invidious mp3 succeeded via %s for %s", base, url)
+    return _send_temp_file(final, tmpdir,
+                           safe_filename(data.get("title"), "mp3"),
+                           "audio/mpeg")
+
+
+def download_mp3(url):
+    """Serve the 'MP3 / Audio only' option for a video URL."""
+    last_error = None
+    for spec in _ordered_attempts(url):
+        if not _cascade_gate_open(spec, last_error):
+            break
+        tmpdir = tempfile.mkdtemp(prefix="qgrab-mp3-")
+        outtmpl = os.path.join(tmpdir, f"{uuid.uuid4().hex}.%(ext)s")
+        opts = _build_opts(spec, {
+            "format": "bestaudio/best",
+            "outtmpl": outtmpl,
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+            }],
+        }, url=url)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+        except Exception as e:
+            last_error = e
+            app.logger.info(
+                "mp3 attempt failed (client=%s impersonate=%s) "
+                "for %s: %s",
+                spec.get("client"), spec.get("impersonate"), url, e)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            continue
+        path = _find_produced_file(tmpdir, ".mp3")
+        if not path or os.path.getsize(path) == 0:
+            app.logger.info(
+                "mp3 attempt produced no file (client=%s) for %s",
+                spec.get("client"), url)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            continue
+        _remember_winner(url, spec)
+        return _send_temp_file(path, tmpdir,
+                               safe_filename(info.get("title"), "mp3"),
+                               "audio/mpeg")
+    if site_of(url) == "youtube":
+        inv_resp = _download_mp3_invidious(url)
+        if inv_resp is not None:
+            return inv_resp
+    if last_error is not None:
+        app.logger.warning("mp3 download failed for %s: %s",
+                           url, last_error)
+    abort(502, "Could not prepare that MP3 download.")
+
+
+# ---------------------------------------------------------------------------
+# Subtitles + transcript downloads
+#
+# One feature underneath, two shapes on top (FEATURES-TEST-REPORT.md
+# §3/§4): fetch the caption track once as WebVTT — yt-dlp with
+# --write-subs/--write-auto-subs/--skip-download through the usual
+# cascade, the Invidious captions API as YouTube's last resort — then
+# either convert it to .srt with ffmpeg (the preferred subtitle
+# shape; the .vtt itself is the fallback) or clean it into a plain
+# text transcript.
+# ---------------------------------------------------------------------------
+
+_CAPTION_LANG_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+
+
+def _fetch_caption_vtt_invidious(url, lang):
+    """Ask each Invidious instance for one caption track as raw VTT.
+    Returns (vtt_text, title) or None."""
+    video_id = _youtube_video_id(url)
+    if not video_id:
+        return None
+    for base in INVIDIOUS_INSTANCES:
+        try:
+            listing = _http_get_json(f"{base}/api/v1/captions/{video_id}")
+        except Exception as e:
+            app.logger.info("invidious captions list failed via %s: %s",
+                            base, e)
+            continue
+        tracks = listing.get("captions") or []
+
+        def _code(c):
+            return c.get("language_code") or c.get("languageCode") or ""
+
+        chosen = None
+        for c in tracks:
+            if _code(c) == lang:
+                chosen = c
+                break
+        if chosen is None:  # same base language, any region variant
+            for c in tracks:
+                if _code(c).split("-")[0] == lang.split("-")[0]:
+                    chosen = c
+                    break
+        if chosen is None or not chosen.get("url"):
+            continue
+        try:
+            req = urllib.request.Request(base + chosen["url"],
+                                         headers=_INVIDIOUS_UA)
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                vtt = resp.read().decode("utf-8", "replace")
+        except Exception as e:
+            app.logger.info("invidious caption fetch failed via %s: %s",
+                            base, e)
+            continue
+        if "WEBVTT" not in vtt[:64]:
+            continue
+        title = None
+        try:
+            _, data = _invidious_raw(video_id)
+            title = data.get("title")
+        except Exception:
+            pass
+        app.logger.info("invidious captions succeeded via %s for %s",
+                        base, url)
+        return vtt, title
+    return None
+
+
+def _fetch_caption_vtt(url, lang):
+    """Fetch one caption track as raw WebVTT text; (vtt, title).
+
+    Walks the attempt cascade with yt-dlp's subtitle writer, then —
+    for YouTube — the Invidious captions API. Raises the last error
+    when no attempt produced a track."""
+    last_error = None
+    for spec in _ordered_attempts(url):
+        if not _cascade_gate_open(spec, last_error):
+            break
+        tmpdir = tempfile.mkdtemp(prefix="qgrab-subs-")
+        try:
+            opts = _build_opts(spec, {
+                "skip_download": True,
+                "writesubtitles": True,
+                "writeautomaticsub": True,
+                "subtitleslangs": [lang],
+                "subtitlesformat": "vtt",
+                "outtmpl": os.path.join(tmpdir, "%(id)s.%(ext)s"),
+            }, url=url)
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+            candidates = [f for f in os.listdir(tmpdir)
+                          if f.endswith(".vtt")]
+            if not candidates:
+                raise yt_dlp.utils.DownloadError(
+                    "Extractor wrote no caption file")
+
+            def _score(fn):
+                stem = fn[:-4].rsplit(".", 1)[-1]
+                if stem == lang:
+                    return 0
+                if stem.startswith(lang) or lang.startswith(stem):
+                    return 1
+                return 2
+
+            candidates.sort(key=_score)
+            with open(os.path.join(tmpdir, candidates[0]),
+                      encoding="utf-8") as fh:
+                vtt = fh.read()
+            if "WEBVTT" not in vtt[:64]:
+                raise yt_dlp.utils.DownloadError(
+                    "Caption file was not WebVTT")
+            _remember_winner(url, spec)
+            return vtt, info.get("title")
+        except Exception as e:
+            last_error = e
+            app.logger.info(
+                "caption attempt failed (client=%s impersonate=%s) "
+                "for %s [%s]: %s",
+                spec.get("client"), spec.get("impersonate"), url,
+                lang, e)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    if site_of(url) == "youtube":
+        got = _fetch_caption_vtt_invidious(url, lang)
+        if got is not None:
+            return got
+    if last_error is not None:
+        raise last_error
+    raise yt_dlp.utils.DownloadError("No caption attempt was made.")
+
+
+def vtt_to_transcript(vtt):
+    """Clean plain-text transcript from a WebVTT caption file: drop
+    the header, cue timings and inline tags, de-duplicate the rolling
+    lines auto-captions repeat (each cue re-shows the previous line),
+    and join what remains into flowing text."""
+    out = []
+    for raw in vtt.splitlines():
+        line = raw.strip()
+        if not line or line == "WEBVTT" or line.isdigit() \
+                or line.startswith(("Kind:", "Language:", "NOTE")):
+            continue
+        if "-->" in line:
+            continue
+        line = re.sub(r"<[^>]+>", "", line).strip()
+        line = re.sub(r"\s+", " ", line)
+        if not line:
+            continue
+        if out and line == out[-1]:
+            continue  # the roll-up repeated the previous line
+        if out and line.startswith(out[-1]) and len(line) > len(out[-1]):
+            out[-1] = line  # same line, still growing word by word
+            continue
+        out.append(line)
+    return " ".join(out).strip()
+
+
+def _send_text_download(text, filename, mimetype):
+    resp = Response(text.encode("utf-8"), mimetype=mimetype)
+    ascii_name = filename.encode("ascii", "ignore").decode() \
+        or "transcript.txt"
+    resp.headers["Content-Disposition"] = (
+        f'attachment; filename="{ascii_name}"; '
+        f"filename*=UTF-8''{quote(filename)}")
+    return resp
+
+
+def download_captions(url, lang, as_transcript):
+    """Serve the 'Subtitles (.srt)' or 'Transcript (.txt)' option."""
+    if not _CAPTION_LANG_RE.match(lang or ""):
+        abort(400, "Bad caption language")
+    try:
+        vtt, title = _fetch_caption_vtt(url, lang)
+    except Exception as e:
+        app.logger.warning("captions failed for %s [%s]: %s",
+                           url, lang, e)
+        abort(502, FRIENDLY_ERROR)
+    title = title or "video"
+    if as_transcript:
+        text = vtt_to_transcript(vtt)
+        if not text:
+            abort(404, "That video has no captions.")
+        return _send_text_download(
+            text, safe_filename(f"{title} - transcript", "txt"),
+            "text/plain; charset=utf-8")
+    # .srt is the preferred subtitle shape; ffmpeg converts the VTT.
+    # When ffmpeg is missing or the conversion fails, the visitor
+    # still gets the captions — as the original .vtt.
+    tmpdir = tempfile.mkdtemp(prefix="qgrab-srt-")
+    vpath = os.path.join(tmpdir, "caps.vtt")
+    with open(vpath, "w", encoding="utf-8") as fh:
+        fh.write(vtt)
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        spath = os.path.join(tmpdir, "caps.srt")
+        try:
+            proc = subprocess.run([ffmpeg, "-y", "-i", vpath, spath],
+                                  capture_output=True, timeout=120)
+        except Exception:
+            proc = None
+        if proc is not None and proc.returncode == 0 \
+                and os.path.exists(spath) and os.path.getsize(spath) > 0:
+            return _send_temp_file(
+                spath, tmpdir,
+                safe_filename(f"{title} - subtitles", "srt"),
+                "application/x-subrip")
+    return _send_temp_file(
+        vpath, tmpdir, safe_filename(f"{title} - subtitles", "vtt"),
+        "text/vtt")
+
+
 def _download_via_ytdlp(url, format_id):
     """Last-resort download: let yt-dlp fetch the file itself.
 
@@ -1106,6 +2087,16 @@ def download():
             abort(400, "Bad format_id")
         return download_merged(url, height)
 
+    # The extra options /api/info advertises next to the format list.
+    if format_id == "mp3":
+        return download_mp3(url)
+    if format_id.startswith("subs:"):
+        return download_captions(url, format_id[len("subs:"):],
+                                 as_transcript=False)
+    if format_id.startswith("transcript:"):
+        return download_captions(url, format_id[len("transcript:"):],
+                                 as_transcript=True)
+
     try:
         info = extract_info(url)
     except Exception as e:
@@ -1181,6 +2172,46 @@ def download():
             close_upstream()
 
     return Response(stream(), status=status, headers=resp_headers)
+
+
+@app.route("/api/ratings")
+def api_ratings():
+    return jsonify(ratings_summary())
+
+
+@app.route("/api/rate", methods=["POST"])
+def api_rate():
+    t = i18n.get_strings(_current_lang())
+    if request.cookies.get(RATINGS_COOKIE):
+        return jsonify({"error": t["rate_already"]}), 409
+    data = request.get_json(silent=True) or {}
+    try:
+        stars = int(data.get("stars"))
+    except (TypeError, ValueError):
+        stars = 0
+    if stars < 1 or stars > 5:
+        return jsonify({"error": t["rate_err_stars"]}), 400
+    name = str(data.get("name") or "").strip()[:MAX_REVIEW_NAME]
+    text = str(data.get("text") or "").strip()[:MAX_REVIEW_TEXT]
+    entry = {
+        "name": name,
+        "stars": stars,
+        "text": text,
+        "date": time.strftime("%Y-%m-%d", time.gmtime()),
+        "ts": int(time.time()),
+    }
+    with _ratings_lock:
+        ratings = _load_ratings()
+        ratings.append(entry)
+        try:
+            _save_ratings(ratings[-MAX_STORED_RATINGS:])
+        except OSError as e:
+            app.logger.warning("could not save rating: %s", e)
+            return jsonify({"error": t["rate_err_save"]}), 500
+    resp = jsonify({"ok": True, **ratings_summary()})
+    resp.set_cookie(RATINGS_COOKIE, "1", max_age=31536000, path="/",
+                    samesite="Lax")
+    return resp
 
 
 @app.route("/sw.js")

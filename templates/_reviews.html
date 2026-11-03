@@ -1,0 +1,142 @@
+<section id="reviews">
+  <h2>{{ t.rate_h2 }}</h2>
+  <p class="sub">{{ t.rate_sub }}</p>
+  <div class="rate-box" id="rateBox">
+    <div class="rate-summary">
+      <span class="stars-view" aria-hidden="true"><span>★★★★★</span><span class="stars-fill" id="starsFill" style="width:{{ ((ratings.average or 0) / 5 * 100)|round(1) }}%">★★★★★</span></span>
+      {% if ratings.count %}
+      <span class="rate-num" id="rateNum">{{ "%.1f"|format(ratings.average) }}</span>
+      <span class="rate-count" id="rateCount">({{ t.rate_one if ratings.count == 1 else t.rate_ratings.format(n=ratings.count) }})</span>
+      {% else %}
+      <span class="rate-num" id="rateNum" style="display:none"></span>
+      <span class="rate-count" id="rateCount">{{ t.rate_none }}</span>
+      {% endif %}
+    </div>
+
+    {% if already_rated %}
+    <p class="rate-msg">{{ t.rate_already }}</p>
+    {% else %}
+    <form id="rateForm" class="rate-form">
+      <div class="rate-label">{{ t.rate_your }}</div>
+      <div class="star-input" id="starInput" role="radiogroup" aria-label="{{ t.rate_your }}">
+        {% for i in range(1, 6) %}<button type="button" data-v="{{ i }}" role="radio" aria-checked="false" aria-label="{{ i }}">★</button>{% endfor %}
+      </div>
+      <input id="rateName" type="text" maxlength="40" autocomplete="name" placeholder="{{ t.rate_name }}">
+      <textarea id="rateText" rows="3" maxlength="300" placeholder="{{ t.rate_text }}"></textarea>
+      <button class="btn" type="submit">{{ t.rate_submit }}</button>
+      <p class="rate-msg" id="rateMsg" style="display:none"></p>
+    </form>
+    {% endif %}
+    <p class="rate-msg ok" id="rateThanks" style="display:none">{{ t.rate_thanks }}</p>
+
+    {% if ratings.reviews %}
+    <h3 class="rate-reviews-h">{{ t.rate_reviews_h }}</h3>
+    <div class="reviews" id="reviewsList">
+      {% for r in ratings.reviews %}
+      <div class="review">
+        <div class="review-top">
+          <span class="review-stars">{{ "★" * r.stars }}{{ "☆" * (5 - r.stars) }}</span>
+          {% if r.name %}<strong>{{ r.name }}</strong>{% endif %}
+          <span class="review-date">{{ r.date }}</span>
+        </div>
+        <p class="review-text">{{ r.text }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+const RATE = {{ rate_js | tojson }};
+(function(){
+  const form = document.getElementById('rateForm');
+  const starsBox = document.getElementById('starInput');
+  let chosen = 0;
+  function paint(){
+    if (!starsBox) return;
+    for (const b of starsBox.children) {
+      const on = +b.dataset.v <= chosen;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on && +b.dataset.v === chosen ? 'true' : 'false');
+    }
+  }
+  if (starsBox) starsBox.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-v]');
+    if (!b) return;
+    chosen = +b.dataset.v;
+    paint();
+  });
+  function setSummary(avg, count){
+    const fill = document.getElementById('starsFill');
+    if (fill) fill.style.width = (avg ? (avg / 5 * 100) : 0) + '%';
+    const num = document.getElementById('rateNum');
+    const cnt = document.getElementById('rateCount');
+    if (count > 0) {
+      if (num) { num.textContent = avg.toFixed(1); num.style.display = ''; }
+      if (cnt) cnt.textContent = '(' + (count === 1 ? RATE.one : RATE.ratings.replace('{n}', count)) + ')';
+    }
+  }
+  function showMsg(txt){
+    const m = document.getElementById('rateMsg');
+    if (m) { m.textContent = txt; m.style.display = 'block'; }
+  }
+  if (form) form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!chosen) { showMsg(RATE.err_stars); return; }
+    const name = document.getElementById('rateName').value.trim();
+    const text = document.getElementById('rateText').value.trim();
+    try {
+      const r = await fetch('/api/rate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({stars: chosen, name, text})
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || RATE.err_save);
+      setSummary(data.average, data.count);
+      form.style.display = 'none';
+      const th = document.getElementById('rateThanks');
+      if (th) th.style.display = 'block';
+      if (text) {
+        let list = document.getElementById('reviewsList');
+        if (!list) {
+          const box = document.getElementById('rateBox');
+          const h = document.createElement('h3');
+          h.className = 'rate-reviews-h';
+          h.textContent = RATE.reviews_h;
+          box.appendChild(h);
+          list = document.createElement('div');
+          list.className = 'reviews';
+          list.id = 'reviewsList';
+          box.appendChild(list);
+        }
+        const rev = document.createElement('div');
+        rev.className = 'review';
+        const top = document.createElement('div');
+        top.className = 'review-top';
+        const st = document.createElement('span');
+        st.className = 'review-stars';
+        st.textContent = '★'.repeat(chosen) + '☆'.repeat(5 - chosen);
+        top.appendChild(st);
+        if (name) {
+          const nm = document.createElement('strong');
+          nm.textContent = name;
+          top.appendChild(nm);
+        }
+        const dt = document.createElement('span');
+        dt.className = 'review-date';
+        dt.textContent = new Date().toISOString().slice(0, 10);
+        top.appendChild(dt);
+        const p = document.createElement('p');
+        p.className = 'review-text';
+        p.textContent = text;
+        rev.append(top, p);
+        list.prepend(rev);
+      }
+    } catch (err) {
+      showMsg(err.message || RATE.err_save);
+    }
+  });
+})();
+</script>

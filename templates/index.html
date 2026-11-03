@@ -1,10 +1,38 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}" dir="{{ dir }}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QGrab — Free Online Video Downloader</title>
-<meta name="description" content="QGrab lets you download videos from YouTube, TikTok, Instagram, Facebook and 1000+ sites. Free, fast, no software to install.">
+<title>QGrab — Free Video Downloader | Download YouTube, TikTok, Facebook &amp; Instagram Videos</title>
+<meta name="description" content="Download videos free with QGrab — the free video downloader for YouTube, TikTok, Facebook &amp; Instagram. HD quality, no sign-up, TikTok with no watermark.">
+<meta name="keywords" content="video downloader, free video downloader, download youtube videos, youtube video downloader, tiktok video downloader, tiktok no watermark, facebook video downloader, instagram video downloader, download reels, qgrab">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://qgrab.onrender.com/">
+{% for h in hreflangs %}<link rel="alternate" hreflang="{{ h.code }}" href="{{ h.url }}">
+{% endfor %}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="QGrab">
+<meta property="og:title" content="QGrab — Free Video Downloader | Download YouTube, TikTok, Facebook &amp; Instagram Videos">
+<meta property="og:description" content="Download videos free with QGrab — the free video downloader for YouTube, TikTok, Facebook &amp; Instagram. HD quality, no sign-up, TikTok with no watermark.">
+<meta property="og:url" content="https://qgrab.onrender.com/">
+<meta property="og:image" content="https://qgrab.onrender.com/static/icons/icon-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="QGrab — Free Video Downloader | Download YouTube, TikTok, Facebook &amp; Instagram Videos">
+<meta name="twitter:description" content="Download videos free with QGrab — the free video downloader for YouTube, TikTok, Facebook &amp; Instagram. HD quality, no sign-up, TikTok with no watermark.">
+<meta name="twitter:image" content="https://qgrab.onrender.com/static/icons/icon-512.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "QGrab",
+  "url": "https://qgrab.onrender.com/",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Web",
+  "description": "QGrab is a free online video downloader for YouTube, TikTok, Instagram, Facebook and 1000+ sites. No sign-up, nothing to install, TikTok downloads without a watermark.",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<script type="application/ld+json">{{ home_faq_ld | tojson }}</script>
 <link rel="manifest" href="/static/manifest.webmanifest">
 <meta name="theme-color" content="#0e1013">
 <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
@@ -117,6 +145,10 @@
   .dcard .dhead h3{margin-bottom:0}
   .dcard .picon{width:30px;height:30px}
   .try{display:inline-block;margin-top:12px;font-weight:700}
+  /* platform guide cards: h2 headings without the centered section style */
+  .gcard h2{font-size:1.15rem;text-align:left;margin:0 0 6px;letter-spacing:-.2px}
+  .gcard h2::after{display:none}
+  .gcard p{color:var(--muted);font-size:.93rem}
   .platforms{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
   .plat{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
         padding:9px 15px;border-radius:999px;font-weight:600;font-size:.95rem}
@@ -164,18 +196,20 @@
   .foot-col .flogo span{color:var(--accent)}
   .foot-bottom{border-top:1px solid var(--line);margin-top:28px;padding-top:18px;
                text-align:center;font-size:.82rem;line-height:1.65}
+{% include "_extras.html" %}
 </style>
 </head>
 <body>
 
-<div class="topbar">🎉 QGrab is <strong>100% FREE</strong> — no sign-up, no limits, and <strong>no watermark</strong> on your downloads. Paste a link and download.</div>
+<div class="topbar">{{ t.topbar | safe }}</div>
 
 <header>
   <div class="wrap nav">
     <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo">Q<span>Grab</span></a>
     <nav>
-      <a href="#how">How to use</a>
-      <a href="#faq">FAQ</a>
+      <a href="#how">{{ t.nav_how }}</a>
+      <a href="#faq">{{ t.nav_faq }}</a>
+      {% include "_langmenu.html" %}
     </nav>
   </div>
 </header>
@@ -185,16 +219,16 @@
   <div class="ad ad-banner">AD<small>Advertisement space — top banner</small></div>
 
   <div class="hero">
-    <h1>Download Videos From <span class="grad">Anywhere</span></h1>
-    <p>Paste a link from YouTube, TikTok, Instagram, Facebook and 1000+ other sites — get your video in seconds, <strong>without any watermark</strong>. Free, no software to install.</p>
+    <h1>{{ t.h1_free }} <span class="grad">{{ t.h1_main }}</span></h1>
+    <p>{{ t.hero_sub | safe }}</p>
 
     <div class="grab" id="download">
       <form class="grab-row" id="grabForm">
         <input id="urlInput" type="url" inputmode="url" autocomplete="off"
-               placeholder="Paste your video link here… e.g. https://www.youtube.com/watch?v=…" required>
-        <button class="btn" id="goBtn" type="submit">Download</button>
+               placeholder="{{ t.ph_home }}" required>
+        <button class="btn" id="goBtn" type="submit">{{ t.btn_download }}</button>
       </form>
-      <div class="hint">Tip: copy the video link from the app or browser, paste it here, and press Download.</div>
+      <div class="hint">{{ t.hint_home }}</div>
       <div class="spinner" id="spinner"></div>
       <div id="error"></div>
 
@@ -212,173 +246,159 @@
   </div>
 
   <div class="chips">
-    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>SSL Secure</div>
-    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="8" r="4"/><path d="M3 21c.7-3.2 3.4-5 7-5 1.2 0 2.3.2 3.2.6"/><path d="M16 17l6 6M22 17l-6 6"/></svg>No Registration</div>
-    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="10" cy="5.5" rx="7" ry="2.8"/><path d="M3 5.5v6c0 1.6 3.1 2.9 7 2.9 1 0 2-.1 2.9-.3"/><path d="M3 11.5v6c0 1.5 2.9 2.8 6.6 2.9"/><path d="M15 16l7 6M22 16l-7 6"/></svg>No Link Storage</div>
-    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="13" height="10" rx="2"/><path d="M6 18h6"/><rect x="16.5" y="9" width="5.5" height="11" rx="1.6"/></svg>Works on All Devices</div>
-    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c3.5 4.1 6 7.3 6 10.4a6 6 0 1 1-12 0C6 10.3 8.5 7.1 12 3z"/><path d="M4.5 4.5l15 15"/></svg>No Watermark</div>
+    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>{{ t.chip_ssl }}</div>
+    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="8" r="4"/><path d="M3 21c.7-3.2 3.4-5 7-5 1.2 0 2.3.2 3.2.6"/><path d="M16 17l6 6M22 17l-6 6"/></svg>{{ t.chip_noreg }}</div>
+    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="10" cy="5.5" rx="7" ry="2.8"/><path d="M3 5.5v6c0 1.6 3.1 2.9 7 2.9 1 0 2-.1 2.9-.3"/><path d="M3 11.5v6c0 1.5 2.9 2.8 6.6 2.9"/><path d="M15 16l7 6M22 16l-7 6"/></svg>{{ t.chip_nostorage }}</div>
+    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="13" height="10" rx="2"/><path d="M6 18h6"/><rect x="16.5" y="9" width="5.5" height="11" rx="1.6"/></svg>{{ t.chip_devices }}</div>
+    <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c3.5 4.1 6 7.3 6 10.4a6 6 0 1 1-12 0C6 10.3 8.5 7.1 12 3z"/><path d="M4.5 4.5l15 15"/></svg>{{ t.chip_nowm }}</div>
   </div>
 
   <section>
-    <h2>Supported Platforms</h2>
-    <p class="sub">One downloader for almost every site on the internet.</p>
+    <h2>{{ t.supported_h2 }}</h2>
+    <p class="sub">{{ t.supported_sub }}</p>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="ig-grad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#FFD600"/><stop offset=".35" stop-color="#FF7A00"/><stop offset=".6" stop-color="#FF0069"/><stop offset=".82" stop-color="#D300C5"/><stop offset="1" stop-color="#7638FA"/></linearGradient></defs></svg>
     <div class="platforms">
       <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#FF0000" aria-hidden="true" focusable="false"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>YouTube</div>
       <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true" focusable="false"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>TikTok</div>
       <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="url(#ig-grad)" aria-hidden="true" focusable="false"><path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg>Instagram</div>
       <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#1877F2" aria-hidden="true" focusable="false"><path d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>Facebook</div>
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true" focusable="false"><path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"/></svg>Twitter / X</div>
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#00AAFF" aria-hidden="true" focusable="false"><path d="M21.823 7.327a11.928 11.928 0 0 0-2.606-3.814 12.126 12.126 0 0 0-3.866-2.57A12.246 12.246 0 0 0 10.617 0H1.831a.602.602 0 0 0-.609.603v3.764c0 .162.064.312.179.426l4.164 4.123a.612.612 0 0 0 .439.177h4.56c.806 0 1.56.313 2.125.88.557.559.856 1.296.843 2.075-.029 1.571-1.343 2.849-2.931 2.849h-6.74a.613.613 0 0 0-.432.176.619.619 0 0 0-.178.427v3.764c0 .162.063.312.178.427l4.139 4.099a.647.647 0 0 0 .476.21h2.572a12.276 12.276 0 0 0 4.733-.945 12.145 12.145 0 0 0 3.866-2.571 11.959 11.959 0 0 0 2.607-3.813c.633-1.479.956-3.051.956-4.67 0-1.619-.321-3.19-.956-4.669l.001-.005ZM2.441 4.118V1.982l2.945 2.755.001 2.297-2.946-2.916Zm4.975 17.813-2.945-2.917v-2.137l2.945 2.755v2.299Zm-2.004-5.832h5.19c2.248 0 4.107-1.807 4.147-4.03a4.027 4.027 0 0 0-1.192-2.937 4.203 4.203 0 0 0-2.996-1.239H6.606V5.216h3.996c1.831 0 3.553.706 4.849 1.986a6.724 6.724 0 0 1-.152 9.736 6.875 6.875 0 0 1-4.697 1.84H8.275L5.412 16.1v-.001Zm15.289.1a10.753 10.753 0 0 1-2.345 3.431 10.91 10.91 0 0 1-3.48 2.314 11.018 11.018 0 0 1-4.26.847H8.633v-2.814h1.916c2.145 0 4.161-.802 5.675-2.254a7.88 7.88 0 0 0 2.451-5.728c0-2.177-.87-4.21-2.451-5.728-1.514-1.454-3.528-2.254-5.675-2.254h-4.16L3.383 1.202h7.234c1.479 0 2.911.285 4.259.847a10.957 10.957 0 0 1 3.48 2.313 10.769 10.769 0 0 1 2.345 3.432c.571 1.33.86 2.743.86 4.202 0 1.46-.289 2.873-.86 4.203Z"/></svg>Dailymotion</div>
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="var(--accent)" aria-hidden="true" focusable="false"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>+ 1000 more sites</div>
+      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true" focusable="false"><path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"/></svg>X (Twitter)</div>
+      <div class="plat"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect width="24" height="24" rx="5.5" fill="#0077FF"/><text x="12" y="15.8" text-anchor="middle" font-size="8.2" font-weight="800" fill="#ffffff" font-family="Arial, sans-serif">VK</text></svg>VK</div>
+      <div class="plat"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="12" fill="#E60023"/><text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff" font-family="Georgia, serif">P</text></svg>Pinterest</div>
+      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="var(--accent)" aria-hidden="true" focusable="false"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>{{ t.plat_more }}</div>
     </div>
   </section>
 
   <section>
-    <h2>Why Choose QGrab</h2>
-    <p class="sub">A simple tool, built to do one job well — getting your video saved, quickly and safely.</p>
+    <h2>{{ t.why_h2 }}</h2>
+    <p class="sub">{{ t.why_sub }}</p>
     <div class="cards">
       <div class="fcard">
         <div class="ic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg></div>
-        <h3>Lightning Fast</h3>
-        <p>Paste a link and QGrab reads the video and lists every available quality right away. No waiting rooms, no extra software, no fuss.</p>
+        <h3>{{ t.feat1_t }}</h3>
+        <p>{{ t.feat1_p }}</p>
       </div>
       <div class="fcard">
         <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="13.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><text x="12" y="15.2" text-anchor="middle" font-size="7.5" font-weight="800" fill="currentColor">HD</text></svg></div>
-        <h3>HD Quality</h3>
-        <p>Choose up to 1080p HD — and QGrab never adds a watermark: TikTok videos arrive watermark-free, exactly as clean as the original file. Where a site serves video and sound separately, QGrab joins them into a single file with sound for you.</p>
+        <h3>{{ t.feat2_t }}</h3>
+        <p>{{ t.feat2_p }}</p>
       </div>
       <div class="fcard">
         <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.6 3.8 5.7 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"/></svg></div>
-        <h3>All Platforms</h3>
-        <p>YouTube, TikTok, Instagram, Facebook and 1000+ more sites are supported — all through the same simple download box.</p>
+        <h3>{{ t.feat3_t }}</h3>
+        <p>{{ t.feat3_p }}</p>
       </div>
       <div class="fcard">
         <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 2.6v5.2c0 4.6-3 7.7-7 9.2-4-1.5-7-4.6-7-9.2V5.6L12 3z"/><path d="M9 11.6l2.2 2.2 4.2-4.2"/></svg></div>
-        <h3>Private &amp; Safe</h3>
-        <p>Your links are processed in memory only to fetch your download. QGrab has no database and stores neither the links you paste nor the files you download.</p>
+        <h3>{{ t.feat4_t }}</h3>
+        <p>{{ t.feat4_p }}</p>
       </div>
     </div>
   </section>
 
   <section>
-    <h2>Popular Downloaders</h2>
-    <p class="sub">Jump straight to the downloader you need — they all use the same box at the top of this page.</p>
+    <h2>{{ t.popular_h2 }}</h2>
+    <p class="sub">{{ t.popular_sub }}</p>
     <div class="cards">
       <div class="dcard" id="youtube-downloader">
-        <div class="dhead"><svg class="picon" viewBox="0 0 24 24" fill="#FF0000" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg><h3>YouTube Video Downloader</h3></div>
-        <p>Download YouTube videos in HD with sound, or save just the audio on its own.</p>
-        <a class="try" href="#download">Try now ↑</a>
+        <div class="dhead"><svg class="picon" viewBox="0 0 24 24" fill="#FF0000" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg><h3>{{ t.card_yt_t }}</h3></div>
+        <p>{{ t.card_yt_p }}</p>
+        <a class="try" href="/youtube-video-downloader">{{ t.card_link.format(name='YouTube') }}</a>
       </div>
       <div class="dcard" id="tiktok-downloader">
-        <div class="dhead"><svg class="picon" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg><h3>TikTok Video Downloader</h3></div>
-        <p>Save TikTok videos to your phone or PC — just paste the link, no app or account needed.</p>
-        <a class="try" href="#download">Try now ↑</a>
+        <div class="dhead"><svg class="picon" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg><h3>{{ t.card_tt_t }}</h3></div>
+        <p>{{ t.card_tt_p }}</p>
+        <a class="try" href="/tiktok-video-downloader">{{ t.card_link.format(name='TikTok') }}</a>
       </div>
       <div class="dcard" id="instagram-downloader">
-        <div class="dhead"><svg class="picon" viewBox="0 0 24 24" fill="url(#ig-grad)" aria-hidden="true"><path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg><h3>Instagram Video Downloader</h3></div>
-        <p>Download videos and reels from public Instagram posts by pasting the link here.</p>
-        <a class="try" href="#download">Try now ↑</a>
+        <div class="dhead"><svg class="picon" viewBox="0 0 24 24" fill="url(#ig-grad)" aria-hidden="true"><path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg><h3>{{ t.card_ig_t }}</h3></div>
+        <p>{{ t.card_ig_p }}</p>
+        <a class="try" href="/instagram-video-downloader">{{ t.card_link.format(name='Instagram') }}</a>
       </div>
       <div class="dcard" id="facebook-downloader">
-        <div class="dhead"><svg class="picon" viewBox="0 0 24 24" fill="#1877F2" aria-hidden="true"><path d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg><h3>Facebook Video Downloader</h3></div>
-        <p>Save Facebook videos and reels in the quality you choose, straight to your device.</p>
-        <a class="try" href="#download">Try now ↑</a>
+        <div class="dhead"><svg class="picon" viewBox="0 0 24 24" fill="#1877F2" aria-hidden="true"><path d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg><h3>{{ t.card_fb_t }}</h3></div>
+        <p>{{ t.card_fb_p }}</p>
+        <a class="try" href="/facebook-video-downloader">{{ t.card_link.format(name='Facebook') }}</a>
       </div>
     </div>
   </section>
+
+  <section>
+    <h2>{{ t.guide_h2 }}</h2>
+    <p class="sub">{{ t.guide_sub }}</p>
+    <div class="cards">
+      <div class="fcard gcard">
+        <h2>{{ t.guide_yt_t }}</h2>
+        <p>{{ t.guide_yt_p }}</p>
+        <a class="try" href="/youtube-video-downloader">{{ t.guide_link.format(name='YouTube') }}</a>
+      </div>
+      <div class="fcard gcard">
+        <h2>{{ t.guide_tt_t }}</h2>
+        <p>{{ t.guide_tt_p }}</p>
+        <a class="try" href="/tiktok-video-downloader">{{ t.guide_link.format(name='TikTok') }}</a>
+      </div>
+      <div class="fcard gcard">
+        <h2>{{ t.guide_fb_t }}</h2>
+        <p>{{ t.guide_fb_p }}</p>
+        <a class="try" href="/facebook-video-downloader">{{ t.guide_link.format(name='Facebook') }}</a>
+      </div>
+      <div class="fcard gcard">
+        <h2>{{ t.guide_ig_t }}</h2>
+        <p>{{ t.guide_ig_p }}</p>
+        <a class="try" href="/instagram-video-downloader">{{ t.guide_link.format(name='Instagram') }}</a>
+      </div>
+    </div>
+  </section>
+
+  {% include "_tools.html" %}
+
+  {% include "_specs.html" %}
 
   <!-- AD PLACEHOLDER: in-content rectangle -->
   <div class="ad ad-incontent">AD<small>Advertisement space — in-content</small></div>
 
   <section id="how">
-    <h2>How To Use</h2>
-    <p class="sub">Three simple steps — done in under a minute.</p>
+    <h2>{{ t.how_h2 }}</h2>
+    <p class="sub">{{ t.how_sub }}</p>
     <div class="steps">
-      <div class="step"><div class="n">1</div><strong>Copy the link</strong>
-        <p>Open YouTube, TikTok, Instagram or any supported app and copy the video's link (Share → Copy link).</p></div>
-      <div class="step"><div class="n">2</div><strong>Paste it here</strong>
-        <p>Paste the link into the box at the top of this page and press the Download button.</p></div>
-      <div class="step"><div class="n">3</div><strong>Pick a quality &amp; save</strong>
-        <p>Choose the quality or format you want and the download starts right away. Enjoy!</p></div>
+      <div class="step"><div class="n">1</div><strong>{{ t.hstep1_t }}</strong>
+        <p>{{ t.hstep1_p }}</p></div>
+      <div class="step"><div class="n">2</div><strong>{{ t.hstep2_t }}</strong>
+        <p>{{ t.hstep2_p }}</p></div>
+      <div class="step"><div class="n">3</div><strong>{{ t.hstep3_t }}</strong>
+        <p>{{ t.hstep3_p }}</p></div>
     </div>
   </section>
 
   <section id="faq" class="faq">
-    <h2>Frequently Asked Questions</h2>
-    <p class="sub">Quick answers to common questions.</p>
+    <h2>{{ t.faq_h2 }}</h2>
+    <p class="sub">{{ t.faq_sub }}</p>
 
+    {% for q, a in home_faq %}
     <details>
-      <summary>Is QGrab free to use?</summary>
-      <p>Yes. QGrab is completely free — no account, no sign-up and no software installation. The site is supported by the ads you see on the page.</p>
+      <summary>{{ q }}</summary>
+      <p>{{ a }}</p>
     </details>
-    <details>
-      <summary>Is it legal to download videos?</summary>
-      <p>Please download only videos that you own, that you created yourself, or that you have the owner's permission to save — for personal, offline use. Copyrighted content belongs to its creators; downloading and re-uploading other people's work without permission can violate copyright law and the platform's terms.</p>
-    </details>
-    <details>
-      <summary>Which quality should I choose?</summary>
-      <p>Formats marked "with sound" include the audio in a single file — pick those for normal watching. Higher numbers (1080p, 720p) mean sharper video and bigger files; 360p is small and fast. "Audio" options give you just the sound, which is handy for music and lectures.</p>
-    </details>
-    <details>
-      <summary>Why did my link fail?</summary>
-      <p>Private, age-restricted or region-locked videos may not work, and some platforms change their systems from time to time. Check that the link opens in your browser, then try again.</p>
-    </details>
-    <details>
-      <summary>Does it work on phones?</summary>
-      <p>Yes — QGrab is built mobile-first and works in the browser on Android and iPhone, as well as on tablets and computers.</p>
-    </details>
+    {% endfor %}
   </section>
+
+  {% include "_reviews.html" %}
 
   <section id="install">
     <div class="install">
       <img src="/static/icons/icon-192.png" alt="QGrab app icon">
-      <h2>Install The QGrab App</h2>
-      <p>QGrab works as an app too — install it on your phone for one-tap access from your home screen, or use it right here in any PC browser. No app store needed.</p>
-      <button class="btn" id="installBtn" type="button" style="display:none">📲 Install App</button>
+      <h2>{{ t.install_h2 }}</h2>
+      <p>{{ t.install_p }}</p>
+      <button class="btn" id="installBtn" type="button" style="display:none">{{ t.install_btn }}</button>
       <ul class="steps-mini" id="installHelp">
-        <li><strong>Android (Chrome):</strong> tap the browser menu (⋮) → "Install app" or "Add to Home screen".</li>
-        <li><strong>iPhone (Safari):</strong> tap the Share button → "Add to Home Screen".</li>
-        <li><strong>PC (Chrome/Edge):</strong> click the install icon in the address bar, or just keep using the website — it works the same.</li>
+        <li>{{ t.install_li1 | safe }}</li>
+        <li>{{ t.install_li2 | safe }}</li>
+        <li>{{ t.install_li3 | safe }}</li>
       </ul>
     </div>
   </section>
 
-  <footer>
-    <div class="foot-grid">
-      <div class="foot-col">
-        <div class="flogo"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo">Q<span>Grab</span></div>
-        <p>QGrab is a free online video downloader for YouTube, TikTok, Instagram, Facebook and 1000+ sites.</p>
-        <p>No sign-up, nothing to install — and it works on your phone and PC, or as an installable app.</p>
-      </div>
-      <div class="foot-col">
-        <h4>Quick Links</h4>
-        <a href="/">Home</a>
-        <a href="#how">How to Use</a>
-        <a href="#faq">FAQ</a>
-        <a href="#install">Install App</a>
-      </div>
-      <div class="foot-col">
-        <h4>Platforms</h4>
-        <a href="#youtube-downloader">YouTube Downloader</a>
-        <a href="#tiktok-downloader">TikTok Downloader</a>
-        <a href="#instagram-downloader">Instagram Downloader</a>
-        <a href="#facebook-downloader">Facebook Downloader</a>
-      </div>
-      <div class="foot-col">
-        <h4>Legal</h4>
-        <a href="/terms">Terms of Use</a>
-        <a href="/privacy">Privacy Policy</a>
-        <a href="/dmca">DMCA</a>
-        <h4 style="margin-top:18px">Contact</h4>
-        <a href="mailto:electronicsalghaffar78@gmail.com">electronicsalghaffar78@gmail.com</a>
-      </div>
-    </div>
-    <div class="foot-bottom">
-      <p><strong>Disclaimer:</strong> QGrab is a personal-use tool. Download only videos you own or have permission to use. All videos, trademarks and content belong to their respective owners; QGrab does not store videos on its servers — files are fetched directly from the original platform at your request.</p>
-      <p style="margin-top:8px">© 2026 QGrab. Made for personal use.</p>
-    </div>
-  </footer>
+  {% include "_footer.html" %}
 </div>
 
 <script>
@@ -409,6 +429,7 @@ window.addEventListener('appinstalled', () => {
 });
 
 /* --- Downloader UI --- */
+const I18N = {{ js_strings | tojson }};
 const form = document.getElementById('grabForm');
 const input = document.getElementById('urlInput');
 const btn = document.getElementById('goBtn');
@@ -421,9 +442,9 @@ function showError(msg){
   errBox.style.display = 'block';
 }
 function kindText(f){
-  if (f.kind === 'video+audio') return 'video with sound';
-  if (f.kind === 'video') return 'video only (no sound)';
-  return 'audio only';
+  if (f.kind === 'video+audio') return I18N.kind_va;
+  if (f.kind === 'video') return I18N.kind_v;
+  return I18N.kind_a;
 }
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -432,7 +453,7 @@ form.addEventListener('submit', async (e) => {
   errBox.style.display = 'none';
   result.style.display = 'none';
   spinner.style.display = 'block';
-  btn.disabled = true; btn.textContent = 'Working…';
+  btn.disabled = true; btn.textContent = I18N.working;
   try {
     const r = await fetch('/api/info', {
       method: 'POST',
@@ -440,40 +461,82 @@ form.addEventListener('submit', async (e) => {
       body: JSON.stringify({url})
     });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'That link did not work.');
+    if (!r.ok) throw new Error(data.error || I18N.err_link);
     document.getElementById('rTitle').textContent = data.title;
     const bits = [];
     if (data.site) bits.push(data.site);
-    if (data.duration_h) bits.push('Length: ' + data.duration_h);
-    if (data.uploader) bits.push('By: ' + data.uploader);
+    if (data.duration_h) bits.push(I18N.length + data.duration_h);
+    if (data.uploader) bits.push(I18N.by + data.uploader);
     document.getElementById('rMeta').textContent = bits.join(' · ');
     const img = document.getElementById('rThumb');
     if (data.thumbnail) { img.src = data.thumbnail; img.style.display = 'block'; }
     else img.style.display = 'none';
     const box = document.getElementById('rFormats');
     box.innerHTML = '';
-    if (!data.formats.length) throw new Error('No downloadable formats were found for that link.');
-    for (const f of data.formats) {
+    const dlUrl = (fid) => '/download?url=' + encodeURIComponent(url) + '&format_id=' + encodeURIComponent(fid);
+    function heading(txt){
+      const h = document.createElement('div');
+      h.className = 'fgroup'; h.textContent = txt;
+      box.appendChild(h);
+    }
+    function fmtRow(label, detail, href){
       const row = document.createElement('div');
       row.className = 'fmt';
       const left = document.createElement('div');
-      const q = document.createElement('span'); q.className = 'q'; q.textContent = f.label;
+      const q = document.createElement('span'); q.className = 'q'; q.textContent = label;
       const d = document.createElement('span'); d.className = 'd';
-      d.textContent = ' ' + f.ext.toUpperCase() + ' · ' + kindText(f) + (f.size_h ? ' · ' + f.size_h : '');
+      d.textContent = ' ' + detail;
       left.append(q, d);
       const a = document.createElement('a');
-      a.textContent = '⬇ Download';
-      a.href = '/download?url=' + encodeURIComponent(url) + '&format_id=' + encodeURIComponent(f.id);
+      a.textContent = I18N.dl;
+      a.href = href;
       row.append(left, a);
+      box.appendChild(row);
+    }
+    const detail = (f) => f.ext.toUpperCase() + ' · ' + kindText(f) + (f.size_h ? ' · ' + f.size_h : '');
+    const vids = data.formats.filter(f => f.kind !== 'audio');
+    const auds = data.formats.filter(f => f.kind === 'audio');
+    const hasCaps = data.captions && data.captions.length;
+    if (!vids.length && !auds.length && !data.mp3 && !hasCaps) throw new Error(I18N.err_formats);
+    if (vids.length) {
+      heading(I18N.group_video);
+      for (const f of vids) fmtRow(f.label, detail(f), dlUrl(f.id));
+    }
+    if (data.mp3 || auds.length) {
+      heading(I18N.group_mp3);
+      if (data.mp3) fmtRow(I18N.mp3, 'MP3 · ' + I18N.kind_a, dlUrl('mp3'));
+      for (const f of auds) fmtRow(f.label, detail(f), dlUrl(f.id));
+    }
+    if (hasCaps) {
+      heading(I18N.group_caps);
+      const row = document.createElement('div');
+      row.className = 'fmt capsrow';
+      const sel = document.createElement('select');
+      sel.setAttribute('aria-label', I18N.cap_lang);
+      for (const c of data.captions) {
+        const o = document.createElement('option');
+        o.value = c.code;
+        o.textContent = c.name + ' (' + c.code + ')';
+        sel.appendChild(o);
+      }
+      const a1 = document.createElement('a'); a1.textContent = '⬇ ' + I18N.subs;
+      const a2 = document.createElement('a'); a2.textContent = '⬇ ' + I18N.transcript;
+      const upd = () => {
+        a1.href = dlUrl('subs:' + sel.value);
+        a2.href = dlUrl('transcript:' + sel.value);
+      };
+      sel.addEventListener('change', upd);
+      upd();
+      row.append(sel, a1, a2);
       box.appendChild(row);
     }
     result.style.display = 'block';
     result.scrollIntoView({behavior:'smooth', block:'nearest'});
   } catch (err) {
-    showError(err.message || 'Something went wrong. Please try again.');
+    showError(err.message || I18N.err_generic);
   } finally {
     spinner.style.display = 'none';
-    btn.disabled = false; btn.textContent = 'Download';
+    btn.disabled = false; btn.textContent = I18N.download;
   }
 });
 </script>

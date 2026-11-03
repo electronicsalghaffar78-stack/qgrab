@@ -29,6 +29,7 @@ RUN pip install -r requirements.txt "gunicorn==23.0.0" "pillow"
 
 # The application itself.
 COPY app.py ./
+COPY i18n.py ./
 COPY templates ./templates
 COPY static ./static
 
@@ -39,8 +40,10 @@ RUN python make_icons.py
 
 # Run unprivileged. Merged downloads are written to the system temp dir
 # (/tmp) by app.py and deleted after each response, so nothing else
-# needs to be writable.
-RUN useradd --create-home appuser && chown -R appuser /app
+# needs to be writable — except data/, which holds the ratings file
+# the reviews widget writes at runtime (ephemeral on Render Free: it
+# survives process restarts, not redeploys).
+RUN useradd --create-home appuser && mkdir -p /app/data && chown -R appuser /app
 USER appuser
 
 # Render (like most PaaS) injects the listen port as $PORT; gunicorn needs

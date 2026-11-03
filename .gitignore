@@ -1,0 +1,7 @@
+# Runtime data — real visitor ratings/reviews are stored in data/ at
+# runtime (data/ratings.json). User data must never be committed.
+data/
+
+__pycache__/
+*.pyc
+.venv/
