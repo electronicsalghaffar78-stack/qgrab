@@ -1,29 +1,37 @@
 <script>
-/* --- Video -> Script + AI Prompts tool ---
+/* --- Video -> Script + AI Prompts tool (v2) ---
    OWNER'S HARD RULE: generation runs ONLY when the visitor presses
-   this tool's own Generate button (in the homepage section or on
-   the dedicated page). Nothing fires on page load, on paste, or
-   after /api/info. The download-result area's "Script + Prompts"
-   button (window.qgrabSpPrefill) only scrolls here and pre-fills
-   the link — it never starts a generation. All model output is
-   rendered with textContent only — never innerHTML. */
+   one of this tool's own two buttons — "Create Script" or "Create
+   Prompts" (Script and Prompts are separate jobs; each press sends
+   its mode and fills only its own pane). Nothing fires on page
+   load, on paste, or after /api/info. The download-result area's
+   "Script + Prompts" button (window.qgrabSpPrefill) only scrolls
+   here and pre-fills the link — it never starts a generation.
+   While a generation runs, the pressed button simply shows the
+   "Please wait" string with the spinner (owner's wording rule).
+   All model output is rendered with textContent only — never
+   innerHTML. */
 (function(){
   const spForm = document.getElementById('spForm');
   if (!spForm || typeof I18N === 'undefined') return;
   const spUrl = document.getElementById('spUrl');
-  const spBtn = document.getElementById('spBtn');
+  const spBtnScript = document.getElementById('spBtnScript');
+  const spBtnPrompts = document.getElementById('spBtnPrompts');
+  const spRegen = document.getElementById('spRegenPrompts');
   const spSpin = document.getElementById('spSpinner');
   const spErr = document.getElementById('spError');
   const spRes = document.getElementById('spResult');
   const spScript = document.getElementById('spScript');
   const spPrompts = document.getElementById('spPrompts');
-  const spBtnLabel = spBtn.textContent;
+  const spButtons = [spBtnScript, spBtnPrompts, spRegen];
+  const spLabels = {};
+  spButtons.forEach(function(b){ spLabels[b.id] = b.textContent; });
   let spBusy = false;
 
   /* Cross-page prefill: a platform page's result button stores the
      link in sessionStorage before sending the visitor to the
      homepage section. Consume it once — fill the box only; the
-     visitor still presses Generate themselves. */
+     visitor still presses a button themselves. */
   try {
     const pre = sessionStorage.getItem('qgrab_sp_prefill');
     if (pre) {
@@ -38,14 +46,24 @@
   }
   function spErrorText(code){
     if (code === 'no_subtitles') return I18N.sp_err_nosubs;
+    if (code === 'too_long') return I18N.sp_err_toolong;
+    if (code === 'audio_too_big') return I18N.sp_err_audiobig;
+    if (code === 'no_speech') return I18N.sp_err_nospeech;
     if (code === 'rate_limited') return I18N.sp_err_rate;
     if (code === 'ai_unavailable') return I18N.sp_err_ai;
     if (code === 'not_configured') return I18N.sp_err_setup;
     if (code === 'invalid_url') return I18N.err_link;
     return I18N.err_generic;
   }
-  function spRender(data){
-    spScript.textContent = data.script || '';
+  /* Each mode fills ONLY its own pane; the other pane keeps
+     whatever it already shows. The script pane is an editable
+     textarea — the visitor can change the script right there,
+     and the next Prompts run is then made from their edited
+     text (it is sent along with the request). */
+  function spRenderScript(data){
+    spScript.value = data.script || '';
+  }
+  function spRenderPrompts(data){
     spPrompts.textContent = '';
     (data.prompts || []).forEach(function(p, i){
       const wrap = document.createElement('div');
@@ -59,56 +77,71 @@
       wrap.append(n, pre);
       spPrompts.appendChild(wrap);
     });
-    spRes.style.display = 'block';
   }
-  async function qgrabScriptPrompt(url){
+  async function qgrabScriptPrompt(url, mode, btn){
     if (spBusy || !url) return;
     spBusy = true;
     spErr.style.display = 'none';
-    spRes.style.display = 'none';
     spSpin.style.display = 'block';
-    spBtn.disabled = true; spBtn.textContent = I18N.sp_working_script;
-    /* Two-phase waiting label: the single request returns the
-       script and the prompts together, but while it runs the
-       button alternates between the two messages every 25 s. */
-    let spShowPrompt = false;
-    const spPhaseTimer = setInterval(function(){
-      spShowPrompt = !spShowPrompt;
-      spBtn.textContent = spShowPrompt ? I18N.sp_working_prompt
-                                       : I18N.sp_working_script;
-    }, 25000);
+    spButtons.forEach(function(b){ b.disabled = true; });
+    btn.textContent = I18N.sp_working;
     try {
+      const body = {url: url, mode: mode};
+      /* Forward flow: prompts are made from the script in the
+         box whenever it has content (the visitor's edited text
+         wins over re-reading the video). */
+      if (mode === 'prompts' && spScript.value.trim()) {
+        body.script = spScript.value;
+      }
       const r = await fetch('/api/script-prompt', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({url: url})
+        body: JSON.stringify(body)
       });
       const data = await r.json().catch(function(){ return {}; });
       if (!r.ok) throw new Error(spErrorText(data.error));
-      spRender(data);
+      if (mode === 'prompts') spRenderPrompts(data);
+      else spRenderScript(data);
+      spRes.style.display = 'block';
       spRes.scrollIntoView({behavior: 'smooth', block: 'nearest'});
     } catch (err) {
       spShowError(err.message || I18N.err_generic);
     } finally {
-      clearInterval(spPhaseTimer);
       spSpin.style.display = 'none';
-      spBtn.disabled = false; spBtn.textContent = spBtnLabel;
+      spButtons.forEach(function(b){ b.disabled = false; });
+      btn.textContent = spLabels[btn.id];
       spBusy = false;
     }
   }
-  /* The ONE generation trigger: the tool's own Generate button. */
+  /* The ONLY generation triggers: the tool's own two buttons.
+     (Pressing Enter in the link box runs the Script job.) */
+  spBtnScript.addEventListener('click', function(){
+    const url = spUrl.value.trim();
+    if (url) qgrabScriptPrompt(url, 'script', spBtnScript);
+  });
+  spBtnPrompts.addEventListener('click', function(){
+    const url = spUrl.value.trim();
+    if (url) qgrabScriptPrompt(url, 'prompts', spBtnPrompts);
+  });
+  /* Regenerate: a fresh Prompts run for the same link (from the
+     edited script when the box has content, like Create Prompts;
+     it counts against the same daily limit — no special case). */
+  spRegen.addEventListener('click', function(){
+    const url = spUrl.value.trim();
+    if (url) qgrabScriptPrompt(url, 'prompts', spRegen);
+  });
   spForm.addEventListener('submit', function(e){
     e.preventDefault();
     const url = spUrl.value.trim();
-    if (url) qgrabScriptPrompt(url);
+    if (url) qgrabScriptPrompt(url, 'script', spBtnScript);
   });
   /* The download-result area's button: scroll + prefill ONLY.
-     Generation still waits for the visitor to press Generate. */
+     Generation still waits for the visitor to press a button. */
   window.qgrabSpPrefill = function(url){
     spUrl.value = url;
     const sec = document.getElementById('script-prompt');
     if (sec) sec.scrollIntoView({behavior: 'smooth'});
-    spBtn.focus({preventScroll: true});
+    spBtnScript.focus({preventScroll: true});
   };
   function spCopy(btn, text){
     const done = function(){
@@ -129,15 +162,40 @@
   }
   const copyScript = document.getElementById('spCopyScript');
   if (copyScript) copyScript.addEventListener('click', function(){
-    spCopy(copyScript, spScript.textContent);
+    spCopy(copyScript, spScript.value);
   });
-  const copyPrompts = document.getElementById('spCopyPrompts');
-  if (copyPrompts) copyPrompts.addEventListener('click', function(){
+  function spPromptsText(){
     const parts = [];
     spPrompts.querySelectorAll('.sp-out').forEach(function(el, i){
       parts.push((i + 1) + '. ' + el.textContent);
     });
-    spCopy(copyPrompts, parts.join('\n\n'));
+    return parts.join('\n\n');
+  }
+  const copyPrompts = document.getElementById('spCopyPrompts');
+  if (copyPrompts) copyPrompts.addEventListener('click', function(){
+    spCopy(copyPrompts, spPromptsText());
+  });
+  /* Download (.txt): the pane's current content as a text file,
+     made entirely in the browser. */
+  function spDownload(filename, text){
+    const blob = new Blob([text], {type: 'text/plain;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function(){
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 100);
+  }
+  const dlScript = document.getElementById('spDlScript');
+  if (dlScript) dlScript.addEventListener('click', function(){
+    spDownload('qgrab-script.txt', spScript.value);
+  });
+  const dlPrompts = document.getElementById('spDlPrompts');
+  if (dlPrompts) dlPrompts.addEventListener('click', function(){
+    spDownload('qgrab-prompts.txt', spPromptsText());
   });
 })();
 </script>

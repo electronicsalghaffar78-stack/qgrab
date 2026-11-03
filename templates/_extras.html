@@ -92,6 +92,17 @@
   /* video -> script + prompts tool (this round) */
   .sp-box{max-width:760px;margin-left:auto;margin-right:auto;text-align:left}
   [dir="rtl"] .sp-box{text-align:right}
+  /* two generation buttons (Create Script / Create Prompts) */
+  .sp-btns{display:flex;gap:10px;margin-top:10px}
+  .sp-btns .btn{flex:1}
+  @media (max-width:560px){ .sp-btns{flex-direction:column} }
+  /* the script preview is an editable box in the pane's own style */
+  textarea.sp-out{width:100%;box-sizing:border-box;resize:vertical;
+    min-height:200px}
+  .sp-edit-hint{text-align:left;margin-top:8px}
+  [dir="rtl"] .sp-edit-hint{text-align:right}
+  /* Download / Regenerate row under a pane */
+  .sp-actions{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
   .sp-error{display:none;margin-top:16px;background:#3a1620;border:1px solid #6e2434;
     color:#ffb3bc;padding:12px 14px;border-radius:10px;font-size:.95rem}
   #spResult{display:none}

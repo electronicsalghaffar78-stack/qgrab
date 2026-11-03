@@ -1,8 +1,13 @@
 <div class="grab sp-box">
-  <form class="grab-row" id="spForm">
-    <input id="spUrl" type="url" inputmode="url" autocomplete="off"
-           placeholder="{{ t.sp_ph }}" required>
-    <button class="btn" id="spBtn" type="submit">{{ t.sp_btn }}</button>
+  <form id="spForm">
+    <div class="grab-row">
+      <input id="spUrl" type="url" inputmode="url" autocomplete="off"
+             placeholder="{{ t.sp_ph }}" required>
+    </div>
+    <div class="sp-btns">
+      <button class="btn" id="spBtnScript" type="button">{{ t.sp_btn_script }}</button>
+      <button class="btn" id="spBtnPrompts" type="button">{{ t.sp_btn_prompts }}</button>
+    </div>
   </form>
   <div class="hint">{{ t.sp_note }}</div>
   <div class="spinner" id="spSpinner"></div>
@@ -13,7 +18,12 @@
         <h3>{{ t.sp_script_h }}</h3>
         <button type="button" class="sp-copy" id="spCopyScript">{{ t.sp_copy }}</button>
       </div>
-      <pre class="sp-out" id="spScript"></pre>
+      <textarea class="sp-out sp-script-edit" id="spScript" rows="14"
+                spellcheck="false"></textarea>
+      <div class="hint sp-edit-hint">{{ t.sp_edit_hint }}</div>
+      <div class="sp-actions">
+        <button type="button" class="sp-copy" id="spDlScript">{{ t.sp_download }}</button>
+      </div>
     </div>
     <div class="sp-pane">
       <div class="sp-pane-head">
@@ -21,6 +31,10 @@
         <button type="button" class="sp-copy" id="spCopyPrompts">{{ t.sp_copy }}</button>
       </div>
       <div id="spPrompts"></div>
+      <div class="sp-actions">
+        <button type="button" class="sp-copy" id="spDlPrompts">{{ t.sp_download }}</button>
+        <button type="button" class="sp-copy" id="spRegenPrompts">{{ t.sp_regenerate }}</button>
+      </div>
     </div>
   </div>
 </div>

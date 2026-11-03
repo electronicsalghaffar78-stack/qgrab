@@ -1045,14 +1045,16 @@ def _js_strings(t):
         "transcript": t["js_transcript"],
         "cap_lang": t["js_cap_lang"],
         "sp_btn_result": t["sp_btn_result"],
-        "sp_working_script": t["sp_working_script"],
-        "sp_working_prompt": t["sp_working_prompt"],
+        "sp_working": t["sp_working"],
         "sp_copy": t["sp_copy"],
         "sp_copied": t["sp_copied"],
         "sp_err_nosubs": t["sp_err_nosubs"],
         "sp_err_rate": t["sp_err_rate"],
         "sp_err_ai": t["sp_err_ai"],
         "sp_err_setup": t["sp_err_setup"],
+        "sp_err_toolong": t["sp_err_toolong"],
+        "sp_err_audiobig": t["sp_err_audiobig"],
+        "sp_err_nospeech": t["sp_err_nospeech"],
     }
 
 
@@ -1928,13 +1930,21 @@ def download_captions(url, lang, as_transcript):
 # ---------------------------------------------------------------------------
 # Video -> Script + AI Prompts (Google Gemini)
 #
-# The featured tool: a visitor pastes a video link and presses ONE
-# button; the server reads the video's own captions (the same
-# _fetch_caption_vtt pipeline as Subtitles/Transcript), turns them
-# into a timed script and asks Gemini to format a clean script and
-# write scene-by-scene AI video prompts in the approved sample's
-# shape (character + scene + exact dialogue line + audio rules +
-# camera + photorealistic, nobody looking at the camera).
+# The featured tool: a visitor pastes a video link and presses one
+# of the tool's TWO buttons — "Create Script" or "Create Prompts"
+# (Script and Prompts are separate jobs; the request carries
+# "mode": "script" | "prompts"). Two routes feed the model:
+#   1. CAPTIONS — the video's own captions (the same
+#      _fetch_caption_vtt pipeline as Subtitles/Transcript) become a
+#      timed script, and Gemini formats the clean script or writes
+#      the scene-by-scene AI video prompts in the approved sample's
+#      shape (character + scene + exact dialogue line + audio rules
+#      + camera + photorealistic, nobody looking at the camera).
+#   2. AUDIO (v2, the owner's order after testing a subtitle-less
+#      TikTok) — when a video has no usable caption track, its audio
+#      is downloaded, converted to a small mono MP3 and sent to
+#      Gemini, which transcribes it and produces the same outputs.
+#      Caps: 20 minutes max, 18 MB max converted file.
 #
 # OWNER'S HARD RULE: generation happens ONLY on that explicit
 # button press. Nothing calls this endpoint on page load, on paste,
@@ -1972,7 +1982,11 @@ def download_captions(url, lang, as_transcript):
 SP_INPUT_LIMIT = 24000        # max caption characters sent to Gemini
 SP_RATE_LIMIT = 6             # generations per IP ...
 SP_RATE_WINDOW = 24 * 60 * 60  # ... per rolling 24 hours
-SP_GEMINI_TIMEOUT = 100       # seconds, per model attempt
+SP_GEMINI_TIMEOUT = 100       # seconds, per model attempt (text route)
+SP_AUDIO_MAX_SECONDS = 1200   # audio route: videos up to 20 minutes
+SP_AUDIO_MAX_BYTES = 18 * 1024 * 1024  # converted MP3 hard cap
+SP_AUDIO_GEMINI_TIMEOUT = 240  # seconds, per model attempt (audio)
+SP_FFMPEG_TIMEOUT = 300       # seconds for the MP3 conversion
 SP_DEFAULT_MODEL = "gemini-3.8-flash"
 SP_FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
 GEMINI_API_URL = ("https://generativelanguage.googleapis.com/v1beta/"
@@ -1981,15 +1995,24 @@ GEMINI_API_URL = ("https://generativelanguage.googleapis.com/v1beta/"
 _sp_hits = {}
 _sp_lock = threading.Lock()
 
-SP_SYSTEM_INSTRUCTION = """You turn a video's timed captions into (1) a clean production script and (2) ready-to-use AI video generation prompts. Answer with STRICT JSON only: {"script": "...", "prompts": ["...", "..."]} — no markdown fences, no commentary, nothing outside the JSON object.
-
-SCRIPT rules:
+# The SCRIPT rules and PROMPT rules below are the owner's approved
+# blocks. The PROMPT rules (the "usool") stay EXACTLY as built — all
+# 8 rules, never dropped or softened, on both routes and in prompts
+# mode. The instructions are composed per route (captions / audio)
+# and per mode (script / prompts): each mode returns ONLY its own
+# half of the old combined output.
+SP_SCRIPT_RULES = """SCRIPT rules:
 - Keep every spoken line EXACTLY as captioned — same words, same original language and script. Never translate the dialogue.
 - Group the lines into scenes. Start each scene with a heading line: SCENE n (start-end) — a few English words for the setting / what happens.
 - One line per speech: SPEAKER: <line>. Infer speaker labels from the words themselves (for example, someone addressed as "Amma" is the mother; the person calling her that is her child). Use short, consistent ALL-CAPS labels; use NARRATOR for voice-over, and UNKNOWN only when nothing at all can be inferred.
-- Mark stretches with no speech as a single line: (no dialogue — a brief English visual note).
+- Mark stretches with no speech as a single line: (no dialogue — a brief English visual note)."""
 
-PROMPT rules — exactly one English prompt per scene, in the same order, each a single self-contained paragraph an AI video generator can use directly. EVERY prompt MUST carry ALL of these production rules — none may be dropped or softened:
+# The audio route's twin of the script rules: identical formatting,
+# only the source word changes ("captioned" -> "transcribed").
+SP_SCRIPT_RULES_AUDIO = SP_SCRIPT_RULES.replace(
+    "EXACTLY as captioned", "EXACTLY as transcribed")
+
+SP_PROMPT_RULES = """PROMPT rules — exactly one English prompt per scene, in the same order, each a single self-contained paragraph an AI video generator can use directly. EVERY prompt MUST carry ALL of these production rules — none may be dropped or softened:
 1. DIALOGUE DELIVERY: the speaking character delivers the exact dialogue line himself/herself, in the line's own language, lips moving with the words. Add verbatim: DIALOGUE — <SPEAKER> says exactly, in clear <the caption language>, lips moving with the words, in their own voice, spoken ONCE, slowly and clearly, never repeated: "<the exact original line(s)>". The line is NEVER dubbed by anyone else. Audio: ONLY that character's voice — no other voices, no background talking or chatter, no music over the dialogue.
 2. EYELINE: characters talk TO EACH OTHER — nobody ever looks at or into the camera. State this in every prompt ("looking at <the other character>, never at the camera").
 3. CAMERA: give an explicit virtual-camera direction in every scene — BOTH an angle/shot size (e.g. medium shot, close-up, over-the-shoulder, wide shot) AND a movement (e.g. slow push-in, gentle pan, static locked-off).
@@ -1999,6 +2022,60 @@ PROMPT rules — exactly one English prompt per scene, in the same order, each a
 7. SILENT SCENES: for a scene without dialogue write explicitly: "Nobody speaks, mouths closed." — no dialogue block, no voice at all.
 8. ANTI-TEXT TAIL: end every prompt with exactly: "No subtitles, no captions, no text, no words, no letters, no numbers, no watermark, no logo anywhere in the frame — clean picture only."
 """
+
+SP_TEXT_INSTRUCTION_SCRIPT = (
+    "You turn a video's timed captions into a clean production "
+    "script. Answer with STRICT JSON only: {\"script\": \"...\"} "
+    "— no markdown fences, no commentary, nothing outside the JSON "
+    "object.\n\n" + SP_SCRIPT_RULES)
+
+SP_TEXT_INSTRUCTION_PROMPTS = (
+    "You turn a video's timed captions into ready-to-use AI video "
+    "generation prompts. First segment the captions into scenes "
+    "and speeches exactly as the SCRIPT rules below describe — but "
+    "do NOT output the script itself. Answer with STRICT JSON "
+    "only: {\"prompts\": [\"...\", \"...\"]} — no markdown fences, "
+    "no commentary, nothing outside the JSON object.\n\n"
+    + SP_SCRIPT_RULES + "\n\n" + SP_PROMPT_RULES)
+
+# Prompts mode from the visitor's OWN script text (the editable
+# preview flow): the script in the box — generated a moment ago and
+# possibly edited by the visitor — is the source; nothing is
+# fetched. The same rules, only the source's description differs.
+SP_SCRIPT_INSTRUCTION_PROMPTS = (
+    "You are given the script of a video, provided or edited by "
+    "the user. Segment it into scenes and speeches exactly as the "
+    "SCRIPT rules below describe — but do NOT output the script "
+    "itself. Answer with STRICT JSON only: {\"prompts\": [\"...\", "
+    "\"...\"]} — no markdown fences, no commentary, nothing "
+    "outside the JSON object.\n\n"
+    + SP_SCRIPT_RULES + "\n\n" + SP_PROMPT_RULES)
+
+SP_AUDIO_TRANSCRIBE_RULES = """TRANSCRIPTION rules:
+- Listen to the attached audio and transcribe the speech VERBATIM — every spoken word, in its ORIGINAL language and its original script. Never translate the dialogue.
+- Segment the transcription into scenes with APPROXIMATE time ranges, estimated from the audio's flow; scene headings follow the script rules (SCENE n (start-end) — a few English words for the setting / what happens).
+- If the audio contains NO intelligible speech at all (music only, noise, or silence), answer with exactly {"error": "no_speech"} and nothing else."""
+
+SP_AUDIO_INSTRUCTION_SCRIPT = (
+    "You are given the complete audio track of a video. Transcribe "
+    "it and turn the transcription into a clean production script. "
+    "Answer with STRICT JSON only: {\"script\": \"...\"} — no "
+    "markdown fences, no commentary, nothing outside the JSON "
+    "object (the only exception is the no_speech answer described "
+    "below).\n\n"
+    + SP_AUDIO_TRANSCRIBE_RULES + "\n\n" + SP_SCRIPT_RULES_AUDIO)
+
+SP_AUDIO_INSTRUCTION_PROMPTS = (
+    "You are given the complete audio track of a video. Transcribe "
+    "it and segment the transcription into scenes and speeches "
+    "exactly as the rules below describe — but do NOT output the "
+    "script itself; write the scene-by-scene AI video prompts "
+    "instead. Answer with STRICT JSON only: {\"prompts\": "
+    "[\"...\", \"...\"]} — no markdown fences, no commentary, "
+    "nothing outside the JSON object (the only exception is the "
+    "no_speech answer described below).\n\n"
+    + SP_AUDIO_TRANSCRIBE_RULES + "\n\n" + SP_SCRIPT_RULES_AUDIO
+    + "\n\n" + SP_PROMPT_RULES)
 
 
 def _gemini_api_key():
@@ -2140,22 +2217,19 @@ def _gemini_models():
     return models[:3]  # primary + up to 2 fallbacks
 
 
-def _gemini_generate(timed_script, title, cap_lang):
-    """Ask Gemini for the script + prompts; returns (raw_text,
-    model_used). On 404/429/5xx and on network errors the next
-    fallback model is tried; anything else fails at once. The API
-    key travels in the x-goog-api-key header only — it is never put
-    in a URL, a log line or a response."""
+def _gemini_call(parts, system_instruction, timeout):
+    """One generateContent call with model fallbacks; returns
+    (raw_text, model_used). On 404/429/5xx and on network errors the
+    next fallback model is tried; anything else fails at once. The
+    API key travels in the x-goog-api-key header only — it is never
+    put in a URL, a log line or a response."""
     payload = {
         "system_instruction": {
-            "parts": [{"text": SP_SYSTEM_INSTRUCTION}],
+            "parts": [{"text": system_instruction}],
         },
         "contents": [{
             "role": "user",
-            "parts": [{"text": (
-                f"Video title: {title or 'Untitled'}\n"
-                f"Caption language code: {cap_lang}\n\n"
-                f"Timed captions:\n{timed_script}")}],
+            "parts": parts,
         }],
         "generationConfig": {
             "temperature": 0.4,
@@ -2172,7 +2246,7 @@ def _gemini_generate(timed_script, title, cap_lang):
                      "x-goog-api-key": _gemini_api_key()})
         try:
             with urllib.request.urlopen(
-                    req, timeout=SP_GEMINI_TIMEOUT) as resp:
+                    req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
         except urllib.error.HTTPError as e:
             last_error = f"HTTP {e.code}"
@@ -2187,8 +2261,8 @@ def _gemini_generate(timed_script, title, cap_lang):
                                last_error, model)
             continue
         try:
-            parts = data["candidates"][0]["content"]["parts"]
-            text = "".join(p.get("text", "") for p in parts
+            resp_parts = data["candidates"][0]["content"]["parts"]
+            text = "".join(p.get("text", "") for p in resp_parts
                            if isinstance(p, dict))
         except (KeyError, IndexError, TypeError):
             text = ""
@@ -2199,11 +2273,51 @@ def _gemini_generate(timed_script, title, cap_lang):
     raise _GeminiUnavailable(str(last_error))
 
 
+def _gemini_generate_text(timed_script, title, cap_lang, mode):
+    """Caption route: timed captions in, the mode's JSON out."""
+    system = SP_TEXT_INSTRUCTION_SCRIPT if mode == "script" \
+        else SP_TEXT_INSTRUCTION_PROMPTS
+    parts = [{"text": (
+        f"Video title: {title or 'Untitled'}\n"
+        f"Caption language code: {cap_lang}\n\n"
+        f"Timed captions:\n{timed_script}")}]
+    return _gemini_call(parts, system, SP_GEMINI_TIMEOUT)
+
+
+def _gemini_generate_audio(mp3_path, title, mode):
+    """Audio route: the video's MP3 goes inline; Gemini transcribes
+    it and answers with the mode's JSON (or the no_speech error)."""
+    with open(mp3_path, "rb") as fh:
+        audio_b64 = base64.b64encode(fh.read()).decode("ascii")
+    system = SP_AUDIO_INSTRUCTION_SCRIPT if mode == "script" \
+        else SP_AUDIO_INSTRUCTION_PROMPTS
+    parts = [
+        {"inline_data": {"mime_type": "audio/mp3", "data": audio_b64}},
+        {"text": (
+            f"Video title: {title or 'Untitled'}\n"
+            "The attached MP3 is the video's complete audio track. "
+            "Follow the system instruction exactly.")},
+    ]
+    return _gemini_call(parts, system, SP_AUDIO_GEMINI_TIMEOUT)
+
+
+def _gemini_generate_prompts_from_script(script_text):
+    """Preview flow: prompts built from the visitor's own (possibly
+    edited) script text — no caption or audio fetch happens."""
+    parts = [{"text": (
+        "The script of the video, provided or edited by the user:\n\n"
+        + script_text)}]
+    return _gemini_call(parts, SP_SCRIPT_INSTRUCTION_PROMPTS,
+                        SP_GEMINI_TIMEOUT)
+
+
 def _sp_parse_output(raw):
     """Defensive parse of the model's reply -> (script, prompts,
-    partial). Strips markdown fences; when the JSON will not parse,
-    the raw text is handed back as the script with an empty prompts
-    list and partial=True so the visitor still gets something."""
+    partial, no_speech). Strips markdown fences; when the JSON will
+    not parse, the raw text is handed back as the script with an
+    empty prompts list and partial=True so the visitor still gets
+    something. no_speech is set when the model answers with the
+    audio route's {"error": "no_speech"} object."""
     text = (raw or "").strip()
     cleaned = text
     if cleaned.startswith("```"):
@@ -2212,29 +2326,114 @@ def _sp_parse_output(raw):
     try:
         data = json.loads(cleaned)
     except ValueError:
-        return text, [], True
+        return text, [], True, False
     if not isinstance(data, dict):
-        return text, [], True
+        return text, [], True, False
+    if data.get("error") == "no_speech":
+        return "", [], False, True
     script = data.get("script")
-    if not isinstance(script, str) or not script.strip():
-        return text, [], True
+    script = script.strip() if isinstance(script, str) else ""
     prompts = data.get("prompts")
     if not isinstance(prompts, list):
         prompts = []
     prompts = [str(p).strip() for p in prompts if str(p).strip()]
-    return script.strip(), prompts, False
+    partial = not script and not prompts
+    return script, prompts, partial, False
+
+
+class _SpAudioTooBig(Exception):
+    """The converted MP3 is over the hard size cap."""
+
+
+class _SpAudioFailed(Exception):
+    """The audio could not be downloaded or converted at all."""
+
+
+def _sp_download_audio_mp3(url):
+    """Audio route, step 1: download the best audio with yt-dlp
+    (walking the same attempt cascade as the other downloads) and
+    convert it with ffmpeg to a mono 64 kbps MP3 — small enough to
+    send to Gemini inline (20 min ≈ 9.6 MB). Returns (mp3_path,
+    tmpdir); the CALLER owns deleting tmpdir. Raises _SpAudioTooBig
+    when the converted file passes the 18 MB cap and _SpAudioFailed
+    when every attempt fails."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise _SpAudioFailed("ffmpeg missing")
+    last_error = None
+    for spec in _ordered_attempts(url):
+        if not _cascade_gate_open(spec, last_error):
+            break
+        tmpdir = tempfile.mkdtemp(prefix="qgrab-sp-")
+        outtmpl = os.path.join(tmpdir, f"{uuid.uuid4().hex}.%(ext)s")
+        opts = _build_opts(spec, {
+            "format": "bestaudio/best",
+            "outtmpl": outtmpl,
+        }, url=url)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.extract_info(url, download=True)
+        except Exception as e:
+            last_error = e
+            app.logger.info(
+                "script-prompt audio attempt failed (client=%s "
+                "impersonate=%s) for %s: %s",
+                spec.get("client"), spec.get("impersonate"), url, e)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            continue
+        src = _find_produced_file(tmpdir)
+        if not src:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            continue
+        mp3 = os.path.join(tmpdir, "audio.mp3")
+        try:
+            proc = subprocess.run(
+                [ffmpeg, "-y", "-i", src, "-vn", "-ac", "1",
+                 "-codec:a", "libmp3lame", "-b:a", "64k", mp3],
+                capture_output=True, timeout=SP_FFMPEG_TIMEOUT)
+        except Exception as e:
+            last_error = e
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            continue
+        if proc.returncode != 0 or not os.path.exists(mp3) \
+                or os.path.getsize(mp3) == 0:
+            app.logger.info(
+                "script-prompt audio convert failed for %s", url)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            continue
+        if os.path.getsize(mp3) > SP_AUDIO_MAX_BYTES:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            raise _SpAudioTooBig()
+        _remember_winner(url, spec)
+        return mp3, tmpdir
+    raise _SpAudioFailed(str(last_error))
 
 
 @app.route("/api/script-prompt", methods=["POST"])
 def api_script_prompt():
-    """Video -> Script + AI Prompts.
+    """Video -> Script + AI Prompts (v2).
 
-    Called ONLY from the tool's own Generate button (homepage
-    section / dedicated page) — never automatically, and not by the
+    Called ONLY from the tool's own two buttons (homepage section /
+    dedicated page) — never automatically, and not by the
     download-result area's button (that one only scrolls + fills
-    the tool's input). Error contract (the UI maps each code to a
-    clear, localized message): 400 invalid_url · 503 not_configured
-    · 429 rate_limited · 422 no_subtitles · 502 ai_unavailable."""
+    the tool's input). The request carries "mode": "script" returns
+    ONLY the script, "prompts" returns ONLY the prompts (a missing
+    or invalid mode defaults to "script"). In prompts mode an
+    optional "script" field — the visitor's own (edited) script
+    from the preview box — becomes the source instead, and nothing
+    is fetched.
+
+    Routes: the video's own captions when a usable track exists;
+    otherwise the AUDIO route — the audio is downloaded, converted
+    to a small MP3 and transcribed by Gemini (videos up to 20
+    minutes; caption-route videos have no length limit).
+
+    Error contract (the UI maps each code to a clear, localized
+    message): 400 invalid_url · 503 not_configured · 429
+    rate_limited · 422 no_subtitles (the video could not be read at
+    all) · 422 too_long · 422 audio_too_big · 422 no_speech ·
+    502 ai_unavailable. One generation — either mode, either
+    route — counts once against the per-IP limit."""
     data = request.get_json(silent=True) or {}
     url = clean_url(data.get("url", ""))
     if not url:
@@ -2244,51 +2443,150 @@ def api_script_prompt():
     ip = _client_ip()
     if not _sp_rate_check(ip):
         return jsonify({"error": "rate_limited"}), 429
+    mode = str(data.get("mode") or "").strip().lower()
+    if mode not in ("script", "prompts"):
+        mode = "script"
     requested = str(data.get("lang") or "").strip()
     if requested and not _CAPTION_LANG_RE.match(requested):
         requested = ""
+    # Preview flow: prompts built from the visitor's own script
+    # text (the editable script box). A non-empty script within the
+    # input cap is the source — the caption/audio fetch is skipped
+    # entirely; an over-cap or empty one is ignored and the normal
+    # flow below runs. Still one rate-limited generation, still the
+    # same usool instruction.
+    if mode == "prompts":
+        provided = data.get("script")
+        if isinstance(provided, str) and provided.strip() \
+                and len(provided) <= SP_INPUT_LIMIT:
+            _sp_rate_record(ip)  # a generation is about to happen
+            try:
+                raw, model = _gemini_generate_prompts_from_script(
+                    provided.strip())
+            except _GeminiUnavailable as e:
+                app.logger.warning(
+                    "script-prompt gemini (user script) failed for "
+                    "%s: %s", url, e)
+                return jsonify({"error": "ai_unavailable"}), 502
+            _s, prompts, partial, _ns = _sp_parse_output(raw)
+            return jsonify({
+                "title": "Untitled",
+                "lang": None,
+                "mode": mode,
+                "route": "script",
+                "script": "",
+                "prompts": prompts,
+                "truncated": False,
+                "partial": partial or not prompts,
+                "model": model,
+            })
+    info = None
     try:
         info = extract_info(url)
     except Exception as e:
-        # The video itself could not be read, so no captions can be
-        # obtained either — for THIS tool that is the honest answer.
+        # Extraction failed; the audio route below re-extracts as
+        # part of its own download cascade, so it still gets a try.
         app.logger.info("script-prompt info failed for %s: %s", url, e)
-        return jsonify({"error": "no_subtitles"}), 422
-    if info.get("_type") == "playlist":
+    if info is not None and info.get("_type") == "playlist":
         entries = [e for e in info.get("entries") or [] if e]
         if entries:
             info = entries[0]
-    chosen = _sp_choose_caption(pick_captions(info), requested)
-    if not chosen:
+    title = (info or {}).get("title")
+
+    # --- Route 1: the video's own captions -------------------------
+    timed = None
+    chosen = None
+    if info is not None:
+        chosen = _sp_choose_caption(pick_captions(info), requested)
+    if chosen:
+        try:
+            vtt, cap_title = _fetch_caption_vtt(url, chosen)
+            title = cap_title or title
+            candidate = _vtt_timed_script(vtt)
+            if candidate.strip():
+                timed = candidate
+        except Exception as e:
+            app.logger.info(
+                "script-prompt captions failed for %s [%s]: %s",
+                url, chosen, e)
+    if timed is not None:
+        truncated = len(timed) > SP_INPUT_LIMIT
+        if truncated:
+            cut = timed[:SP_INPUT_LIMIT]
+            timed = cut[:cut.rfind("\n")].rstrip() if "\n" in cut \
+                else cut
+        _sp_rate_record(ip)  # a generation is about to happen
+        try:
+            raw, model = _gemini_generate_text(
+                timed, title, chosen, mode)
+        except _GeminiUnavailable as e:
+            app.logger.warning(
+                "script-prompt gemini failed for %s: %s", url, e)
+            return jsonify({"error": "ai_unavailable"}), 502
+        script, prompts, partial, _ns = _sp_parse_output(raw)
+        if mode == "script":
+            if not script:
+                # v1 fallback: hand the model's raw text back rather
+                # than an empty pane.
+                script, prompts, partial = raw.strip(), [], True
+            else:
+                prompts = []
+        else:
+            script = ""
+            partial = partial or not prompts
+        return jsonify({
+            "title": title or "Untitled",
+            "lang": chosen,
+            "mode": mode,
+            "route": "captions",
+            "script": script,
+            "prompts": prompts,
+            "truncated": truncated,
+            "partial": partial,
+            "model": model,
+        })
+
+    # --- Route 2: listen to the audio (Gemini transcription) -------
+    duration = (info or {}).get("duration")
+    if duration and duration > SP_AUDIO_MAX_SECONDS:
+        return jsonify({"error": "too_long"}), 422
+    try:
+        mp3_path, tmpdir = _sp_download_audio_mp3(url)
+    except _SpAudioTooBig:
+        return jsonify({"error": "audio_too_big"}), 422
+    except _SpAudioFailed as e:
+        # Neither captions nor audio could be obtained — for THIS
+        # tool the video is simply unreadable (v1's catch-all).
+        app.logger.info("script-prompt audio failed for %s: %s",
+                        url, e)
         return jsonify({"error": "no_subtitles"}), 422
     try:
-        vtt, title = _fetch_caption_vtt(url, chosen)
-    except Exception as e:
-        app.logger.info("script-prompt captions failed for %s [%s]: %s",
-                        url, chosen, e)
-        return jsonify({"error": "no_subtitles"}), 422
-    timed = _vtt_timed_script(vtt)
-    if not timed.strip():
-        return jsonify({"error": "no_subtitles"}), 422
-    truncated = len(timed) > SP_INPUT_LIMIT
-    if truncated:
-        cut = timed[:SP_INPUT_LIMIT]
-        timed = cut[:cut.rfind("\n")].rstrip() if "\n" in cut else cut
-    _sp_rate_record(ip)  # a generation is about to happen — count it
-    try:
-        raw, model = _gemini_generate(
-            timed, title or info.get("title"), chosen)
-    except _GeminiUnavailable as e:
-        app.logger.warning("script-prompt gemini failed for %s: %s",
-                           url, e)
-        return jsonify({"error": "ai_unavailable"}), 502
-    script, prompts, partial = _sp_parse_output(raw)
+        _sp_rate_record(ip)  # a generation is about to happen
+        try:
+            raw, model = _gemini_generate_audio(mp3_path, title, mode)
+        except _GeminiUnavailable as e:
+            app.logger.warning(
+                "script-prompt gemini (audio) failed for %s: %s",
+                url, e)
+            return jsonify({"error": "ai_unavailable"}), 502
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    script, prompts, partial, no_speech = _sp_parse_output(raw)
+    if no_speech or (not script and not prompts):
+        return jsonify({"error": "no_speech"}), 422
+    if mode == "script":
+        prompts = []
+    else:
+        script = ""
+        partial = partial or not prompts
     return jsonify({
-        "title": title or info.get("title") or "Untitled",
-        "lang": chosen,
+        "title": title or "Untitled",
+        "lang": None,
+        "mode": mode,
+        "route": "audio",
         "script": script,
         "prompts": prompts,
-        "truncated": truncated,
+        "truncated": False,
         "partial": partial,
         "model": model,
     })
