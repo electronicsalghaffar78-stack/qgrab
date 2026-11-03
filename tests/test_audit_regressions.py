@@ -3,7 +3,9 @@
 Covers:
   * Security headers on HTML and error responses (the app set
     none; Mozilla Observatory graded the live site D/30).
-  * Scoped long-cache for /static/ assets (manifest excluded).
+  * Scoped long-cache for /static/ assets (manifest and the
+    /static/sw.js copy excluded — the service worker must keep
+    no-cache so its updates are never delayed by an HTTP cache).
   * Secure + HttpOnly flags on the language and rated cookies.
   * The SP per-IP rate limiter's atomic take/give-back (the old
     check-then-record pair could overshoot under concurrency)
@@ -59,26 +61,37 @@ for path in ("/", "/video-to-script-prompt", "/nonexistent-404"):
 # ------------------------------------------------------------------
 # Static caching scope
 # ------------------------------------------------------------------
-# Any real file under /static/ (the deploy repo generates its
-# PNG icons at image-build time, so pick whatever ships here).
-_static_pick = None
-for _root, _dirs, _files in os.walk(A.app.static_folder):
-    for _f in _files:
-        if not _f.endswith(".webmanifest"):
-            _static_pick = os.path.relpath(
-                os.path.join(_root, _f), A.app.static_folder)
+# A real file under /static/icons/ (the positive case for the
+# long cache). sw.js is excluded from the pick: it must keep
+# no-cache (regression below), never the week-long cache.
+_icon_pick = None
+_icons_dir = os.path.join(A.app.static_folder, "icons")
+if os.path.isdir(_icons_dir):
+    for _f in sorted(os.listdir(_icons_dir)):
+        if os.path.isfile(os.path.join(_icons_dir, _f)):
+            _icon_pick = _f
             break
-    if _static_pick:
-        break
-r = client.get("/static/" + _static_pick.replace(os.sep, "/"))
-check("static asset gets week-long cache",
+r = client.get("/static/icons/" + _icon_pick)
+check("static icon gets week-long public cache",
       r.status_code == 200
+      and "public" in (r.headers.get("Cache-Control") or "")
       and "max-age=604800" in (r.headers.get("Cache-Control") or ""),
-      f"{_static_pick}: {r.status_code} "
+      f"{_icon_pick}: {r.status_code} "
       f"{r.headers.get('Cache-Control')}")
+r = client.get("/static/sw.js")
+check("/static/sw.js is NOT long-cached",
+      r.status_code == 200
+      and "max-age=604800" not in (r.headers.get("Cache-Control") or ""),
+      f"{r.status_code} {r.headers.get('Cache-Control')}")
+check("/static/sw.js keeps no-cache",
+      "no-cache" in (r.headers.get("Cache-Control") or ""),
+      r.headers.get("Cache-Control"))
 r = client.get("/static/manifest.webmanifest")
 check("manifest is NOT long-cached",
       "max-age=604800" not in (r.headers.get("Cache-Control") or ""),
+      r.headers.get("Cache-Control"))
+check("manifest keeps no-cache",
+      "no-cache" in (r.headers.get("Cache-Control") or ""),
       r.headers.get("Cache-Control"))
 r = client.get("/")
 check("HTML is NOT long-cached",

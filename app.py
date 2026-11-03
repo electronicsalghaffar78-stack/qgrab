@@ -1344,11 +1344,13 @@ def _security_headers(resp):
     # browsers and the CDN keep them for a week instead of the
     # no-cache Flask's send_file defaults to. The web manifest
     # stays uncached so PWA metadata changes are seen at once,
-    # and /sw.js (served from its own route, not /static/) keeps
-    # its explicit no-cache.
+    # and the service worker keeps its no-cache — both its own
+    # /sw.js route and the physical /static/sw.js copy — so a
+    # service-worker update is never delayed by an HTTP cache.
     if request.method == "GET" and resp.status_code == 200 \
             and request.path.startswith("/static/") \
-            and not request.path.endswith(".webmanifest"):
+            and not request.path.endswith(".webmanifest") \
+            and not request.path.endswith("/sw.js"):
         resp.headers["Cache-Control"] = "public, max-age=604800"
     return resp
 
