@@ -293,6 +293,7 @@ EN = {
     "sp_left_prompts": "Prompts left today: {n}",
     "sp_refresh_at": "Counters refresh daily at {time}",
     "sp_err_daily_limit": "Today's free limit for this tool is finished — please come back tomorrow.",
+    "sp_err_fetch_failed": "This video could not be fetched right now — please try again in a few minutes.",
 }
 
 TRANSLATIONS = {"en": EN}

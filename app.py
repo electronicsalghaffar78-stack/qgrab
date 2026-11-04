@@ -261,7 +261,10 @@ def _attempt_plan(url):
     A spec is {"client": <YouTube player_client or None>,
                "impersonate": bool,
                "webpage_errors_only": bool (optional — only try this
-               attempt if the previous failure looked like a block)}.
+               attempt if the previous failure looked like a block),
+               "api_hostname": str (optional — TikTok only: pass
+               this host to the extractor as its app/API endpoint,
+               see _tiktok_api_attempts)}.
     """
     site = site_of(url)
     if site == "youtube":
@@ -301,6 +304,16 @@ def _build_opts(spec, extra=None, url=None):
         opts["extractor_args"] = {
             "youtube": {"player_client": [spec["client"]]}
         }
+    if spec.get("api_hostname"):
+        # TikTok app/API endpoint variant: the extractor reads
+        # this as its _API_HOSTNAME (the host its app-API calls
+        # are built against; yt-dlp's own default is the api16
+        # host below). Merged in, never replacing other args.
+        args = dict(opts.get("extractor_args") or {})
+        tiktok_args = dict(args.get("tiktok") or {})
+        tiktok_args["api_hostname"] = [spec["api_hostname"]]
+        args["tiktok"] = tiktok_args
+        opts["extractor_args"] = args
     if spec.get("impersonate") and _CHROME_TARGET is not None:
         opts["impersonate"] = _CHROME_TARGET
     if extra:
@@ -592,30 +605,86 @@ def _extract_info_invidious(url):
     return info
 
 
-def extract_info(url):
-    """Extract metadata, walking the attempt cascade until one attempt
-    returns formats. Raises the last error if every attempt fails."""
+def _extract_attempt(url, spec):
+    """One cascade attempt: extract with this spec's options and
+    return the info. Raises the DownloadError / network error when
+    the attempt fails or yields no formats (a page that "loads"
+    empty is the bot wall wearing a disguise)."""
+    with yt_dlp.YoutubeDL(_build_opts(spec, url=url)) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not _has_formats(info):
+        raise yt_dlp.utils.DownloadError(
+            "Extractor returned no formats "
+            "(webpage may have been blocked)")
+    _remember_winner(url, spec)
+    return info
+
+
+def _extract_info_cascade(url):
+    """One pass over the attempt cascade. Returns (info, None,
+    no_formats_seen) on success and (None, last_error,
+    no_formats_seen) when every attempt failed — the flag records
+    whether ANY attempt met yt-dlp's "No video formats found"
+    refusal (a later attempt failing differently, e.g. on the
+    network, must not erase that sighting)."""
     last_error = None
+    no_formats_seen = False
     for spec in _ordered_attempts(url):
         if not _cascade_gate_open(spec, last_error):
             break
         try:
-            with yt_dlp.YoutubeDL(_build_opts(spec, url=url)) as ydl:
-                info = ydl.extract_info(url, download=False)
-            if not _has_formats(info):
-                # Page "loaded" but empty — from a blocked IP this is
-                # the bot wall wearing a disguise; keep cascading.
-                raise yt_dlp.utils.DownloadError(
-                    "Extractor returned no formats "
-                    "(webpage may have been blocked)")
-            _remember_winner(url, spec)
-            return info
+            return _extract_attempt(url, spec), None, no_formats_seen
         except Exception as e:  # DownloadError or network error
             last_error = e
+            no_formats_seen = no_formats_seen or _no_formats_error(e)
             app.logger.info(
                 "extract attempt failed (client=%s impersonate=%s) "
                 "for %s: %s",
                 spec.get("client"), spec.get("impersonate"), url, e)
+    return None, last_error, no_formats_seen
+
+
+# TikTok app/API endpoint variants. yt-dlp's "No video formats
+# found" is the refusal the standard web-flavoured attempts cannot
+# argue with — it is also what a post whose creator disabled
+# in-app downloads looks like, so no variant can promise success
+# there. The extractor builds its app-API calls against a single
+# api_hostname (its "api_hostname" extractor argument; yt-dlp's
+# default is the api16 host). Asking a DIFFERENT app endpoint can
+# still reach posts the default route refuses, so a failed
+# standard pass earns one attempt per host below — each a normal
+# cascade attempt (the primary attempt's shape plus the
+# api_hostname spec key), not a parallel code path.
+TIKTOK_API_HOSTNAMES = (
+    "api22-normal-c-useast1a.tiktokv.com",
+    "api16-normal-c-useast1a.tiktokv.com",
+)
+
+
+def _no_formats_error(error):
+    """True for yt-dlp's "No video formats found" refusal — the
+    one error class the TikTok app-endpoint attempts exist for."""
+    return error is not None \
+        and "no video formats found" in str(error).lower()
+
+
+def _tiktok_api_attempts(url):
+    """The TikTok app-endpoint attempt specs: the primary
+    attempt's shape (impersonation first for TikTok) with each
+    api_hostname in turn."""
+    plan = _ordered_attempts(url)
+    if not plan:
+        return []
+    return [dict(plan[0], api_hostname=hostname)
+            for hostname in TIKTOK_API_HOSTNAMES]
+
+
+def extract_info(url):
+    """Extract metadata, walking the attempt cascade until one attempt
+    returns formats. Raises the last error if every attempt fails."""
+    info, last_error, no_formats_seen = _extract_info_cascade(url)
+    if info is not None:
+        return info
     if site_of(url) == "youtube":
         # Every yt-dlp attempt failed (on a cloud IP this is the bot
         # wall) — one last, cookie-free resort: a public Invidious
@@ -625,6 +694,44 @@ def extract_info(url):
         except Exception as inv_error:
             app.logger.info("invidious fallback failed for %s: %s",
                             url, inv_error)
+    else:
+        if site_of(url) == "tiktok" and no_formats_seen:
+            # A standard attempt met the "No video formats found"
+            # refusal: try the app/API endpoints (one attempt per
+            # api_hostname) before falling back to the paused
+            # retry below.
+            for spec in _tiktok_api_attempts(url):
+                try:
+                    return _extract_attempt(url, spec)
+                except Exception as e:  # DownloadError/network
+                    last_error = e
+                    app.logger.info(
+                        "extract attempt failed (client=%s "
+                        "impersonate=%s api_hostname=%s) for %s: %s",
+                        spec.get("client"), spec.get("impersonate"),
+                        spec.get("api_hostname"), url, e)
+        # Non-YouTube platforms refuse in bursts: TikTok can answer
+        # "No video formats found" (and even rate-limit its oEmbed)
+        # for a post it served fine minutes earlier, then recover on
+        # its own. When the whole first pass failed, pause briefly
+        # and retry the primary attempt ONCE before giving up. Only
+        # failures pay the pause — a successful first pass never
+        # waits.
+        plan = _ordered_attempts(url)
+        if plan:
+            app.logger.info(
+                "extract pass failed for %s (%s); retrying the "
+                "primary attempt once after a pause", url, last_error)
+            time.sleep(4)
+            try:
+                return _extract_attempt(url, plan[0])
+            except Exception as e:  # DownloadError or network error
+                last_error = e
+                app.logger.info(
+                    "extract attempt failed (client=%s "
+                    "impersonate=%s) for %s: %s",
+                    plan[0].get("client"), plan[0].get("impersonate"),
+                    url, e)
     if last_error is not None:
         raise last_error
     raise yt_dlp.utils.DownloadError("No extraction attempt was made.")
@@ -1281,6 +1388,7 @@ def _js_strings(t):
         "sp_err_audiobig": t["sp_err_audiobig"],
         "sp_err_nospeech": t["sp_err_nospeech"],
         "sp_err_daily_limit": t["sp_err_daily_limit"],
+        "sp_err_fetch_failed": t["sp_err_fetch_failed"],
         "sp_left_script": t["sp_left_script"],
         "sp_left_prompts": t["sp_left_prompts"],
         "sp_refresh_at": t["sp_refresh_at"],
@@ -3103,9 +3211,9 @@ def api_script_prompt():
     generation as a background job and returns 202 {"job_id",
     "status": "running"}; the outcome (the exact payload the old
     synchronous flow returned, or one of its error codes — 422
-    no_subtitles · 422 too_long · 422 audio_too_big · 422
-    no_speech · 502 ai_unavailable) is delivered by
-    GET /api/script-prompt/status."""
+    fetch_failed · 422 no_subtitles · 422 too_long · 422
+    audio_too_big · 422 no_speech · 502 ai_unavailable) is
+    delivered by GET /api/script-prompt/status."""
     data = request.get_json(silent=True) or {}
     url = clean_url(data.get("url", ""))
     if not url:
@@ -3175,6 +3283,18 @@ def api_script_prompt_quota():
     return jsonify(_sp_quota_snapshot())
 
 
+def _sp_has_audio_track(info):
+    """True when extracted metadata lists at least one format that
+    carries audio (muxed or audio-only). A format whose codec
+    field is missing counts as carrying audio — the same
+    convention pick_formats uses. False with no info, or when the
+    video genuinely has no audio-bearing format at all."""
+    if not info:
+        return False
+    return any(f.get("acodec") != "none"
+               for f in info.get("formats") or [])
+
+
 def _sp_generate_payload(data, url, mode, requested):
     """The generation itself (v2 logic, unchanged): the video's
     own captions when a usable track exists, otherwise the AUDIO
@@ -3215,11 +3335,16 @@ def _sp_generate_payload(data, url, mode, requested):
                 "model": model,
             }, 200
     info = None
+    info_failed = False
     try:
         info = extract_info(url)
     except Exception as e:
         # Extraction failed; the audio route below re-extracts as
         # part of its own download cascade, so it still gets a try.
+        # Remember the failure, though: if the audio cascade then
+        # fails too, the video could not be FETCHED at all — which
+        # is a fetch_failed story, not a no_subtitles one.
+        info_failed = True
         app.logger.info("script-prompt info failed for %s: %s", url, e)
     if info is not None and info.get("_type") == "playlist":
         entries = [e for e in info.get("entries") or [] if e]
@@ -3289,8 +3414,23 @@ def _sp_generate_payload(data, url, mode, requested):
     except _SpAudioTooBig:
         return {"error": "audio_too_big"}, 422
     except _SpAudioFailed as e:
-        # Neither captions nor audio could be obtained — for THIS
-        # tool the video is simply unreadable (v1's catch-all).
+        # Neither captions nor audio could be obtained. Which of
+        # the two stories is true decides the error the visitor
+        # sees:
+        # * fetch_failed — the video could not be FETCHED at all:
+        #   metadata extraction failed AND the audio cascade (which
+        #   re-extracts on its own) failed too, or the metadata
+        #   shows an audio track the cascade still could not pull.
+        #   Platforms refuse in bursts, so this is usually a
+        #   "try again in a few minutes" situation — reporting
+        #   no_subtitles here would be a lie about the video.
+        # * no_subtitles — reserved for a video that WAS read and
+        #   simply has neither usable captions nor any audio track
+        #   for the audio route to listen to.
+        if info_failed or _sp_has_audio_track(info):
+            app.logger.info(
+                "script-prompt fetch failed for %s: %s", url, e)
+            return {"error": "fetch_failed"}, 422
         app.logger.info("script-prompt audio failed for %s: %s",
                         url, e)
         return {"error": "no_subtitles"}, 422
