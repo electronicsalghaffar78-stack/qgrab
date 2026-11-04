@@ -42,7 +42,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import urllib.error
 import uuid
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, parse_qsl, quote, urlencode, \
+    urlparse, urlunparse
 
 from flask import Flask, request, jsonify, render_template, Response, abort, send_file
 import yt_dlp
@@ -96,9 +97,10 @@ def human_size(num):
 # etc. To survive that, extraction tries an ordered list of yt-dlp
 # configurations ("attempts") until one returns formats:
 #
-#   YouTube : default client -> player_client=tv -> android_vr ->
-#             web_safari. Alternate player clients do not hit the same
-#             bot wall as the default web client.
+#   YouTube : default client -> android_vr -> tv_downgraded -> web
+#             player clients. Alternate player clients do not hit the
+#             same bot wall as the default web client; a public
+#             Invidious instance is the last resort after all of them.
 #   TikTok  : curl_cffi browser impersonation (chrome) first, plain as
 #             fallback — impersonation is what fixes the broken-webpage
 #             failure.
@@ -217,8 +219,13 @@ def _load_yt_cookies():
 
 _load_yt_cookies()
 
-# YouTube player clients tried after the default, in order.
-YOUTUBE_CLIENT_CASCADE = (None, "tv", "android_vr", "web_safari")
+# YouTube player clients in cascade order: the default first, then
+# android_vr (the full quality range with no PO token needed, but
+# intermittent), tv_downgraded (the most reliable of the TV
+# family), and web last (SABR-era and the weakest of the set).
+# Invidious stays the final fallback after every client — see
+# _extract_info_uncached.
+YOUTUBE_CLIENT_CASCADE = (None, "android_vr", "tv_downgraded", "web")
 
 # The only extraction error a visitor ever sees; raw yt-dlp errors are
 # logged server-side instead of leaked to the page.
@@ -264,7 +271,10 @@ def _attempt_plan(url):
                attempt if the previous failure looked like a block),
                "api_hostname": str (optional — TikTok only: pass
                this host to the extractor as its app/API endpoint,
-               see _tiktok_api_attempts)}.
+               see _tiktok_api_attempts),
+               "twitter_api": str (optional — X only: the
+               extractor's twitter "api" argument, e.g.
+               "syndication")}.
     """
     site = site_of(url)
     if site == "youtube":
@@ -313,6 +323,17 @@ def _build_opts(spec, extra=None, url=None):
         tiktok_args = dict(args.get("tiktok") or {})
         tiktok_args["api_hostname"] = [spec["api_hostname"]]
         args["tiktok"] = tiktok_args
+        opts["extractor_args"] = args
+    if spec.get("twitter_api"):
+        # X's extractor can be pointed at a different API family:
+        # "syndication" is the embed backend's API, the one route
+        # that still answers anonymously now that the default
+        # GraphQL route needs a session. Merged like the TikTok
+        # argument above, never replacing other args.
+        args = dict(opts.get("extractor_args") or {})
+        twitter_args = dict(args.get("twitter") or {})
+        twitter_args["api"] = [spec["twitter_api"]]
+        args["twitter"] = twitter_args
         opts["extractor_args"] = args
     if spec.get("impersonate") and _CHROME_TARGET is not None:
         opts["impersonate"] = _CHROME_TARGET
@@ -679,9 +700,458 @@ def _tiktok_api_attempts(url):
             for hostname in TIKTOK_API_HOSTNAMES]
 
 
-def extract_info(url):
-    """Extract metadata, walking the attempt cascade until one attempt
-    returns formats. Raises the last error if every attempt fails."""
+# ---------------------------------------------------------------------------
+# Third backends — one public resolver of last resort per platform
+#
+# yt-dlp alone, from a datacenter IP, is refused in bursts on
+# several platforms (see the 2026-11-04 research notes): TikTok's
+# app API demands native-code request signatures, Instagram and
+# Facebook wall logged-out page fetches, X's GraphQL route needs a
+# session. Each platform still has ONE public surface that answers
+# anonymously, and the downloaders that survive use exactly those:
+#   TikTok    -> the tikwm.com resolver API (it fetches on ITS
+#                infrastructure, so TikTok's IP blocks do not apply)
+#   Instagram -> the public embed page (/p/<id>/embed/captioned/)
+#   Facebook  -> the video embed player (video/embed?video_id=)
+#   X         -> yt-dlp against the syndication API, then the
+#                FxTwitter mirror API
+# Each helper below returns an info dict in the same shape the
+# yt-dlp path returns (the "_qgrab_source" key records which
+# backend won, for logs and status), or raises DownloadError.
+# They run ONLY after the whole yt-dlp cascade — including the
+# TikTok app-endpoint attempts and the paused retry — has failed,
+# and a helper's own failure never replaces the original yt-dlp
+# error the visitor's fetch_failed story is built on.
+# ---------------------------------------------------------------------------
+
+_BROWSER_UA = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/124.0 Safari/537.36",
+}
+
+
+def _http_get_text(url, headers=None, timeout=15):
+    """GET a page as text: impersonated curl_cffi first (some
+    embed surfaces fingerprint the TLS handshake of the fetch
+    itself), urllib as the fallback — the same two-step as
+    _fetch_to_file, for text."""
+    hdrs = headers or _BROWSER_UA
+    if HAS_CFFI_REQUESTS:
+        try:
+            resp = _cffi_requests.get(
+                url, headers=hdrs, impersonate="chrome",
+                timeout=timeout)
+            try:
+                if resp.status_code >= 400:
+                    raise _MediaFetchError(resp.status_code)
+                return resp.text
+            finally:
+                resp.close()
+        except Exception as e:
+            app.logger.info(
+                "text fetch (impersonated) failed for %s: %s",
+                url, e)
+    req = urllib.request.Request(url, headers=hdrs)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8", "replace")
+
+
+# --- TikTok: the tikwm.com resolver --------------------------------
+
+TIKWM_API_URL = "https://www.tikwm.com/api/"
+
+
+def _shape_tikwm_info(data, url):
+    """Shape a tikwm API answer into the yt-dlp-style info dict
+    the rest of the app (pick_formats, /download, the SP tool)
+    already consumes. The format urls are signed TikTok-CDN URLs:
+    they expire and are coupled to the side that resolved them,
+    so — exactly like yt-dlp's CDN URLs — they are only ever
+    streamed through this server's /download proxy, never handed
+    to the visitor's browser as a direct link."""
+    formats = []
+
+    def _add(fid, media_url, note, size, audio_only=False):
+        if not media_url:
+            return
+        formats.append({
+            "format_id": fid,
+            "url": media_url,
+            "ext": "mp3" if audio_only else "mp4",
+            "protocol": "https",
+            "vcodec": "none" if audio_only else "avc1",
+            "acodec": "mp4a",
+            "height": 0,
+            "filesize": size,
+            "format_note": note,
+        })
+
+    # hdplay (the HD no-watermark stream, present because the
+    # resolver is asked with hd=1) is the top row, then the SD
+    # play stream, then the watermarked export, then the sound
+    # track as an audio row.
+    _add("tikwm-hd", data.get("hdplay"), "HD", data.get("hd_size"))
+    _add("tikwm-sd", data.get("play"), "", data.get("size"))
+    _add("tikwm-wm", data.get("wmplay"), "watermarked",
+         data.get("wm_size"))
+    _add("tikwm-music", data.get("music"), "", None, audio_only=True)
+
+    duration = data.get("duration")
+    try:
+        duration = int(duration) if duration else None
+    except (TypeError, ValueError):
+        duration = None
+    author = data.get("author") or {}
+    return {
+        "id": data.get("id"),
+        "title": data.get("title") or "Untitled",
+        "thumbnail": data.get("cover"),
+        "duration": duration,
+        "duration_string": (
+            f"{duration // 60}:{duration % 60:02d}"
+            if duration else None),
+        "uploader": author.get("nickname")
+                    or author.get("unique_id"),
+        "webpage_url": url,
+        "extractor_key": "TikTok",
+        "formats": formats,
+        "_qgrab_source": "tikwm",
+    }
+
+
+def _extract_info_tikwm(url):
+    """extract_info()'s TikTok last resort: the public tikwm.com
+    resolver. No key; its free endpoint asks for ~1 request per
+    second, which the cascade in front already paces. A code != 0
+    answer is tikwm's per-video failure mode and raises — the
+    caller keeps the original yt-dlp error."""
+    api_url = (TIKWM_API_URL + "?url=" + quote(url, safe="")
+               + "&hd=1")
+    data = _http_get_json(api_url, timeout=15)
+    if not isinstance(data, dict) or data.get("code") != 0:
+        msg = data.get("msg") if isinstance(data, dict) else None
+        raise yt_dlp.utils.DownloadError(
+            f"tikwm could not resolve this post: {msg or 'no answer'}")
+    payload = data.get("data") or {}
+    if not (payload.get("hdplay") or payload.get("play")):
+        # A photo/slideshow post lands here: it carries images,
+        # not a video stream this downloader can serve.
+        raise yt_dlp.utils.DownloadError(
+            "tikwm returned no video stream for this post.")
+    info = _shape_tikwm_info(payload, url)
+    if not _has_formats(info):
+        raise yt_dlp.utils.DownloadError(
+            "tikwm returned no usable formats.")
+    app.logger.info("tikwm fallback succeeded for %s", url)
+    return info
+
+
+# --- Instagram: the public embed page (public posts/reels only) ----
+
+def _is_instagram_url(url):
+    if not url:
+        return False
+    host = (urlparse(url).hostname or "").lower()
+    return host == "instagram.com" \
+        or host.endswith(".instagram.com")
+
+
+def _instagram_shortcode(url):
+    m = re.search(
+        r"instagram\.com/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)",
+        url or "")
+    return m.group(1) if m else None
+
+
+def _find_key(obj, key):
+    """First value stored under key anywhere in a nested
+    dict/list structure (embed-page JSON shapes shift; the media
+    fields this app needs keep their names)."""
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        for value in obj.values():
+            found = _find_key(value, key)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for value in obj:
+            found = _find_key(value, key)
+            if found is not None:
+                return found
+    return None
+
+
+def _extract_info_instagram_embed(url):
+    """extract_info()'s Instagram last resort: the public embed
+    page. instagram.com/p/<id>/embed/captioned/ still serves
+    PUBLIC posts to logged-out requesters and carries the media
+    in a "gql_data" JSON blob. Photo posts parse fine but carry
+    no video_url — they raise, like any other failure here."""
+    code = _instagram_shortcode(url)
+    if not code:
+        raise yt_dlp.utils.DownloadError(
+            "No Instagram post id in that URL.")
+    html = _http_get_text(
+        f"https://www.instagram.com/p/{code}/embed/captioned/",
+        timeout=15)
+    marker = html.find('"gql_data"')
+    brace = html.find("{", marker) if marker >= 0 else -1
+    if brace < 0:
+        raise yt_dlp.utils.DownloadError(
+            "Instagram's embed page carried no media data.")
+    try:
+        gql, _end = json.JSONDecoder().raw_decode(html[brace:])
+    except ValueError as e:
+        raise yt_dlp.utils.DownloadError(
+            f"Instagram's embed data did not parse: {e}")
+    video_url = _find_key(gql, "video_url")
+    if not video_url:
+        raise yt_dlp.utils.DownloadError(
+            "Instagram's embed data had no video URL "
+            "(photo post or login-walled).")
+    dims = _find_key(gql, "dimensions") or {}
+    duration = _find_key(gql, "video_duration")
+    try:
+        duration = int(float(duration)) if duration else None
+    except (TypeError, ValueError):
+        duration = None
+    title = None
+    media = gql.get("shortcode_media") if isinstance(gql, dict) \
+        else None
+    edges = ((media or {}).get("edge_media_to_caption")
+             or {}).get("edges") or []
+    if edges:
+        text = ((edges[0].get("node") or {}).get("text") or "")
+        title = text.split("\n")[0].strip()[:120] or None
+    info = {
+        "id": code,
+        "title": title or "Instagram video",
+        "thumbnail": _find_key(gql, "display_url"),
+        "duration": duration,
+        "duration_string": (
+            f"{duration // 60}:{duration % 60:02d}"
+            if duration else None),
+        "uploader": None,
+        "webpage_url": url,
+        "extractor_key": "Instagram",
+        "formats": [{
+            "format_id": "ig-embed",
+            "url": video_url,
+            "ext": "mp4",
+            "protocol": "https",
+            "vcodec": "avc1",
+            "acodec": "mp4a",
+            "height": dims.get("height") or 0,
+            "filesize": None,
+            "format_note": "",
+        }],
+        "_qgrab_source": "instagram-embed",
+    }
+    app.logger.info("instagram embed fallback succeeded for %s",
+                    url)
+    return info
+
+
+# --- Facebook: the video embed player (public posts only) ----------
+
+def _facebook_video_id(url):
+    """The numeric video id of a facebook.com video URL, or None.
+    fb.watch short links carry no id in the URL itself — those
+    stay with the yt-dlp cascade alone."""
+    if not url:
+        return None
+    parsed = urlparse(url)
+    values = parse_qs(parsed.query).get("v")
+    if values and values[0].isdigit():
+        return values[0]
+    m = re.search(r"/(?:videos|reel|watch)/(\d+)", parsed.path)
+    return m.group(1) if m else None
+
+
+_FB_EMBED_UA = {
+    "User-Agent": "facebookexternalhit/1.1 "
+                  "(+http://www.facebook.com/externalhit_uatext.php)",
+}
+
+
+def _fb_embed_src(html, key):
+    """One "key":"<url>" field from the embed player's response;
+    the URLs are JSON-escaped (\\/ and \\uXXXX), so the value is
+    decoded as a JSON string when it parses."""
+    m = re.search(r'"' + key + r'":"((?:[^"\\]|\\.)*)"', html)
+    if not m:
+        return None
+    raw = m.group(1)
+    try:
+        return json.loads('"' + raw + '"')
+    except ValueError:
+        return raw.replace("\\/", "/")
+
+
+def _extract_info_facebook_embed(url):
+    """extract_info()'s Facebook last resort: Facebook's own
+    embed player (video/embed?video_id=), asked with the
+    platform's crawler user-agent, answers logged-out for PUBLIC
+    videos and carries hd_src / sd_src stream URLs. Login-walled
+    posts return a player without sources and raise."""
+    video_id = _facebook_video_id(url)
+    if not video_id:
+        raise yt_dlp.utils.DownloadError(
+            "No numeric Facebook video id in that URL.")
+    html = _http_get_text(
+        f"https://www.facebook.com/video/embed?video_id={video_id}",
+        headers=_FB_EMBED_UA, timeout=15)
+    hd = _fb_embed_src(html, "hd_src") \
+        or _fb_embed_src(html, "hd_src_no_ratelimit")
+    sd = _fb_embed_src(html, "sd_src") \
+        or _fb_embed_src(html, "sd_src_no_ratelimit")
+    if not hd and not sd:
+        raise yt_dlp.utils.DownloadError(
+            "Facebook's embed player returned no stream "
+            "(login-walled post?).")
+    formats = []
+    if hd:
+        formats.append({
+            "format_id": "fb-hd", "url": hd, "ext": "mp4",
+            "protocol": "https", "vcodec": "avc1",
+            "acodec": "mp4a", "height": 0, "filesize": None,
+            "format_note": "HD",
+        })
+    if sd:
+        formats.append({
+            "format_id": "fb-sd", "url": sd, "ext": "mp4",
+            "protocol": "https", "vcodec": "avc1",
+            "acodec": "mp4a", "height": 0, "filesize": None,
+            "format_note": "SD",
+        })
+    title = None
+    m = re.search(r"<title>([^<]+)</title>", html)
+    if m and m.group(1).strip().lower() not in (
+            "facebook", "facebook video"):
+        title = m.group(1).strip()
+    info = {
+        "id": video_id,
+        "title": title or "Facebook video",
+        "thumbnail": None,
+        "duration": None,
+        "duration_string": None,
+        "uploader": None,
+        "webpage_url": url,
+        "extractor_key": "Facebook",
+        "formats": formats,
+        "_qgrab_source": "facebook-embed",
+    }
+    app.logger.info("facebook embed fallback succeeded for %s",
+                    url)
+    return info
+
+
+# --- X: the FxTwitter mirror (after the syndication attempt) --------
+
+def _twitter_status_id(url):
+    m = re.search(r"(?:x\.com|twitter\.com)/[^/]+/status/(\d+)",
+                  url or "")
+    return m.group(1) if m else None
+
+
+def _extract_info_fxtwitter(url):
+    """extract_info()'s X last resort: the FxTwitter mirror API.
+    Its status JSON carries the tweet's video variants (the MP4
+    ladder on video.twimg.com); HLS playlist variants are left
+    out — the /download proxy serves single files only, the same
+    rule pick_formats applies to yt-dlp tables."""
+    status_id = _twitter_status_id(url)
+    if not status_id:
+        raise yt_dlp.utils.DownloadError(
+            "No X status id in that URL.")
+    data = _http_get_json(
+        f"https://api.fxtwitter.com/status/{status_id}",
+        timeout=15)
+    tweet = (data or {}).get("tweet") or {}
+    media = tweet.get("media") or {}
+    videos = media.get("videos") or [
+        e for e in media.get("all") or []
+        if isinstance(e, dict) and e.get("type") == "video"]
+    formats = []
+    thumbnail = None
+    duration = None
+    for v_index, video in enumerate(videos):
+        if not isinstance(video, dict):
+            continue
+        thumbnail = thumbnail or video.get("thumbnail_url")
+        if duration is None and video.get("duration"):
+            try:
+                duration = int(float(video["duration"]))
+            except (TypeError, ValueError):
+                pass
+        variants = [
+            v for v in video.get("variants") or []
+            if isinstance(v, dict) and v.get("url")
+            and (v.get("content_type") or "video/mp4")
+            == "video/mp4"]
+        variants.sort(key=lambda v: v.get("bitrate") or 0,
+                      reverse=True)
+        seen_heights = set()
+        for variant in variants:
+            m = re.search(r"/(\d{2,4})x(\d{2,4})/", variant["url"])
+            height = int(m.group(2)) if m else 0
+            if height in seen_heights:
+                continue
+            seen_heights.add(height)
+            formats.append({
+                "format_id": f"fx-{v_index}-{height}",
+                "url": variant["url"],
+                "ext": "mp4",
+                "protocol": "https",
+                "vcodec": "avc1",
+                "acodec": "mp4a",
+                "height": height,
+                "filesize": None,
+                "format_note": "",
+                "tbr": (variant.get("bitrate") or 0) / 1000
+                       or None,
+            })
+        if not variants and video.get("url"):
+            formats.append({
+                "format_id": f"fx-{v_index}",
+                "url": video["url"],
+                "ext": "mp4",
+                "protocol": "https",
+                "vcodec": "avc1",
+                "acodec": "mp4a",
+                "height": video.get("height") or 0,
+                "filesize": None,
+                "format_note": "",
+            })
+    if not formats:
+        raise yt_dlp.utils.DownloadError(
+            "FxTwitter returned no video media for this post.")
+    text = (tweet.get("text") or "").split("\n")[0].strip()
+    info = {
+        "id": status_id,
+        "title": text[:120] or "X video",
+        "thumbnail": thumbnail,
+        "duration": duration,
+        "duration_string": (
+            f"{duration // 60}:{duration % 60:02d}"
+            if duration else None),
+        "uploader": (tweet.get("author") or {}).get("name"),
+        "webpage_url": url,
+        "extractor_key": "Twitter",
+        "formats": formats,
+        "_qgrab_source": "fxtwitter",
+    }
+    app.logger.info("fxtwitter fallback succeeded for %s", url)
+    return info
+
+
+def _extract_info_uncached(url):
+    """extract_info()'s engine room: walk the attempt cascade,
+    then each platform's fallback, until something returns
+    formats. Raises the last yt-dlp error if everything fails —
+    a fallback's own failure never replaces it."""
     info, last_error, no_formats_seen = _extract_info_cascade(url)
     if info is not None:
         return info
@@ -732,9 +1202,138 @@ def extract_info(url):
                     "impersonate=%s) for %s: %s",
                     plan[0].get("client"), plan[0].get("impersonate"),
                     url, e)
+    # The whole yt-dlp side has failed. Each platform still has
+    # one public resolver that answers anonymously (see the
+    # "Third backends" section above) — try the one that fits
+    # this URL before giving up. A fallback's failure is only
+    # logged; the ORIGINAL yt-dlp error stays in charge.
+    fallback = None
+    if site_of(url) == "tiktok":
+        fallback = _extract_info_tikwm
+    elif _is_instagram_url(url):
+        fallback = _extract_info_instagram_embed
+    elif site_of(url) == "facebook":
+        fallback = _extract_info_facebook_embed
+    if fallback is not None:
+        try:
+            return fallback(url)
+        except Exception as e:
+            app.logger.info(
+                "third-backend fallback failed for %s: %s", url, e)
+    if site_of(url) == "twitter":
+        # X gets two: first yt-dlp once more, pointed at its
+        # syndication API (the embed backend — the default
+        # GraphQL route is the dead one), then the FxTwitter
+        # mirror if even that fails.
+        plan = _ordered_attempts(url)
+        if plan:
+            try:
+                return _extract_attempt(
+                    url, dict(plan[0], twitter_api="syndication"))
+            except Exception as e:
+                app.logger.info(
+                    "syndication attempt failed for %s: %s", url, e)
+        try:
+            return _extract_info_fxtwitter(url)
+        except Exception as e:
+            app.logger.info(
+                "fxtwitter fallback failed for %s: %s", url, e)
     if last_error is not None:
         raise last_error
     raise yt_dlp.utils.DownloadError("No extraction attempt was made.")
+
+
+# ---------------------------------------------------------------------------
+# Extraction cache — 10-minute TTL, successes only, single-flight
+#
+# Extraction, not transfer, is this app's bottleneck (a cascade
+# pass costs seconds of platform round-trips; the winner cache
+# only skips re-walking it). Successful extractions are therefore
+# cached whole for 10 minutes — short, because the format URLs
+# inside are signed and expire — and concurrent requests for the
+# same URL share ONE extraction through a per-key lock
+# (single-flight) instead of stampeding the platform in parallel.
+# Failures are never cached: platforms refuse in bursts and
+# recover, and a cached failure would outlive the recovery.
+# /api/info, /download and the Script+Prompt tool all reach the
+# cache through extract_info below.
+# ---------------------------------------------------------------------------
+
+_INFO_CACHE_TTL = 600  # seconds
+_info_cache = {}         # key -> (info dict, expiry timestamp)
+_info_cache_lock = threading.Lock()
+_info_flight_locks = {}  # key -> threading.Lock (single-flight)
+
+
+def _info_cache_key(url):
+    """The cache key for a URL: scheme/host lowercased, fragment
+    and utm_* tracking parameters removed, the remaining query
+    sorted — so one video shared with different tracking junk
+    shares one extraction, while any parameter that identifies
+    content (a YouTube ?v=, say) still separates keys."""
+    parsed = urlparse(url or "")
+    pairs = [(k, v) for k, v in
+             parse_qsl(parsed.query, keep_blank_values=True)
+             if not k.startswith("utm_")]
+    pairs.sort()
+    return urlunparse((parsed.scheme.lower(),
+                       parsed.netloc.lower(), parsed.path, "",
+                       urlencode(pairs), ""))
+
+
+def _info_cache_get(key):
+    with _info_cache_lock:
+        hit = _info_cache.get(key)
+    if hit and hit[1] > time.time():
+        return hit[0]
+    return None
+
+
+def _info_cache_put(key, info):
+    with _info_cache_lock:
+        if len(_info_cache) > 512:
+            # Opportunistic tidy-up so the map cannot grow
+            # forever on a long-lived worker.
+            now = time.time()
+            for stale in [k for k, (_i, exp) in _info_cache.items()
+                          if exp <= now]:
+                _info_cache.pop(stale, None)
+        _info_cache[key] = (info, time.time() + _INFO_CACHE_TTL)
+
+
+def _info_flight_lock(key):
+    with _info_cache_lock:
+        lock = _info_flight_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _info_flight_locks[key] = lock
+        return lock
+
+
+def _info_cache_clear():
+    """Drop every cached extraction (tests / maintenance)."""
+    with _info_cache_lock:
+        _info_cache.clear()
+
+
+def extract_info(url):
+    """Extract metadata for a URL — a 10-minute in-memory cache
+    (successes only) with single-flight dedup in front of the
+    cascade in _extract_info_uncached. The returned dict is the
+    cached object itself; callers must not mutate it."""
+    key = _info_cache_key(url)
+    cached = _info_cache_get(key)
+    if cached is not None:
+        return cached
+    with _info_flight_lock(key):
+        # A concurrent request may have filled the cache while
+        # this one waited for the lock.
+        cached = _info_cache_get(key)
+        if cached is not None:
+            return cached
+        info = _extract_info_uncached(url)
+        _info_cache_put(key, info)
+        return info
 
 
 def pick_formats(info):
@@ -2385,6 +2984,29 @@ SP_AUDIO_MAX_BYTES = 18 * 1024 * 1024  # converted MP3 hard cap
 SP_AUDIO_GEMINI_TIMEOUT = 150  # seconds, per model attempt (audio)
 SP_AUDIO_MAX_ATTEMPTS = 2     # audio route: first 2 fetch attempts
 SP_FFMPEG_TIMEOUT = 300       # seconds for the MP3 conversion
+# Audio longer than this is transcribed in chunks of at most this
+# many seconds (research §9: past ~15 minutes a single call's
+# transcript risks the model's OUTPUT token limit, and one giant
+# call is also one giant point of failure). Each chunk goes
+# through the same key x model rotation; the transcripts are
+# stitched in order and the script/prompts are written from the
+# stitched text.
+SP_AUDIO_CHUNK_SECONDS = 600  # 10-minute transcription chunks
+# The audio route's slow-failure budget (see _gemini_call's
+# attempt policy). Diagnosis of the 2026-11-04 live failure — a
+# 214 s no-caption TikTok dying as ai_unavailable after ~160 s:
+# payload size is innocent (214 s of the normalised 64 kbps MP3
+# is ~1.7 MB, far under Gemini's 20 MB inline cap). The killer
+# was timeout classification + the SHARED slow cap: one
+# transcription attempt legitimately exceeding the 150 s
+# per-attempt timeout flipped the cascade into slow mode, whose
+# cap is 2 attempts TOTAL — so a single timeout plus one fast
+# quota error on the next pair exhausted the rotation without
+# ever trying five of the six models. A slow transcription is
+# per-pair congestion, not a global "stop" signal, so audio
+# calls walk deeper before giving up; the text route keeps the
+# tight cap (the worst-case wait is what that cap protects).
+SP_AUDIO_SLOW_MAX_ATTEMPTS = 6  # audio: pairs tried after a slow failure
 SP_DEFAULT_MODEL = "gemini-3.8-flash"
 # The Gemini cascade, in order. Every model has its own free-tier
 # daily quota, so widening the chain stretches the day's total.
@@ -2485,6 +3107,40 @@ SP_AUDIO_INSTRUCTION_PROMPTS = (
     "no_speech answer described below).\n\n"
     + SP_AUDIO_TRANSCRIBE_RULES + "\n\n" + SP_SCRIPT_RULES_AUDIO
     + "\n\n" + SP_PROMPT_RULES)
+
+# Chunked transcription (audio over SP_AUDIO_CHUNK_SECONDS): each
+# chunk is transcribed on its own — plain transcript text in a
+# strict JSON envelope — and the mode's real output is written
+# afterwards from the stitched transcript with the two
+# instructions below (the audio twins of the caption-route pair:
+# same SCRIPT/PROMPT rules, the source worded as a transcript).
+SP_AUDIO_CHUNK_INSTRUCTION = (
+    "You are given ONE chunk of a video's complete audio track. "
+    "Transcribe the speech in this chunk VERBATIM — every spoken "
+    "word, in its ORIGINAL language and its original script. "
+    "Never translate the dialogue. Answer with STRICT JSON only: "
+    "{\"transcript\": \"...\"} — no markdown fences, no "
+    "commentary, nothing outside the JSON object. If this chunk "
+    "contains NO intelligible speech at all (music only, noise, "
+    "or silence), answer with exactly {\"error\": \"no_speech\"} "
+    "and nothing else.")
+
+SP_TRANSCRIPT_INSTRUCTION_SCRIPT = (
+    "You turn a video's transcript — transcribed from its audio "
+    "— into a clean production script. Answer with STRICT JSON "
+    "only: {\"script\": \"...\"} — no markdown fences, no "
+    "commentary, nothing outside the JSON object.\n\n"
+    + SP_SCRIPT_RULES_AUDIO)
+
+SP_TRANSCRIPT_INSTRUCTION_PROMPTS = (
+    "You turn a video's transcript — transcribed from its audio "
+    "— into ready-to-use AI video generation prompts. First "
+    "segment the transcript into scenes and speeches exactly as "
+    "the SCRIPT rules below describe — but do NOT output the "
+    "script itself. Answer with STRICT JSON only: {\"prompts\": "
+    "[\"...\", \"...\"]} — no markdown fences, no commentary, "
+    "nothing outside the JSON object.\n\n"
+    + SP_SCRIPT_RULES_AUDIO + "\n\n" + SP_PROMPT_RULES)
 
 
 def _gemini_api_keys():
@@ -2669,12 +3325,16 @@ def _gemini_models():
     return models
 
 
-def _gemini_call(parts, system_instruction, timeout, max_models=None):
+def _gemini_call(parts, system_instruction, timeout, max_models=None,
+                 slow_max_attempts=None):
     """One generateContent call with model + key fallbacks; returns
     (raw_text, model_used). On 404/429/5xx and on network errors the
     next (model, key) pair is tried; anything else fails at once.
     When max_models is given, at most that many models are tried
-    (each on every configured key).
+    (each on every configured key). slow_max_attempts overrides the
+    slow-failure attempt cap (SP_GEMINI_SLOW_MAX_ATTEMPTS) — the
+    audio route passes its own deeper budget, see
+    SP_AUDIO_SLOW_MAX_ATTEMPTS.
 
     Pair order: MODELS OUTER, KEYS INNER — the best model is tried
     on every configured key before the cascade moves to the next
@@ -2759,8 +3419,9 @@ def _gemini_call(parts, system_instruction, timeout, max_models=None):
         # stop once the slow-mode attempt cap is reached.
         if time.monotonic() - started >= SP_GEMINI_FAST_FAIL:
             failures_fast = False
-        if not failures_fast \
-                and attempts >= SP_GEMINI_SLOW_MAX_ATTEMPTS:
+        slow_cap = SP_GEMINI_SLOW_MAX_ATTEMPTS \
+            if slow_max_attempts is None else slow_max_attempts
+        if not failures_fast and attempts >= slow_cap:
             break
     raise _GeminiUnavailable(str(last_error))
 
@@ -2777,8 +3438,19 @@ def _gemini_generate_text(timed_script, title, cap_lang, mode):
 
 
 def _gemini_generate_audio(mp3_path, title, mode):
-    """Audio route: the video's MP3 goes inline; Gemini transcribes
-    it and answers with the mode's JSON (or the no_speech error)."""
+    """Audio route generation. Audio up to SP_AUDIO_CHUNK_SECONDS
+    keeps the single combined call: the MP3 goes inline, Gemini
+    transcribes it and answers with the mode's JSON (or the
+    no_speech error). LONGER audio is transcribed chunk by chunk
+    instead (see _gemini_generate_audio_chunked) — one giant call
+    is where long videos used to die. Both paths pass the audio
+    route's deeper slow-failure budget to _gemini_call."""
+    duration = _sp_probe_duration(mp3_path)
+    if duration and duration > SP_AUDIO_CHUNK_SECONDS:
+        chunks = _sp_split_audio_chunks(mp3_path)
+        if len(chunks) > 1:
+            return _gemini_generate_audio_chunked(chunks, title,
+                                                  mode)
     with open(mp3_path, "rb") as fh:
         audio_b64 = base64.b64encode(fh.read()).decode("ascii")
     system = SP_AUDIO_INSTRUCTION_SCRIPT if mode == "script" \
@@ -2790,7 +3462,119 @@ def _gemini_generate_audio(mp3_path, title, mode):
             "The attached MP3 is the video's complete audio track. "
             "Follow the system instruction exactly.")},
     ]
-    return _gemini_call(parts, system, SP_AUDIO_GEMINI_TIMEOUT)
+    return _gemini_call(parts, system, SP_AUDIO_GEMINI_TIMEOUT,
+                        slow_max_attempts=SP_AUDIO_SLOW_MAX_ATTEMPTS)
+
+
+def _sp_split_audio_chunks(mp3_path):
+    """Split an MP3 into pieces of at most SP_AUDIO_CHUNK_SECONDS
+    with ffmpeg's segment muxer (stream copy — the input is
+    already the normalised 64 kbps shape, so this is fast).
+    Returns the chunk paths in play order; [mp3_path] itself when
+    splitting is impossible, so the caller falls back to the
+    single combined call. The chunks live in a subdirectory of
+    the caller's temp dir and are deleted with it."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return [mp3_path]
+    outdir = os.path.join(os.path.dirname(mp3_path), "chunks")
+    try:
+        os.makedirs(outdir, exist_ok=True)
+        proc = subprocess.run(
+            [ffmpeg, "-y", "-i", mp3_path, "-f", "segment",
+             "-segment_time", str(SP_AUDIO_CHUNK_SECONDS),
+             "-c", "copy", os.path.join(outdir, "chunk-%03d.mp3")],
+            capture_output=True, timeout=SP_FFMPEG_TIMEOUT)
+    except Exception:
+        return [mp3_path]
+    if proc.returncode != 0:
+        return [mp3_path]
+    chunks = sorted(
+        os.path.join(outdir, name) for name in os.listdir(outdir)
+        if name.startswith("chunk-") and name.endswith(".mp3"))
+    return chunks or [mp3_path]
+
+
+def _sp_parse_chunk_transcript(raw):
+    """One chunk's answer -> its transcript text. The no_speech
+    sentinel and a transcript-less answer both count as no speech
+    in this chunk (the stitch simply skips it); a bare non-JSON
+    reply is taken as the transcript itself."""
+    text = (raw or "").strip()
+    cleaned = text
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    try:
+        data = json.loads(cleaned)
+    except ValueError:
+        return text
+    if not isinstance(data, dict) \
+            or data.get("error") == "no_speech":
+        return ""
+    transcript = data.get("transcript")
+    return transcript.strip() if isinstance(transcript, str) \
+        else ""
+
+
+def _gemini_transcribe_chunk(chunk_path, title, index, count):
+    """Transcribe one audio chunk through the key x model
+    rotation (with the audio route's slow budget). Returns the
+    chunk's transcript text — '' when the chunk holds no speech.
+    Raises _GeminiUnavailable when every pair fails, exactly
+    like the single combined call."""
+    with open(chunk_path, "rb") as fh:
+        audio_b64 = base64.b64encode(fh.read()).decode("ascii")
+    parts = [
+        {"inline_data": {"mime_type": "audio/mp3", "data": audio_b64}},
+        {"text": (
+            f"Video title: {title or 'Untitled'}\n"
+            f"This is audio chunk {index + 1} of {count} — "
+            "transcribe ONLY this chunk, in full.")},
+    ]
+    raw, _model = _gemini_call(
+        parts, SP_AUDIO_CHUNK_INSTRUCTION, SP_AUDIO_GEMINI_TIMEOUT,
+        slow_max_attempts=SP_AUDIO_SLOW_MAX_ATTEMPTS)
+    return _sp_parse_chunk_transcript(raw)
+
+
+def _gemini_generate_from_transcript(transcript, title, mode):
+    """The chunked route's second stage: write the mode's JSON
+    from a stitched transcript. The transcript is capped at
+    SP_INPUT_LIMIT, the same input cap the caption route
+    applies."""
+    if len(transcript) > SP_INPUT_LIMIT:
+        cut = transcript[:SP_INPUT_LIMIT]
+        transcript = cut[:cut.rfind("\n")].rstrip() \
+            if "\n" in cut else cut
+    system = SP_TRANSCRIPT_INSTRUCTION_SCRIPT if mode == "script" \
+        else SP_TRANSCRIPT_INSTRUCTION_PROMPTS
+    parts = [{"text": (
+        f"Video title: {title or 'Untitled'}\n\n"
+        f"Transcript:\n{transcript}")}]
+    return _gemini_call(parts, system, SP_GEMINI_TIMEOUT,
+                        slow_max_attempts=SP_AUDIO_SLOW_MAX_ATTEMPTS)
+
+
+def _gemini_generate_audio_chunked(chunks, title, mode):
+    """The chunked audio route: transcribe every chunk in order
+    through the rotation, stitch the transcripts, then write the
+    mode's JSON from the stitched text. A chunk failing on every
+    (model, key) pair raises _GeminiUnavailable — the endpoint's
+    ai_unavailable, unchanged. When NO chunk holds speech, the
+    answer is the same {"error": "no_speech"} JSON the single
+    combined call would have produced, so _sp_parse_output
+    upstream behaves identically."""
+    pieces = []
+    for index, chunk in enumerate(chunks):
+        text = _gemini_transcribe_chunk(chunk, title, index,
+                                        len(chunks))
+        if text:
+            pieces.append(text)
+    if not pieces:
+        return json.dumps({"error": "no_speech"}), ""
+    return _gemini_generate_from_transcript(
+        "\n".join(pieces), title, mode)
 
 
 def _gemini_generate_prompts_from_script(script_text):
@@ -2912,7 +3696,80 @@ def _sp_duration_mismatch(expected, actual):
         > SP_AUDIO_DURATION_TOLERANCE * expected
 
 
-def _sp_download_audio_mp3(url, expected_duration=None):
+def _sp_convert_to_mp3(src, mp3_path):
+    """Normalise any extracted media file to the transcription
+    input shape: 16 kHz mono 64 kbps MP3 — the canonical ASR
+    recipe (research §9: ~20x smaller than typical source audio
+    with no accuracy loss for speech; a 20-minute file is
+    ~9.6 MB, comfortably under Gemini's 20 MB inline cap).
+    Returns True on success."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False
+    try:
+        proc = subprocess.run(
+            [ffmpeg, "-y", "-i", src, "-vn", "-ar", "16000",
+             "-ac", "1", "-codec:a", "libmp3lame", "-b:a", "64k",
+             mp3_path],
+            capture_output=True, timeout=SP_FFMPEG_TIMEOUT)
+    except Exception:
+        return False
+    return proc.returncode == 0 and os.path.exists(mp3_path) \
+        and os.path.getsize(mp3_path) > 0
+
+
+def _sp_audio_from_tikwm(url, info, expected_duration):
+    """Audio route for a tikwm-resolved TikTok: yt-dlp cannot
+    fetch this post at all (that is why tikwm resolved it), so
+    the audio is taken from tikwm's own stream URLs instead.
+    The play/hdplay MP4 carries the VIDEO'S OWN audio — the
+    resolver's music field is never used here: it can be a
+    separate background song that runs LONGER than the video
+    and contains no speech (the 164 s trap the duration guard
+    exists for), and the same guard vets this download.
+    Returns (mp3_path, tmpdir), or None when no stream could be
+    fetched — the caller then falls through to the yt-dlp
+    strategies, which fail the usual way."""
+    candidates = [f for f in info.get("formats") or []
+                  if f.get("url") and f.get("vcodec") != "none"
+                  and f.get("acodec") != "none"]
+    for fmt in candidates:  # shaped order: hdplay first, then play
+        tmpdir = tempfile.mkdtemp(prefix="qgrab-sp-")
+        src = os.path.join(tmpdir, "source.mp4")
+        try:
+            _fetch_to_file(fmt["url"], src, timeout=180)
+        except Exception as e:
+            app.logger.info(
+                "script-prompt tikwm audio fetch failed for "
+                "%s: %s", url, e)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            continue
+        actual = _sp_probe_duration(src)
+        if _sp_duration_mismatch(expected_duration, actual):
+            app.logger.info(
+                "script-prompt audio rejected tikwm candidate "
+                "for %s: duration %.1fs vs video %.1fs "
+                "(wrong track)", url, actual, expected_duration)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            continue
+        mp3 = os.path.join(tmpdir, "audio.mp3")
+        if not _sp_convert_to_mp3(src, mp3):
+            app.logger.info(
+                "script-prompt tikwm audio convert failed "
+                "for %s", url)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            continue
+        if os.path.getsize(mp3) > SP_AUDIO_MAX_BYTES:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            raise _SpAudioTooBig()
+        app.logger.info(
+            "script-prompt audio via tikwm stream for %s", url)
+        return mp3, tmpdir
+    return None
+
+
+def _sp_download_audio_mp3(url, expected_duration=None,
+                           source_info=None):
     """Audio route, step 1: fetch the VIDEO'S OWN audio and convert
     it with ffmpeg to a mono 64 kbps MP3 — small enough to send to
     Gemini inline (20 min ≈ 9.6 MB). To bound the visitor's wait,
@@ -2928,12 +3785,23 @@ def _sp_download_audio_mp3(url, expected_duration=None):
     TikTok music-asset trap) — it is rejected and the next strategy
     is tried instead of transcribing silence.
 
+    When the metadata came from the tikwm resolver (source_info —
+    the caller's extract_info result), yt-dlp cannot fetch the
+    post, so the audio is taken from tikwm's own MP4 streams
+    first (see _sp_audio_from_tikwm).
+
     Returns (mp3_path, tmpdir); the CALLER owns deleting tmpdir.
     Raises _SpAudioTooBig when the converted file passes the 18 MB
     cap and _SpAudioFailed when every attempt fails."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise _SpAudioFailed("ffmpeg missing")
+    if source_info is not None \
+            and source_info.get("_qgrab_source") == "tikwm":
+        direct = _sp_audio_from_tikwm(url, source_info,
+                                      expected_duration)
+        if direct is not None:
+            return direct
     last_error = None
     attempts = _ordered_attempts(url)[:SP_AUDIO_MAX_ATTEMPTS]
     for spec in attempts:
@@ -2972,17 +3840,7 @@ def _sp_download_audio_mp3(url, expected_duration=None):
                 shutil.rmtree(tmpdir, ignore_errors=True)
                 continue
             mp3 = os.path.join(tmpdir, "audio.mp3")
-            try:
-                proc = subprocess.run(
-                    [ffmpeg, "-y", "-i", src, "-vn", "-ac", "1",
-                     "-codec:a", "libmp3lame", "-b:a", "64k", mp3],
-                    capture_output=True, timeout=SP_FFMPEG_TIMEOUT)
-            except Exception as e:
-                last_error = e
-                shutil.rmtree(tmpdir, ignore_errors=True)
-                continue
-            if proc.returncode != 0 or not os.path.exists(mp3) \
-                    or os.path.getsize(mp3) == 0:
+            if not _sp_convert_to_mp3(src, mp3):
                 app.logger.info(
                     "script-prompt audio convert failed for %s", url)
                 shutil.rmtree(tmpdir, ignore_errors=True)
@@ -3410,7 +4268,7 @@ def _sp_generate_payload(data, url, mode, requested):
         return {"error": "too_long"}, 422
     try:
         mp3_path, tmpdir = _sp_download_audio_mp3(
-            url, expected_duration=duration)
+            url, expected_duration=duration, source_info=info)
     except _SpAudioTooBig:
         return {"error": "audio_too_big"}, 422
     except _SpAudioFailed as e:

@@ -90,6 +90,9 @@ class _ScriptedYDL:
 def _clear_winners():
     with qgrab._winner_lock:
         qgrab._winner_cache.clear()
+    # The extraction cache (site-hardening round) would otherwise
+    # serve a previous test's success to the next scripted run.
+    qgrab._info_cache_clear()
 
 
 class _SleepRecorder:
@@ -235,7 +238,7 @@ def test_youtube_keeps_invidious_no_paused_retry():
 
 # --- Script+Prompt: fetch_failed vs no_subtitles -------------------
 
-def _audio_fail(url, expected_duration=None):
+def _audio_fail(url, expected_duration=None, source_info=None):
     raise qgrab._SpAudioFailed("every attempt failed")
 
 
