@@ -43,6 +43,22 @@
   [dir="rtl"] .hmenu{margin-left:0;margin-right:10px}
   [dir="rtl"] .hmenu-panel{right:auto;left:0;text-align:right}
 
+  /* header "Install App" button (PWA) + its how-to hint pill */
+  .install-btn{display:inline-flex;align-items:center;gap:7px;height:36px;
+    padding:0 14px;border-radius:999px;flex:none;cursor:pointer;margin-right:10px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;
+    border:0;font-family:inherit;font-weight:700;font-size:.88rem;white-space:nowrap}
+  .install-btn:hover{filter:brightness(1.08)}
+  .install-btn svg{width:16px;height:16px;display:block}
+  .install-btn[hidden]{display:none}
+  [dir="rtl"] .install-btn{margin-right:0;margin-left:10px}
+  .install-hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+    z-index:60;max-width:min(92vw,520px);background:var(--card);color:var(--text);
+    border:1px solid var(--line);border-radius:12px;padding:12px 18px;
+    box-shadow:0 14px 36px var(--sh-strong);font-size:.95rem;text-align:center}
+  .install-hint[hidden]{display:none}
+  @media (max-width:480px){ .install-btn{padding:0 10px;font-size:.8rem} }
+
   /* RTL: keep layout intact, keep the URL field LTR */
   [dir="rtl"] .hint{text-align:right}
   [dir="rtl"] .grab input{direction:ltr;text-align:left}

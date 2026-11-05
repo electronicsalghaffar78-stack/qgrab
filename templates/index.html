@@ -231,6 +231,7 @@
   <div class="wrap nav">
     <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
     <nav class="hnav">
+      {% include "_installbtn.html" %}
       {% include "_langmenu.html" %}
     </nav>
   </div>
@@ -634,5 +635,6 @@ form.addEventListener('submit', async (e) => {
 });
 </script>
 {% include "_spjs.html" %}
+{% include "_installjs.html" %}
 </body>
 </html>

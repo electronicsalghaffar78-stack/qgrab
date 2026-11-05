@@ -1,0 +1,63 @@
+<script>
+/* --- PWA "Install App" header button ---
+   Chrome/Android no longer shows an automatic install banner, so the
+   site offers the install itself: the browser's beforeinstallprompt
+   is captured (and its automatic mini-infobar suppressed); clicking
+   the header button then fires the real install prompt. On browsers
+   that never send the event (iOS Safari, some desktops) the click
+   shows a short how-to hint instead. The button hides itself when
+   the app already runs standalone or once it gets installed. */
+(function () {
+  var btn = document.getElementById('installBtn');
+  if (!btn) return;
+  var hint = document.getElementById('installHint');
+  function isStandalone() {
+    return (window.matchMedia &&
+            window.matchMedia('(display-mode: standalone)').matches) ||
+           window.navigator.standalone === true;
+  }
+  if (isStandalone()) { btn.hidden = true; return; }
+  var deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferredPrompt = e;
+  });
+  window.addEventListener('appinstalled', function () {
+    deferredPrompt = null;
+    btn.hidden = true;
+    if (hint) hint.hidden = true;
+  });
+  var hintTimer = null;
+  function showHint(text) {
+    if (!hint || !text) return;
+    hint.textContent = text;
+    hint.hidden = false;
+    if (hintTimer) clearTimeout(hintTimer);
+    hintTimer = setTimeout(function () { hint.hidden = true; }, 6000);
+  }
+  function isIOS() {
+    return /iphone|ipad|ipod/i.test(window.navigator.userAgent) ||
+      (window.navigator.platform === 'MacIntel' &&
+       window.navigator.maxTouchPoints > 1);
+  }
+  btn.addEventListener('click', function () {
+    if (deferredPrompt) {
+      var promptEvent = deferredPrompt;
+      deferredPrompt = null;
+      promptEvent.prompt();
+      if (promptEvent.userChoice) {
+        promptEvent.userChoice.then(function () {}, function () {});
+      }
+      return;
+    }
+    /* Hint strings ship in the page's I18N (via _js_strings); pages
+       without an I18N block (platform "tool" variants) fall back to
+       the same strings rendered onto the button as data attributes. */
+    var iosText = (typeof I18N !== 'undefined' && I18N.install_hint_ios) ||
+                  btn.getAttribute('data-hint-ios');
+    var menuText = (typeof I18N !== 'undefined' && I18N.install_hint_menu) ||
+                   btn.getAttribute('data-hint-menu');
+    showHint(isIOS() ? iosText : menuText);
+  });
+})();
+</script>
