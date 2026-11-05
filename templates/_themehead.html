@@ -40,3 +40,19 @@
   };
 })();
 </script>
+<!-- Google Analytics 4 (the owner's QGrab property) — loaded async,
+     so it never blocks rendering. window.qgEvent is the site's one
+     small usage-event hook: fully guarded, so a blocked or missing
+     gtag can never break a feature — events are analytics-only. -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-JM9C078ZNW"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){ dataLayer.push(arguments); }
+gtag('js', new Date());
+gtag('config', 'G-JM9C078ZNW');
+window.qgEvent = function (name, params) {
+  try {
+    if (typeof gtag === 'function') gtag('event', name, params || {});
+  } catch (e) {}
+};
+</script>

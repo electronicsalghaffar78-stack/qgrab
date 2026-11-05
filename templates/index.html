@@ -469,9 +469,32 @@ const result = document.getElementById('result');
    is a <button>, not an <a>, so it keeps its own behaviour.) */
 const dlStatus = document.getElementById('dlStatus');
 let dlWaitSeq = 0;
+/* GA4 platform label for a download link: read from the original
+   video link carried inside its /download URL, using the same
+   host classification as the server. Analytics-only. */
+function dlPlatform(a){
+  try {
+    const raw = new URL(a.href).searchParams.get('url') || '';
+    const host = new URL(raw).hostname.toLowerCase();
+    if (host.indexOf('youtube') !== -1 || host === 'youtu.be') return 'youtube';
+    if (host.indexOf('tiktok') !== -1) return 'tiktok';
+    if (host.indexOf('facebook') !== -1 || host === 'fb.watch') return 'facebook';
+    if (host.indexOf('instagram') !== -1) return 'instagram';
+    if (host.indexOf('pinterest') !== -1 || host === 'pin.it') return 'pinterest';
+    if (host.indexOf('vk.com') !== -1 || host.indexOf('vkvideo') !== -1) return 'vk';
+    if (host.indexOf('twitter') !== -1 || host === 'x.com' ||
+        host.slice(-6) === '.x.com') return 'twitter';
+  } catch (e) {}
+  return 'other';
+}
 document.getElementById('rFormats').addEventListener('click', (e) => {
   const a = e.target.closest('a');
   if (!a || !a.getAttribute('href') || a.dataset.dlBusy) return;
+  /* A real download starts with this click — the anchor's default
+     navigation proceeds untouched. */
+  if (window.qgEvent) {
+    window.qgEvent('download_start', {platform: dlPlatform(a)});
+  }
   const original = a.innerHTML;
   a.dataset.dlBusy = '1';
   a.classList.add('dl-wait');

@@ -7,9 +7,10 @@
    load, on paste, or after /api/info. The download-result area's
    "Script + Prompts" button (window.qgrabSpPrefill) only scrolls
    here and pre-fills the link — it never starts a generation.
-   While a generation runs, the pressed button shows the
-   "Please wait" string plus a small countdown timer (owner's
-   order: the time only, no extra words) with the spinner.
+   While a generation runs, the pressed button shows the plain
+   "Please wait" string (the owner had the countdown timer
+   removed) with the spinner, and a small toast tells the
+   visitor the wait is about 2-3 minutes.
    All model output is rendered with textContent only — never
    innerHTML. */
 (function(){
@@ -21,6 +22,7 @@
   const spRegen = document.getElementById('spRegenPrompts');
   const spSpin = document.getElementById('spSpinner');
   const spErr = document.getElementById('spError');
+  const spToast = document.getElementById('spToast');
   const spRes = document.getElementById('spResult');
   const spScript = document.getElementById('spScript');
   const spPrompts = document.getElementById('spPrompts');
@@ -84,10 +86,6 @@
       spPrompts.appendChild(wrap);
     });
   }
-  function spFmtTime(s){
-    s = Math.max(0, Math.round(s));
-    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-  }
   /* --- Daily counters (the owner's TAAFT-style counter) ---
      Two small lines in the box: how many script / prompt
      generations are left today, counted DOWN from the daily cap
@@ -127,12 +125,10 @@
      it and polls for the outcome, so a dropped connection, a
      sleeping phone or a reloaded tab no longer loses the result:
      the running job is kept in sessionStorage and polling resumes
-     on page load. The countdown beside "Please wait" is PURELY
-     COSMETIC — a holding aid only. It never gates the job: the
-     result is rendered the instant a poll sees it (even with
-     time left on the clock), and the clock reaching or passing
-     zero never cancels, blocks or hides anything — it just
-     switches to counting up. */
+     on page load. While it runs the pressed button just says
+     "Please wait" — no countdown or time estimate is shown
+     (owner's order) — and the result is rendered the instant a
+     poll sees it; nothing waits for or is gated by any timer. */
   const SP_JOB_KEY = 'sp_job';
   const SP_POLL_MS = 3000;
   const SP_MAX_WAIT_MS = 12 * 60 * 1000;
@@ -147,39 +143,19 @@
   function spSleep(ms){
     return new Promise(function(res){ setTimeout(res, ms); });
   }
-  /* Busy state + the cosmetic countdown. The estimate starts at
-     a default (script 60s, prompts 150s) and sharpens when the
-     parallel /api/info lookup reports the video's duration; that
-     lookup never delays the generation itself. Returns a small
-     controller: sharpen(duration) refines the estimate, stop()
+  /* Busy state: spinner on, all three buttons disabled, the
+     pressed button's label becomes the plain "Please wait"
+     string — no countdown, no time estimate (the owner had the
+     timer removed). Returns a small controller whose stop()
      tears the busy state down and restores the button label. */
-  function spStartWaitUI(btn, mode, t0){
+  function spStartWaitUI(btn){
     spBusy = true;
     spErr.style.display = 'none';
     spSpin.style.display = 'block';
     spButtons.forEach(function(b){ b.disabled = true; });
-    let estimate = mode === 'prompts' ? 150 : 60;
-    let alive = true;
-    function tick(){
-      const elapsed = (Date.now() - t0) / 1000;
-      const remaining = estimate - elapsed;
-      btn.textContent = I18N.sp_working + '… ' + spFmtTime(
-        remaining > 0 ? Math.ceil(remaining) : Math.floor(elapsed));
-    }
-    tick();
-    const timer = setInterval(tick, 1000);
+    btn.textContent = I18N.sp_working;
     return {
-      sharpen: function(duration){
-        if (!alive || !(duration > 0)) return;
-        const est = mode === 'prompts'
-          ? Math.round(45 + 1.3 * duration)
-          : Math.round(20 + 0.5 * duration);
-        estimate = Math.min(300, Math.max(25, est));
-        tick();
-      },
       stop: function(){
-        alive = false;
-        clearInterval(timer);
         spSpin.style.display = 'none';
         spButtons.forEach(function(b){ b.disabled = false; });
         btn.textContent = spLabels[btn.id];
@@ -187,14 +163,20 @@
       }
     };
   }
-  function spSharpenFromInfo(url, ui){
-    fetch('/api/info', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url: url})
-    }).then(function(r){ return r.json(); }).then(function(d){
-      if (d && d.duration > 0) ui.sharpen(d.duration);
-    }).catch(function(){});
+  /* The "about 2-3 minutes" toast: shown once a generation job
+     has actually started (the server accepted it — HTTP 202).
+     Purely informational: it hides itself after ~5 seconds and
+     never blocks, delays or gates the job or the result — a
+     result that arrives sooner still renders immediately. */
+  let spToastTimer = null;
+  function spShowToast(){
+    if (!spToast || !I18N.sp_wait_note) return;
+    spToast.textContent = I18N.sp_wait_note;
+    spToast.style.display = 'block';
+    if (spToastTimer) clearTimeout(spToastTimer);
+    spToastTimer = setTimeout(function(){
+      spToast.style.display = 'none';
+    }, 5000);
   }
   function spRenderResult(data, mode){
     if (mode === 'prompts') spRenderPrompts(data);
@@ -202,13 +184,34 @@
     spRes.style.display = 'block';
     spRes.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   }
+  /* GA4 usage events: fired only when a generation actually
+     completes and its result is shown — never on a button click
+     and never on an error. The fresh path fires unconditionally:
+     the job was started by this visitor's own button press and
+     finished while they watched. The resume path fires only
+     when polling in THIS session actually saw the job still
+     running (the caller passes a track object to spPollJob):
+     a job that had already finished while the page was away is
+     merely re-displayed, so it is never counted twice.
+     window.qgEvent itself no-ops if the GA tag is blocked. */
+  function spFireGa(mode){
+    if (window.qgEvent) {
+      window.qgEvent(mode === 'prompts' ?
+        'prompt_generated' : 'script_generated');
+    }
+  }
   /* Poll until the job resolves. A poll that itself fails
      (network hiccup) is simply retried on the next tick — it is
      never treated as the job failing. A 404 means the server has
      forgotten the job (expired/restarted): that wait is over, so
      the generic AI-unavailable message is shown, the same one the
      12-minute client cap falls back to. */
-  async function spPollJob(jobId, t0){
+  /* The optional `track` object, when given, gets
+     track.sawRunning set the first time a poll observes the
+     job in a non-final state — the resume path uses it to tell
+     a completion that happened in this session apart from a
+     result that was already finished before the page loaded. */
+  async function spPollJob(jobId, t0, track){
     const statusUrl = '/api/script-prompt/status?id=' +
       encodeURIComponent(jobId);
     for (;;) {
@@ -232,14 +235,14 @@
       if (data && data.status === 'error') {
         throw new Error(spErrorText(data.error));
       }
+      if (data && track) track.sawRunning = true;
       await spSleep(SP_POLL_MS);
     }
   }
   async function qgrabScriptPrompt(url, mode, btn){
     if (spBusy || !url) return;
     const t0 = Date.now();
-    const ui = spStartWaitUI(btn, mode, t0);
-    spSharpenFromInfo(url, ui);
+    const ui = spStartWaitUI(btn);
     try {
       const body = {url: url, mode: mode};
       /* Forward flow: prompts are made from the script in the
@@ -257,14 +260,17 @@
       if (r.status === 202 && data.job_id) {
         spStoreJob({job_id: data.job_id, mode: mode, url: url,
                     started_at: t0});
+        spShowToast();
         const finalData = await spPollJob(data.job_id, t0);
         spRenderResult(finalData, mode);
+        spFireGa(mode);
       } else if (!r.ok) {
         throw new Error(spErrorText(data.error));
       } else {
         /* A non-202 success should not happen; if it ever does,
            treat its payload as the finished result. */
         spRenderResult(data, mode);
+        spFireGa(mode);
       }
     } catch (err) {
       spShowError(err.message || I18N.err_generic);
@@ -293,13 +299,17 @@
     const mode = stored.mode === 'prompts' ? 'prompts' : 'script';
     const btn = mode === 'prompts' ? spBtnPrompts : spBtnScript;
     if (stored.url && !spUrl.value) spUrl.value = stored.url;
-    const ui = spStartWaitUI(btn, mode, stored.started_at);
-    if (stored.url) spSharpenFromInfo(stored.url, ui);
+    const ui = spStartWaitUI(btn);
+    const track = {};
     (async function(){
       try {
         const finalData = await spPollJob(
-          stored.job_id, stored.started_at);
+          stored.job_id, stored.started_at, track);
         spRenderResult(finalData, mode);
+        /* Count the completion only if this session actually
+           watched the job still running first — a job that was
+           already done is just being re-displayed. */
+        if (track.sawRunning) spFireGa(mode);
       } catch (err) {
         spShowError(err.message || I18N.err_generic);
       } finally {

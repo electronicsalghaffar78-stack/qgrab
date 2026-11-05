@@ -104,7 +104,8 @@ function buildEnv({ fetchHandler, seedJob }) {
   globalThis.sessionStorage = sessionStorage;
   globalThis.fetch = fetchHandler;
   globalThis.I18N = {
-    sp_working: 'Please wait', err_link: 'BAD LINK',
+    sp_working: 'Please wait', sp_wait_note: 'TAKES A WHILE',
+    err_link: 'BAD LINK',
     err_generic: 'GENERIC', sp_err_nosubs: 'NO SUBS',
     sp_err_toolong: 'TOO LONG', sp_err_audiobig: 'AUDIO BIG',
     sp_err_nospeech: 'NO SPEECH', sp_err_rate: 'RATE',
@@ -148,13 +149,15 @@ async function scenarioFreshJob() {
   el.spUrl.value = 'https://vm.tiktok.com/abc/';
   el.spBtnScript.click();
   await flush();
-  /* Job persisted for resume, countdown ticking with the
-     duration-sharpened estimate (20 + 0.5*60 = 50s). */
+  /* Job persisted for resume; the busy label is the plain
+     "Please wait" string — no countdown, no time estimate —
+     and the "about 2-3 minutes" toast is showing. */
   const stored = JSON.parse(env.store.get('sp_job'));
   assert.strictEqual(stored.job_id, 'job1');
   assert.strictEqual(stored.mode, 'script');
-  assert.ok(/Please wait… 0:50/.test(el.spBtnScript.textContent),
-            'label: ' + el.spBtnScript.textContent);
+  assert.strictEqual(el.spBtnScript.textContent, 'Please wait');
+  assert.strictEqual(el.spToast.textContent, 'TAKES A WHILE');
+  assert.strictEqual(el.spToast.style.display, 'block');
   assert.strictEqual(el.spBtnScript.disabled, true);
   await advance(3000);
   assert.strictEqual(el.spScript.value, 'HELLO SCRIPT');

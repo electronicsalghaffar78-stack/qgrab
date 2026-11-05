@@ -130,6 +130,15 @@
   .sp-actions{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
   .sp-error{display:none;margin-top:16px;background:var(--err-bg);border:1px solid var(--err-line);
     color:var(--err-text);padding:12px 14px;border-radius:10px;font-size:.95rem}
+  /* "this takes about 2-3 minutes" toast: shown when a job
+     starts, fades itself after ~5s, informational only — it
+     never blocks or gates the result */
+  .sp-toast{display:none;position:fixed;left:50%;bottom:22px;
+    transform:translateX(-50%);z-index:60;max-width:min(92vw,520px);
+    background:var(--card);color:var(--text);border:1px solid var(--line);
+    border-radius:12px;padding:12px 18px;box-shadow:0 14px 36px var(--sh-strong);
+    font-size:.95rem;text-align:center;animation:sp-toast-in .25s ease-out}
+  @keyframes sp-toast-in{from{opacity:0}to{opacity:1}}
   #spResult{display:none}
   .sp-pane{margin-top:20px}
   .sp-pane-head{display:flex;align-items:center;justify-content:space-between;
