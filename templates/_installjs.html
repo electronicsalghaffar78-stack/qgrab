@@ -19,6 +19,15 @@
   var btn = document.getElementById('installBtn');
   if (!btn) return;
   var backdrop = document.getElementById('installBackdrop');
+  /* The backdrop markup ships inside the sticky site <header>
+     (alongside the button), and the header's backdrop-filter makes
+     it a containing block for fixed-position descendants — so
+     .install-backdrop's position:fixed; inset:0 resolved against
+     the ~58px header strip instead of the viewport and the sheet
+     rendered clipped at the top of the screen, title and steps
+     off-screen. Move the backdrop to the end of <body> at init so
+     its fixed positioning always anchors to the viewport. */
+  if (backdrop && document.body) document.body.appendChild(backdrop);
   var closeBtn = document.getElementById('installSheetClose');
   var stepsAndroid = document.getElementById('installStepsAndroid');
   var stepsIos = document.getElementById('installStepsIos');

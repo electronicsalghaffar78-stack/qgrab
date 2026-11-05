@@ -29,6 +29,12 @@ Covered here:
     both step lists, localised step text), the old hint pill is
     gone, and the install script still wires beforeinstallprompt /
     appinstalled / standalone handling with no auto-hide timer,
+  * the install script relocates the backdrop to the end of
+    <body> at init (document.body.appendChild(backdrop)): the
+    backdrop markup ships inside the sticky header, whose
+    backdrop-filter makes it the containing block for fixed
+    descendants, so without the move the sheet renders clipped
+    at the top of the viewport instead of as a bottom sheet,
   * the served manifest parses and keeps display=standalone,
     start_url=/ and scope=/; every icon src answers 200 in the
     test client; the categories list is present; and the two
@@ -135,6 +141,27 @@ def test_install_sheet_and_script_rendered():
     print("  install button + guide sheet rendered on home/platform/tool (en+ur)")
 
 
+def test_install_script_relocates_backdrop():
+    """The header's backdrop-filter traps position:fixed (see the
+    module docstring), so at init the script must move the
+    backdrop element out of the header to the end of <body> —
+    document.body.appendChild(backdrop) — before wiring events."""
+    with open(os.path.join(ROOT, "templates", "_installjs.html"),
+              encoding="utf-8") as fh:
+        js = fh.read()
+    move = "document.body.appendChild(backdrop)"
+    assert move in js, "backdrop relocation missing from install script"
+    # the move happens at init, ahead of the event wiring
+    assert js.index(move) < js.index("addEventListener"), \
+        "backdrop must be relocated before events are wired"
+    # and every page that renders the sheet serves the relocation
+    client = qgrab.app.test_client()
+    for path in PAGES:
+        html = client.get(path).get_data(as_text=True)
+        assert move in html, (path, "relocation not served")
+    print("  install script relocates backdrop to end of <body> at init")
+
+
 def test_no_autohide_timer_remains():
     """The sheet must stay until closed: the install script may not
     carry the old 6-second hint timer (or any timer) at all."""
@@ -202,6 +229,8 @@ if __name__ == "__main__":
     print("PASS guide step content")
     test_install_sheet_and_script_rendered()
     print("PASS install sheet rendered")
+    test_install_script_relocates_backdrop()
+    print("PASS backdrop relocation")
     test_no_autohide_timer_remains()
     print("PASS no auto-hide timer")
     test_manifest_pwa_contract()
