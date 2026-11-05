@@ -7,8 +7,10 @@ still had quota left. The cascade now walks a 6-model chain
 (SP_MODEL_CHAIN, env GEMINI_MODEL first when set): quota failures
 come back FAST (an instant 429), so fast failures keep falling
 through to the next model; SLOW failures (timeouts / long
-attempts) keep the old effective cap of 2 attempts total so the
-worst-case wait does not grow.
+attempts) cap the walk at the calling route's slow budget — the
+bare _gemini_call fallback is 2 attempts total, while both
+production routes pass a deeper budget of 6 (the text routes
+since 2026-11-05; see the text-route regression tests below).
 
 urlopen is stubbed throughout — no network, no real generation.
 
@@ -145,6 +147,58 @@ def test_slow_failures_stop_at_two_attempts():
     finally:
         qgrab.SP_GEMINI_FAST_FAIL = orig_threshold
     assert calls == CHAIN[:2], calls
+
+
+def test_text_route_slow_failures_walk_six_attempts():
+    """The TEXT routes carry the deeper slow budget
+    (SP_TEXT_SLOW_MAX_ATTEMPTS = 6, raised 2026-11-05 from the
+    inherited fallback of 2 after production Prompts jobs died on
+    the first model): prompts-from-script with every attempt
+    failing SLOW walks all six models before _GeminiUnavailable,
+    instead of stopping at 2 attempts on the first model."""
+    calls = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(_model_of(req))
+        time.sleep(0.3)
+        raise urllib.error.HTTPError(
+            req.full_url, 503, "slow failure", None, None)
+
+    orig_threshold = qgrab.SP_GEMINI_FAST_FAIL
+    qgrab.SP_GEMINI_FAST_FAIL = 0.2
+    try:
+        with _patched(fake_urlopen):
+            assert _unavailable(
+                lambda: qgrab._gemini_generate_prompts_from_script(
+                    "SCENE 1 — a test script"))
+    finally:
+        qgrab.SP_GEMINI_FAST_FAIL = orig_threshold
+    assert qgrab.SP_TEXT_SLOW_MAX_ATTEMPTS == 6
+    assert calls == CHAIN, calls
+
+
+def test_caption_route_slow_failures_walk_six_attempts():
+    """Same deeper slow budget on the caption route
+    (_gemini_generate_text): SLOW failures walk the whole chain
+    before _GeminiUnavailable."""
+    calls = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(_model_of(req))
+        time.sleep(0.3)
+        raise urllib.error.HTTPError(
+            req.full_url, 503, "slow failure", None, None)
+
+    orig_threshold = qgrab.SP_GEMINI_FAST_FAIL
+    qgrab.SP_GEMINI_FAST_FAIL = 0.2
+    try:
+        with _patched(fake_urlopen):
+            assert _unavailable(
+                lambda: qgrab._gemini_generate_text(
+                    "00:00 hello", "A title", "en", "script"))
+    finally:
+        qgrab.SP_GEMINI_FAST_FAIL = orig_threshold
+    assert calls == CHAIN, calls
 
 
 def test_env_model_leads_chain_without_duplication():

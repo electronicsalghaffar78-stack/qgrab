@@ -16,6 +16,8 @@ Covered here (the Gemini/source layer is stubbed to a fast fake):
   * the synchronous pre-checks still fire WITHOUT creating a job
     (invalid_url 400, not_configured 503, rate_limited 429),
   * the rate limit is counted once, at POST time,
+  * every I18N key the SP script references is actually shipped
+    by _js_strings() and rendered (toast-string regression),
   * homepage + tool page still render (en + ur),
   * the rendered inline scripts pass node --check.
 
@@ -170,6 +172,37 @@ def test_sync_prechecks_create_no_job():
     _reset_state()
 
 
+def test_sp_i18n_keys_reach_the_page():
+    """Regression (2026-11-05): the SP toast never appeared live
+    because _spjs.html reads I18N.sp_wait_note but _js_strings()
+    never shipped the key, so spShowToast() silently returned.
+    The JS suite could not catch it — it stubs I18N by hand, WITH
+    the key. Pin the real flow instead: every I18N.<key> the SP
+    script references must be present in _js_strings() output,
+    and the rendered pages must carry a non-empty sp_wait_note."""
+    import json
+    import re
+    here = os.path.dirname(os.path.abspath(__file__))
+    spjs = os.path.join(here, "..", "templates", "_spjs.html")
+    with open(spjs, encoding="utf-8") as fh:
+        referenced = set(re.findall(r"I18N\.([A-Za-z_]+)", fh.read()))
+    assert "sp_wait_note" in referenced  # the toast's string
+    for lang in ("en", "ur"):
+        shipped = qgrab._js_strings(qgrab.i18n.get_strings(lang))
+        missing = referenced - set(shipped)
+        assert not missing, (lang, sorted(missing))
+        assert shipped["sp_wait_note"].strip(), lang
+    client = qgrab.app.test_client()
+    for path in ("/", "/?lang=ur", "/video-to-script-prompt",
+                 "/video-to-script-prompt?lang=ur"):
+        html = client.get(path).get_data(as_text=True)
+        m = re.search(r"const I18N = (\{.*?\});", html, re.S)
+        assert m, path
+        page_i18n = json.loads(m.group(1))
+        assert page_i18n.get("sp_wait_note", "").strip(), path
+    print("  sp I18N keys shipped + rendered sp_wait_note OK")
+
+
 def test_pages_render_and_scripts_parse():
     client = qgrab.app.test_client()
     node = shutil.which("node")
@@ -209,6 +242,8 @@ if __name__ == "__main__":
     print("PASS unknown/expired job -> 404")
     test_sync_prechecks_create_no_job()
     print("PASS sync pre-checks (400/503/429, no job created)")
+    test_sp_i18n_keys_reach_the_page()
+    print("PASS sp I18N keys reach the page (toast regression)")
     test_pages_render_and_scripts_parse()
     print("PASS pages render (en+ur) + scripts parse")
     print("ALL SP JOB TESTS PASS")

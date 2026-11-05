@@ -1977,6 +1977,7 @@ def _js_strings(t):
         "cap_lang": t["js_cap_lang"],
         "sp_btn_result": t["sp_btn_result"],
         "sp_working": t["sp_working"],
+        "sp_wait_note": t["sp_wait_note"],
         "sp_copy": t["sp_copy"],
         "sp_copied": t["sp_copied"],
         "sp_err_nosubs": t["sp_err_nosubs"],
@@ -3004,8 +3005,9 @@ SP_AUDIO_CHUNK_SECONDS = 600  # 10-minute transcription chunks
 # quota error on the next pair exhausted the rotation without
 # ever trying five of the six models. A slow transcription is
 # per-pair congestion, not a global "stop" signal, so audio
-# calls walk deeper before giving up; the text route keeps the
-# tight cap (the worst-case wait is what that cap protects).
+# calls walk deeper before giving up. The text routes were given
+# the same deeper budget on 2026-11-05 — see
+# SP_TEXT_SLOW_MAX_ATTEMPTS below.
 SP_AUDIO_SLOW_MAX_ATTEMPTS = 6  # audio: pairs tried after a slow failure
 SP_DEFAULT_MODEL = "gemini-3.8-flash"
 # The Gemini cascade, in order. Every model has its own free-tier
@@ -3016,10 +3018,25 @@ SP_MODEL_CHAIN = ["gemini-3.8-flash", "gemini-3.6-flash",
 # Attempt policy (see _gemini_call): a failure that comes back in
 # under this many seconds is the quota/error signature and the
 # cascade keeps walking the chain; once a failure is SLOW (a
-# timeout or a long attempt), total attempts cap at
-# SP_GEMINI_SLOW_MAX_ATTEMPTS so the worst-case wait stays bounded.
+# timeout or a long attempt), total attempts cap at the calling
+# route's slow budget so the worst-case wait stays bounded.
+# SP_GEMINI_SLOW_MAX_ATTEMPTS is the generic fallback for a call
+# that passes no budget of its own; both production routes pass
+# theirs (SP_AUDIO_SLOW_MAX_ATTEMPTS / SP_TEXT_SLOW_MAX_ATTEMPTS).
 SP_GEMINI_FAST_FAIL = 20      # seconds; faster failure = fast
-SP_GEMINI_SLOW_MAX_ATTEMPTS = 2  # attempt cap once failures are slow
+SP_GEMINI_SLOW_MAX_ATTEMPTS = 2  # fallback attempt cap once slow
+# The TEXT routes' slow-failure budget (the caption route and
+# prompts-from-script). Raised 2 -> 6 on 2026-11-05 on production
+# evidence: Render logs (08:19-08:27 UTC) showed three Prompts
+# jobs dying as ai_unavailable after only TWO attempts, both on
+# the FIRST cascade model (gemini-3.8-flash) — an HTTP 503
+# (Google-side overload) and a TimeoutError flipped the call into
+# slow mode and the inherited tight cap killed the job before the
+# cascade ever reached the other five models or the other keys.
+# A slow failure on one pair is per-pair congestion, not a global
+# "stop" signal — the same diagnosis as the audio route's — so
+# the text routes now walk as deep as audio before giving up.
+SP_TEXT_SLOW_MAX_ATTEMPTS = 6  # text: pairs tried after a slow failure
 GEMINI_API_URL = ("https://generativelanguage.googleapis.com/v1beta/"
                   "models/{model}:generateContent")
 
@@ -3333,8 +3350,8 @@ def _gemini_call(parts, system_instruction, timeout, max_models=None,
     When max_models is given, at most that many models are tried
     (each on every configured key). slow_max_attempts overrides the
     slow-failure attempt cap (SP_GEMINI_SLOW_MAX_ATTEMPTS) — the
-    audio route passes its own deeper budget, see
-    SP_AUDIO_SLOW_MAX_ATTEMPTS.
+    audio route passes SP_AUDIO_SLOW_MAX_ATTEMPTS and the text
+    routes pass SP_TEXT_SLOW_MAX_ATTEMPTS, both deeper budgets.
 
     Pair order: MODELS OUTER, KEYS INNER — the best model is tried
     on every configured key before the cascade moves to the next
@@ -3348,9 +3365,10 @@ def _gemini_call(parts, system_instruction, timeout, max_models=None,
     all the pairs. A SLOW failure (an attempt that consumed
     SP_GEMINI_FAST_FAIL seconds or more — a timeout, an overloaded
     model) flips the call into the bounded mode: total attempts
-    then cap at SP_GEMINI_SLOW_MAX_ATTEMPTS, the same effective
-    cap the speed pass imposed, so the worst-case wait does not
-    grow. An API key travels in the x-goog-api-key header only —
+    then cap at the route's slow budget (slow_max_attempts,
+    falling back to SP_GEMINI_SLOW_MAX_ATTEMPTS), so the
+    worst-case wait stays bounded by that budget. An API key
+    travels in the x-goog-api-key header only —
     it is never put in a URL, a log line or a response."""
     payload = {
         "system_instruction": {
@@ -3434,7 +3452,8 @@ def _gemini_generate_text(timed_script, title, cap_lang, mode):
         f"Video title: {title or 'Untitled'}\n"
         f"Caption language code: {cap_lang}\n\n"
         f"Timed captions:\n{timed_script}")}]
-    return _gemini_call(parts, system, SP_GEMINI_TIMEOUT)
+    return _gemini_call(parts, system, SP_GEMINI_TIMEOUT,
+                        slow_max_attempts=SP_TEXT_SLOW_MAX_ATTEMPTS)
 
 
 def _gemini_generate_audio(mp3_path, title, mode):
@@ -3584,7 +3603,8 @@ def _gemini_generate_prompts_from_script(script_text):
         "The script of the video, provided or edited by the user:\n\n"
         + script_text)}]
     return _gemini_call(parts, SP_SCRIPT_INSTRUCTION_PROMPTS,
-                        SP_GEMINI_TIMEOUT)
+                        SP_GEMINI_TIMEOUT,
+                        slow_max_attempts=SP_TEXT_SLOW_MAX_ATTEMPTS)
 
 
 def _sp_parse_output(raw):
