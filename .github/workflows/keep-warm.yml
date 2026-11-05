@@ -1,0 +1,13 @@
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping QGrab health endpoint
+        run: curl -sS --max-time 90 https://qgrab.onrender.com/healthz || true
