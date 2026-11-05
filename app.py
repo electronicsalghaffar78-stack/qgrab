@@ -2005,7 +2005,15 @@ def _i18n_context():
     path = request.path
 
     def lang_url(code):
-        return path if code == "en" else f"{path}?lang={code}"
+        # Every language — English included — carries an explicit
+        # ?lang= parameter. Without it, clicking "English" navigated
+        # to the bare path and _current_lang() fell back to the
+        # stored qgrab_lang cookie, so a visitor with a non-English
+        # cookie could never switch back to English (bug hit by the
+        # owner, stuck in Urdu, 2026-11-05). With ?lang=en the
+        # explicit choice renders English and _persist_lang stores
+        # qgrab_lang=en like any other language.
+        return f"{path}?lang={code}"
 
     return {
         "lang": lang,
