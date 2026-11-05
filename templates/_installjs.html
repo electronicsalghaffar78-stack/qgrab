@@ -1,20 +1,34 @@
 <script>
-/* --- PWA "Install App" header button ---
-   Chrome/Android no longer shows an automatic install banner, so the
-   site offers the install itself: the browser's beforeinstallprompt
-   is captured (and its automatic mini-infobar suppressed); clicking
-   the header button then fires the real install prompt. On browsers
-   that never send the event (iOS Safari, some desktops) the click
-   shows a short how-to hint instead. The button hides itself when
-   the app already runs standalone or once it gets installed. */
+/* --- PWA "Install App" header button + install guide sheet ---
+   Chrome/Android no longer shows an automatic install banner, so
+   the site offers the install itself: the browser's
+   beforeinstallprompt is captured (and its automatic mini-infobar
+   suppressed); clicking the header button then fires the real
+   install prompt. Chrome withholds that event from new / low-
+   engagement visitors, though, and iOS never sends it at all —
+   for those visitors the click opens the install guide bottom
+   sheet (_installbtn.html) with numbered steps that end with the
+   QGrab icon on the home screen. The sheet stays open until the
+   visitor closes it (close button, backdrop tap or Escape): an
+   earlier auto-vanishing hint pill disappeared before anyone
+   could finish the steps. If beforeinstallprompt arrives later
+   in the session, the button switches to the native prompt.
+   The button hides itself when the app already runs standalone
+   or once it gets installed. */
 (function () {
   var btn = document.getElementById('installBtn');
   if (!btn) return;
-  var hint = document.getElementById('installHint');
+  var backdrop = document.getElementById('installBackdrop');
+  var closeBtn = document.getElementById('installSheetClose');
+  var stepsAndroid = document.getElementById('installStepsAndroid');
+  var stepsIos = document.getElementById('installStepsIos');
   function isStandalone() {
     return (window.matchMedia &&
             window.matchMedia('(display-mode: standalone)').matches) ||
            window.navigator.standalone === true;
+  }
+  function closeSheet() {
+    if (backdrop) backdrop.hidden = true;
   }
   if (isStandalone()) { btn.hidden = true; return; }
   var deferredPrompt = null;
@@ -25,20 +39,19 @@
   window.addEventListener('appinstalled', function () {
     deferredPrompt = null;
     btn.hidden = true;
-    if (hint) hint.hidden = true;
+    closeSheet();
   });
-  var hintTimer = null;
-  function showHint(text) {
-    if (!hint || !text) return;
-    hint.textContent = text;
-    hint.hidden = false;
-    if (hintTimer) clearTimeout(hintTimer);
-    hintTimer = setTimeout(function () { hint.hidden = true; }, 6000);
-  }
   function isIOS() {
     return /iphone|ipad|ipod/i.test(window.navigator.userAgent) ||
       (window.navigator.platform === 'MacIntel' &&
        window.navigator.maxTouchPoints > 1);
+  }
+  function openSheet() {
+    if (!backdrop) return;
+    var ios = isIOS();
+    if (stepsAndroid) stepsAndroid.hidden = ios;
+    if (stepsIos) stepsIos.hidden = !ios;
+    backdrop.hidden = false;
   }
   btn.addEventListener('click', function () {
     if (deferredPrompt) {
@@ -50,14 +63,16 @@
       }
       return;
     }
-    /* Hint strings ship in the page's I18N (via _js_strings); pages
-       without an I18N block (platform "tool" variants) fall back to
-       the same strings rendered onto the button as data attributes. */
-    var iosText = (typeof I18N !== 'undefined' && I18N.install_hint_ios) ||
-                  btn.getAttribute('data-hint-ios');
-    var menuText = (typeof I18N !== 'undefined' && I18N.install_hint_menu) ||
-                   btn.getAttribute('data-hint-menu');
-    showHint(isIOS() ? iosText : menuText);
+    openSheet();
+  });
+  if (closeBtn) closeBtn.addEventListener('click', closeSheet);
+  if (backdrop) {
+    backdrop.addEventListener('click', function (e) {
+      if (e.target === backdrop) closeSheet();
+    });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeSheet();
   });
 })();
 </script>

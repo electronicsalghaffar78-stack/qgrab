@@ -1,2 +1,26 @@
-<button type="button" class="install-btn" id="installBtn" title="{{ t.install_app }}" data-hint-ios="{{ t.install_hint_ios }}" data-hint-menu="{{ t.install_hint_menu }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg><span>{{ t.install_app }}</span></button>
-<div class="install-hint" id="installHint" role="status" hidden></div>
+<button type="button" class="install-btn" id="installBtn" title="{{ t.install_app }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg><span>{{ t.install_app }}</span></button>
+{# Install guide bottom sheet: opened by _installjs.html when the
+   browser never offers a native beforeinstallprompt (new/low-
+   engagement visitors, iOS Safari), so the visitor can still finish
+   the install by hand. Both step lists are rendered server-side in
+   the page language; the script only unhides the one matching the
+   visitor's platform. The sheet stays until the visitor closes it
+   (close button, backdrop tap or Escape) — no auto-hide. #}
+<div class="install-backdrop" id="installBackdrop" hidden>
+  <div class="install-sheet" id="installSheet" role="dialog" aria-modal="true" aria-label="{{ t.install_app }}">
+    <div class="install-sheet-head">
+      <span class="install-sheet-title">{{ t.install_app }}</span>
+      <button type="button" class="install-sheet-close" id="installSheetClose" aria-label="{{ t.install_guide_close }}">&times;</button>
+    </div>
+    <ol class="install-steps" id="installStepsAndroid">
+      <li>{{ t.install_step_android_1 }}</li>
+      <li>{{ t.install_step_android_2 }}</li>
+      <li>{{ t.install_step_android_3 }}</li>
+    </ol>
+    <ol class="install-steps" id="installStepsIos" hidden>
+      <li>{{ t.install_step_ios_1 }}</li>
+      <li>{{ t.install_step_ios_2 }}</li>
+      <li>{{ t.install_step_ios_3 }}</li>
+    </ol>
+  </div>
+</div>

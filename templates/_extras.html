@@ -43,7 +43,10 @@
   [dir="rtl"] .hmenu{margin-left:0;margin-right:10px}
   [dir="rtl"] .hmenu-panel{right:auto;left:0;text-align:right}
 
-  /* header "Install App" button (PWA) + its how-to hint pill */
+  /* header "Install App" button (PWA) + install guide bottom sheet.
+     The sheet replaces the old auto-vanishing hint pill: it stays
+     open until the visitor closes it, so the numbered steps can
+     actually be followed to the end (icon on the home screen). */
   .install-btn{display:inline-flex;align-items:center;gap:7px;height:36px;
     padding:0 14px;border-radius:999px;flex:none;cursor:pointer;margin-right:10px;
     background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;
@@ -52,11 +55,24 @@
   .install-btn svg{width:16px;height:16px;display:block}
   .install-btn[hidden]{display:none}
   [dir="rtl"] .install-btn{margin-right:0;margin-left:10px}
-  .install-hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
-    z-index:60;max-width:min(92vw,520px);background:var(--card);color:var(--text);
-    border:1px solid var(--line);border-radius:12px;padding:12px 18px;
-    box-shadow:0 14px 36px var(--sh-strong);font-size:.95rem;text-align:center}
-  .install-hint[hidden]{display:none}
+  .install-backdrop{position:fixed;inset:0;z-index:70;background:rgba(6,8,12,.55);
+    display:flex;align-items:flex-end;justify-content:center}
+  .install-backdrop[hidden]{display:none}
+  .install-sheet{background:var(--card);color:var(--text);width:100%;max-width:560px;
+    max-height:86vh;overflow:auto;border:1px solid var(--line);border-bottom:0;
+    border-radius:18px 18px 0 0;box-shadow:0 -14px 36px var(--sh-strong);
+    padding:16px 20px calc(18px + env(safe-area-inset-bottom))}
+  .install-sheet-head{display:flex;align-items:center;justify-content:space-between;
+    gap:12px;margin-bottom:6px}
+  .install-sheet-title{font-weight:800;font-size:1.05rem}
+  .install-sheet-close{flex:none;width:34px;height:34px;border-radius:999px;
+    background:var(--bg2);border:1px solid var(--line);color:var(--text);
+    font-size:1.3rem;line-height:1;cursor:pointer;padding:0;font-family:inherit}
+  .install-sheet-close:hover{border-color:var(--accent)}
+  .install-steps{margin:8px 0 4px;padding-left:24px;text-align:left;line-height:1.55}
+  .install-steps li{margin:8px 0}
+  .install-steps[hidden]{display:none}
+  [dir="rtl"] .install-steps{text-align:right;padding-left:0;padding-right:24px}
   @media (max-width:480px){ .install-btn{padding:0 10px;font-size:.8rem} }
 
   /* RTL: keep layout intact, keep the URL field LTR */
