@@ -1,0 +1,26 @@
+<section id="ai-tools" class="aitools-sec">
+  <h2>AI Tools</h2>
+  <p class="sub">Free AI generators for your videos and channel — titles, tags, hashtags, channel names, keyword ideas and thumbnail concepts. Type a topic and tap Generate.</p>
+  <div class="ai-grid">
+    <button type="button" class="ai-tool active" data-tool="titles"><b>AI Title Generator</b><span>10 catchy video titles</span></button>
+    <button type="button" class="ai-tool" data-tool="tags"><b>AI Tags Generator</b><span>SEO tags for your video</span></button>
+    <button type="button" class="ai-tool" data-tool="hashtags"><b>AI Hashtag Generator</b><span>Ready-to-paste #hashtags</span></button>
+    <button type="button" class="ai-tool" data-tool="channel_names"><b>AI Channel Name Generator</b><span>Memorable name ideas</span></button>
+    <button type="button" class="ai-tool" data-tool="keywords"><b>Keyword Suggestions</b><span>Topics viewers search for</span></button>
+    <button type="button" class="ai-tool" data-tool="thumbnail_ideas"><b>AI Thumbnail Idea Generator</b><span>Text, colors &amp; layout concepts</span></button>
+  </div>
+  <div class="ai-panel" id="aiPanel">
+    <form class="ai-formrow" id="aiForm">
+      <input id="aiInput" type="text" maxlength="300" autocomplete="off"
+             placeholder="Type your video topic..." aria-label="Topic">
+      <button class="btn" id="aiBtn" type="submit">Generate</button>
+    </form>
+    <p class="ai-note" id="aiNote"></p>
+    <p class="ai-left" id="aiLeft"></p>
+    <div id="aiMsg" role="status"></div>
+    <div class="ai-results" id="aiResults"></div>
+    <div class="tk-actions" id="aiActions" style="display:none">
+      <button type="button" class="tk-act" id="aiCopyAll">Copy All</button>
+    </div>
+  </div>
+</section>

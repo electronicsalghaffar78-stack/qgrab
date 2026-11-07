@@ -1,0 +1,50 @@
+<section id="video-toolkit" class="toolkit-sec">
+  <h2>Video Toolkit</h2>
+  <p class="sub">Paste any video link to see its title, description, thumbnail, hashtags and tags — then copy or download what you need.</p>
+  <div class="tk-grid">
+    <button type="button" class="tk-tool" data-tool="details"><b>Video Details</b><span>Title, views, likes &amp; more</span></button>
+    <button type="button" class="tk-tool" data-tool="thumbnail"><b>Thumbnail Downloader</b><span>Full-size video thumbnail</span></button>
+    <button type="button" class="tk-tool" data-tool="hashtags"><b>Hashtag Extractor</b><span>Every #hashtag, one copy</span></button>
+    <button type="button" class="tk-tool" data-tool="tags"><b>Video Tags Extractor</b><span>The video's tags list</span></button>
+  </div>
+  <form class="sbar" id="tkForm">
+    <input id="tkInput" type="url" inputmode="url" autocomplete="off"
+           placeholder="Paste a video link (YouTube, TikTok, Facebook, Instagram...)" aria-label="Video link">
+    <button class="btn" id="tkBtn" type="submit">Get Details</button>
+  </form>
+  <div id="tkMsg" role="status"></div>
+  <div class="tk-card" id="tkCard" style="display:none">
+    <div id="tkThumbWrap">
+      <img class="tk-thumb" id="tkThumb" alt="Video thumbnail">
+      <div class="tk-thumbrow">
+        <a class="tk-act" id="tkThumbDl" href="#" target="_blank" rel="noopener">Download Thumbnail</a>
+      </div>
+    </div>
+    <div class="tk-titlerow">
+      <h3 id="tkTitle"></h3>
+      <button type="button" class="tk-copy" id="tkCopyTitle">Copy</button>
+    </div>
+    <div class="tk-meta" id="tkMeta"></div>
+    <div class="tk-block" id="tkDescBlock">
+      <div class="tk-blockhead"><span>Description</span>
+        <button type="button" class="tk-copy" id="tkCopyDesc">Copy</button></div>
+      <p class="tk-desc clamped" id="tkDesc"></p>
+      <button type="button" class="tk-more" id="tkDescMore">Read more</button>
+    </div>
+    <div class="tk-block" id="tkHashBlock">
+      <div class="tk-blockhead"><span>Hashtags</span>
+        <button type="button" class="tk-copy" id="tkCopyHash">Copy All</button></div>
+      <div class="tk-chips" id="tkHashtags"></div>
+    </div>
+    <div class="tk-block" id="tkTagBlock">
+      <div class="tk-blockhead"><span>Video Tags</span>
+        <button type="button" class="tk-copy" id="tkCopyTags">Copy All</button></div>
+      <div class="tk-chips" id="tkTags"></div>
+      <p class="tk-none" id="tkTagsNone" style="display:none">No tags found for this video.</p>
+    </div>
+    <div class="tk-actions">
+      <a class="tk-act" id="tkChannel" href="#" target="_blank" rel="noopener" style="display:none">View Channel</a>
+      <button type="button" class="tk-dlvideo" id="tkDownload">Download Video</button>
+    </div>
+  </div>
+</section>

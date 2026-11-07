@@ -1,4 +1,11 @@
 <button type="button" class="install-btn" id="installBtn" title="{{ t.install_app }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg><span>{{ t.install_app }}</span></button>
+{# "Update App" header twin: hidden in a normal browser (the
+   Install button owns this slot there); _installjs.html unhides
+   it when the app runs standalone — exactly when Install hides
+   itself — so an installed user can pull the latest version
+   from the same spot. The footer carries the always-visible
+   copy. #}
+<button type="button" class="install-btn" id="appUpdateBtnTop" hidden><span>🔄 Update App</span></button>
 {# Install guide bottom sheet: opened by _installjs.html when the
    browser never offers a native beforeinstallprompt (new/low-
    engagement visitors, iOS Safari), so the visitor can still finish

@@ -90,6 +90,13 @@
   .logo .wm>span{color:var(--accent)}
   .nav nav a{color:var(--muted);margin-left:18px;font-size:.95rem}
   .nav nav a:hover{color:var(--text)}
+  .brand-side{display:flex;align-items:center;gap:14px;min-width:0}
+  .plans-link{display:inline-flex;align-items:center;background:linear-gradient(90deg,var(--star),var(--accent2));
+       color:#241a00;font-weight:800;font-size:.9rem;padding:6px 14px;border-radius:999px;white-space:nowrap;
+       box-shadow:0 4px 14px var(--sh-soft)}
+  .plans-link:hover{filter:brightness(1.07);color:#241a00}
+  .plans-link:active{transform:scale(.97)}
+  @media (max-width:560px){ .brand-side{gap:9px} .plans-link{padding:5px 10px;font-size:.8rem} }
 
   /* ad placeholders */
   .ad{border:1.5px dashed var(--ad-line);background:var(--bg2);color:var(--faint);border-radius:10px;
@@ -157,8 +164,8 @@
     border-radius:10px;color:var(--text);font-size:1rem;padding:13px 14px;outline:none}
   .sbar input:focus{border-color:var(--accent)}
   @media (max-width:560px){ .sbar{flex-direction:column} }
-  #searchMsg{display:none;margin:16px auto 0;max-width:640px;text-align:center;color:var(--muted);font-size:.95rem}
-  #searchMsg.err{background:var(--err-bg);border:1px solid var(--err-line);color:var(--err-text);
+  #searchMsg,#tkMsg,#aiMsg{display:none;margin:16px auto 0;max-width:640px;text-align:center;color:var(--muted);font-size:.95rem}
+  #searchMsg.err,#tkMsg.err,#aiMsg.err{background:var(--err-bg);border:1px solid var(--err-line);color:var(--err-text);
        padding:12px 14px;border-radius:10px}
   .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-top:20px}
   .scard{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
@@ -176,6 +183,91 @@
   .scard .watch-btn{background:linear-gradient(90deg,var(--accent),var(--accent2))}
   .scard .dl-btn{background:var(--ok)}
   .scard .sbtns button:active{transform:scale(.97)}
+
+  /* video toolkit */
+  .toolkit-sec{padding-top:34px}
+  .tk-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;max-width:760px;margin:0 auto 16px}
+  @media (max-width:640px){ .tk-grid{grid-template-columns:repeat(2,1fr)} }
+  .tk-tool{background:var(--card);border:2px solid var(--line);border-radius:12px;
+       padding:12px 10px;cursor:pointer;color:var(--text);font-family:inherit;text-align:center}
+  .tk-tool b{display:block;font-size:.95rem}
+  .tk-tool span{display:block;color:var(--muted);font-size:.78rem;margin-top:3px;font-weight:600}
+  .tk-tool:active{transform:scale(.98)}
+  .tk-card{max-width:760px;margin:20px auto 0;background:var(--card);
+       border:1px solid var(--line);border-radius:14px;padding:16px;
+       box-shadow:0 8px 22px var(--sh-soft);text-align:left}
+  .tk-thumb{width:100%;border-radius:10px;display:block;background:#000}
+  .tk-thumbrow{margin-top:10px}
+  .tk-act{display:inline-block;background:var(--bg2);border:1px solid var(--line);
+       color:var(--text);border-radius:8px;font-weight:700;font-size:.88rem;
+       padding:9px 14px;text-decoration:none;cursor:pointer;font-family:inherit}
+  .tk-titlerow{display:flex;gap:10px;align-items:flex-start;margin-top:14px}
+  .tk-titlerow h3{flex:1;font-size:1.05rem;line-height:1.4;margin:0}
+  .tk-copy,.tk-more{background:var(--bg2);border:1px solid var(--line);color:var(--text);
+       border-radius:8px;font-weight:700;font-size:.8rem;padding:6px 12px;cursor:pointer;
+       font-family:inherit;flex:none}
+  .tk-meta{color:var(--muted);font-size:.85rem;margin-top:6px}
+  .tk-block{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+  .tk-blockhead{display:flex;align-items:center;justify-content:space-between;gap:10px;
+       font-weight:800;font-size:.92rem;margin-bottom:8px}
+  .tk-desc{white-space:pre-wrap;word-break:break-word;font-size:.92rem;line-height:1.55;margin:0}
+  .tk-desc.clamped{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .tk-more{margin-top:8px}
+  .tk-chips{display:flex;flex-wrap:wrap;gap:7px}
+  .tk-chip{background:var(--bg2);border:1px solid var(--line);border-radius:999px;
+       padding:5px 11px;font-size:.83rem;font-weight:600}
+  .tk-none{color:var(--muted);font-size:.9rem;margin:0}
+  .tk-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  .tk-dlvideo{flex:1;border:0;border-radius:8px;font-weight:700;font-size:.95rem;
+       padding:11px 14px;cursor:pointer;color:#fff;font-family:inherit;background:var(--ok)}
+  .tk-dlvideo:active{transform:scale(.98)}
+  .tk-flash{animation:tkflash 1.2s ease}
+  @keyframes tkflash{0%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:0 0 0 0 rgba(0,0,0,0)}}
+
+  /* ai tools */
+  .aitools-sec{padding-top:34px}
+  .ai-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:760px;margin:0 auto 16px}
+  @media (max-width:640px){ .ai-grid{grid-template-columns:repeat(2,1fr)} }
+  .ai-tool{background:var(--card);border:2px solid var(--line);border-radius:12px;
+       padding:12px 10px;cursor:pointer;color:var(--text);font-family:inherit;text-align:center}
+  .ai-tool b{display:block;font-size:.95rem}
+  .ai-tool span{display:block;color:var(--muted);font-size:.78rem;margin-top:3px;font-weight:600}
+  .ai-tool:active{transform:scale(.98)}
+  .ai-tool.active{border-color:var(--accent)}
+  .ai-panel{max-width:760px;margin:0 auto;background:var(--card);
+       border:1px solid var(--line);border-radius:14px;padding:16px;
+       box-shadow:0 8px 22px var(--sh-soft);text-align:left}
+  .ai-formrow{display:flex;gap:10px}
+  .ai-formrow input{flex:1;min-width:0;background:var(--bg2);border:1.5px solid var(--line);
+    border-radius:10px;color:var(--text);font-size:1rem;padding:13px 14px;outline:none}
+  .ai-formrow input:focus{border-color:var(--accent)}
+  @media (max-width:560px){ .ai-formrow{flex-direction:column} }
+  .ai-note{color:var(--muted);font-size:.85rem;margin:10px 0 0}
+  .ai-left{color:var(--muted);font-size:.85rem;font-weight:700;margin:4px 0 0}
+  .ai-results{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+  .ai-row{display:flex;gap:10px;align-items:flex-start;background:var(--bg2);
+       border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+  .ai-row span{flex:1;white-space:pre-wrap;word-break:break-word;font-size:.92rem;line-height:1.5}
+
+  /* plans */
+  .plans-sec{padding-top:34px}
+  .plans-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:760px;margin:14px auto 0}
+  @media (max-width:640px){ .plans-grid{grid-template-columns:1fr} }
+  .plan-card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;
+       padding:20px 18px;box-shadow:0 8px 22px var(--sh-soft);text-align:left}
+  .plan-card.premium{border:2px solid var(--star)}
+  .plan-card h3{font-size:1.15rem;font-weight:800;margin-bottom:2px}
+  .plan-price{font-size:1.5rem;font-weight:800;letter-spacing:-.3px;margin:4px 0 2px}
+  .plan-price small{font-size:.85rem;color:var(--muted);font-weight:600;letter-spacing:0}
+  .plan-card ul{list-style:none;margin:12px 0 16px}
+  .plan-card li{padding:5px 0 5px 24px;position:relative;font-size:.95rem}
+  .plan-card li::before{content:"✓";position:absolute;left:0;color:var(--ok);font-weight:800}
+  .plan-badge{position:absolute;top:-11px;right:14px;background:linear-gradient(90deg,var(--star),var(--accent2));
+       color:#241a00;font-size:.72rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;
+       padding:4px 10px;border-radius:999px}
+  .plan-btn{display:block;width:100%;text-align:center;border-radius:10px;padding:12px;
+       font-size:1rem;font-weight:700;border:1.5px solid var(--line);background:var(--bg2);
+       color:var(--muted);cursor:not-allowed;font-family:inherit}
 
   /* on-site player modal */
   #playerModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:60;
@@ -279,7 +371,10 @@
 
 <header>
   <div class="wrap nav">
-    <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
+    <div class="brand-side">
+      <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
+      <a class="plans-link" href="#plans">⭐ Plans</a>
+    </div>
     <nav class="hnav">
       {% include "_installbtn.html" %}
       {% include "_langmenu.html" %}
@@ -330,6 +425,12 @@
     <div id="searchMsg" role="status"></div>
     <div class="sgrid" id="searchResults"></div>
   </section>
+
+  {% include "_toolkit.html" %}
+
+  {% include "_aitools.html" %}
+
+  {% include "_plans.html" %}
 
   <div id="playerModal" role="dialog" aria-modal="true">
     <div class="player-box">
@@ -856,8 +957,371 @@ form.addEventListener('submit', async (e) => {
     }
   });
 })();
+
+/* --- Video Toolkit UI --- */
+(function(){
+  const tkForm = document.getElementById('tkForm');
+  const tkInput = document.getElementById('tkInput');
+  const tkBtn = document.getElementById('tkBtn');
+  const tkMsg = document.getElementById('tkMsg');
+  const tkCard = document.getElementById('tkCard');
+  if (!tkForm || !tkInput || !tkCard) return;
+  let details = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  function tkNote(text, isErr){
+    tkMsg.textContent = text;
+    tkMsg.className = isErr ? 'err' : '';
+    tkMsg.style.display = text ? 'block' : 'none';
+  }
+  function fmtCount(n){ return Number(n).toLocaleString('en-US'); }
+
+  async function tkCopy(text, btn){
+    if (!text) return;
+    let ok = false;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard &&
+          navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch (e) { ok = false; }
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand('copy');
+        ta.remove();
+      } catch (e) { ok = false; }
+    }
+    if (btn) {
+      const old = btn.textContent;
+      btn.textContent = ok ? 'Copied' : 'Copy failed';
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    }
+  }
+
+  function tkDownloadVideo(){
+    /* Same hand-off the Search results use: fill the main
+       downloader's input and submit its form. */
+    if (!details) return;
+    const urlInput = document.getElementById('urlInput');
+    const grabForm = document.getElementById('grabForm');
+    if (!urlInput || !grabForm) return;
+    urlInput.value = details.webpage_url || tkInput.value.trim();
+    document.getElementById('download').scrollIntoView({behavior:'smooth'});
+    if (grabForm.requestSubmit) grabForm.requestSubmit();
+    else grabForm.dispatchEvent(new Event('submit', {cancelable:true}));
+  }
+
+  function chipsInto(box, items){
+    box.innerHTML = '';
+    for (const item of items) {
+      const chip = document.createElement('span');
+      chip.className = 'tk-chip';
+      chip.textContent = item;
+      box.appendChild(chip);
+    }
+  }
+
+  function renderDetails(d){
+    details = d;
+    $('tkTitle').textContent = d.title || 'Untitled';
+    const bits = [];
+    if (d.site) bits.push(d.site);
+    if (d.uploader) bits.push(d.uploader);
+    if (d.upload_date) bits.push('Published ' + d.upload_date);
+    if (d.view_count != null) bits.push(fmtCount(d.view_count) + ' views');
+    if (d.like_count != null) bits.push(fmtCount(d.like_count) + ' likes');
+    if (d.comment_count != null) bits.push(fmtCount(d.comment_count) + ' comments');
+    if (d.duration_h) bits.push(d.duration_h);
+    $('tkMeta').textContent = bits.join(' · ');
+
+    const wrap = $('tkThumbWrap');
+    if (d.thumbnail) {
+      wrap.style.display = '';
+      const img = $('tkThumb');
+      img.src = d.thumbnail;
+      img.alt = d.title || 'Video thumbnail';
+      const dl = $('tkThumbDl');
+      dl.href = d.thumbnail;
+      dl.setAttribute('download', '');
+    } else {
+      wrap.style.display = 'none';
+    }
+
+    const descBlock = $('tkDescBlock');
+    if (d.description) {
+      descBlock.style.display = '';
+      const p = $('tkDesc');
+      p.textContent = d.description;
+      p.classList.add('clamped');
+      const more = $('tkDescMore');
+      more.textContent = 'Read more';
+      more.style.display = (d.description.length > 280 ||
+                            d.description.split('\n').length > 4)
+        ? '' : 'none';
+    } else {
+      descBlock.style.display = 'none';
+    }
+
+    const hashBlock = $('tkHashBlock');
+    if (d.hashtags && d.hashtags.length) {
+      hashBlock.style.display = '';
+      chipsInto($('tkHashtags'), d.hashtags);
+    } else {
+      hashBlock.style.display = 'none';
+    }
+
+    const tags = d.tags || [];
+    chipsInto($('tkTags'), tags);
+    $('tkTagsNone').style.display = tags.length ? 'none' : '';
+    $('tkCopyTags').style.display = tags.length ? '' : 'none';
+
+    const ch = $('tkChannel');
+    if (d.channel_url) {
+      ch.style.display = '';
+      ch.href = d.channel_url;
+    } else {
+      ch.style.display = 'none';
+    }
+    tkCard.style.display = '';
+  }
+
+  function tkFocusPart(part){
+    const targets = {
+      details: tkCard,
+      thumbnail: $('tkThumbWrap'),
+      hashtags: $('tkHashBlock'),
+      tags: $('tkTagBlock'),
+    };
+    const target = targets[part] || tkCard;
+    target.scrollIntoView({behavior:'smooth', block:'center'});
+    target.classList.remove('tk-flash');
+    void target.offsetWidth;
+    target.classList.add('tk-flash');
+  }
+
+  document.querySelectorAll('.tk-tool').forEach((tool) => {
+    tool.addEventListener('click', () => {
+      if (!details) {
+        tkNote('Paste a video link first, then tap Get Details.', false);
+        tkInput.scrollIntoView({behavior:'smooth', block:'center'});
+        tkInput.focus();
+        return;
+      }
+      tkFocusPart(tool.dataset.tool || 'details');
+    });
+  });
+
+  $('tkCopyTitle').addEventListener('click', (e) => {
+    if (details) tkCopy(details.title || '', e.currentTarget);
+  });
+  $('tkCopyDesc').addEventListener('click', (e) => {
+    if (details) tkCopy(details.description || '', e.currentTarget);
+  });
+  $('tkCopyHash').addEventListener('click', (e) => {
+    if (details) tkCopy((details.hashtags || []).join(' '), e.currentTarget);
+  });
+  $('tkCopyTags').addEventListener('click', (e) => {
+    if (details) tkCopy((details.tags || []).join(', '), e.currentTarget);
+  });
+  $('tkDescMore').addEventListener('click', (e) => {
+    const p = $('tkDesc');
+    const clamped = p.classList.toggle('clamped');
+    e.currentTarget.textContent = clamped ? 'Read more' : 'Read less';
+  });
+  $('tkDownload').addEventListener('click', tkDownloadVideo);
+
+  tkForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = tkInput.value.trim();
+    if (!url) return;
+    tkNote('Loading video details...', false);
+    tkBtn.disabled = true;
+    try {
+      const r = await fetch('/api/video-details?url=' +
+                            encodeURIComponent(url));
+      const data = await r.json();
+      if (!r.ok || !data.ok) {
+        throw new Error(data.error || 'Could not load that video.');
+      }
+      tkNote('', false);
+      renderDetails(data);
+      tkCard.scrollIntoView({behavior:'smooth', block:'start'});
+    } catch (err) {
+      tkNote(err.message || 'Could not load that video. Check the link and try again.', true);
+    } finally {
+      tkBtn.disabled = false;
+    }
+  });
+})();
+
+/* --- AI Tools UI --- */
+(function(){
+  const aiForm = document.getElementById('aiForm');
+  const aiInput = document.getElementById('aiInput');
+  const aiBtn = document.getElementById('aiBtn');
+  const aiMsg = document.getElementById('aiMsg');
+  const aiResults = document.getElementById('aiResults');
+  const aiNote = document.getElementById('aiNote');
+  const aiLeft = document.getElementById('aiLeft');
+  const aiActions = document.getElementById('aiActions');
+  const aiCopyAll = document.getElementById('aiCopyAll');
+  if (!aiForm || !aiInput || !aiResults) return;
+
+  const AI_META = {
+    titles: {
+      ph: 'e.g. funny cat video compilation',
+      note: 'AI-generated title ideas — pick, mix and make them yours.'},
+    tags: {
+      ph: 'e.g. urdu story video for youtube',
+      note: 'AI-generated tags — paste them into your video\u2019s tags box.'},
+    hashtags: {
+      ph: 'e.g. moral story video',
+      note: 'AI-generated hashtags — Copy All grabs the whole set.'},
+    channel_names: {
+      ph: 'e.g. kids moral stories channel',
+      note: 'AI-generated name ideas — check a name is free before you use it.'},
+    keywords: {
+      ph: 'e.g. weight loss tips',
+      note: 'AI-generated ideas — suggestions only, not real search-volume data.'},
+    thumbnail_ideas: {
+      ph: 'e.g. i survived 24 hours in a haunted house',
+      note: 'AI-generated concepts — big text, colors and layout ideas. This tool creates concepts, not images.'},
+  };
+  let aiTool = 'titles';
+  let aiItems = [];
+
+  function aiShowMsg(text, isErr){
+    aiMsg.textContent = text;
+    aiMsg.className = isErr ? 'err' : '';
+    aiMsg.style.display = text ? 'block' : 'none';
+  }
+  function aiSetLeft(n){
+    if (typeof n !== 'number') { aiLeft.textContent = ''; return; }
+    aiLeft.textContent = n > 0
+      ? n + ' free AI generations left today'
+      : 'No free AI generations left today — they refresh daily.';
+  }
+  function aiSelect(tool){
+    if (!AI_META[tool]) return;
+    aiTool = tool;
+    aiInput.placeholder = AI_META[tool].ph;
+    aiNote.textContent = AI_META[tool].note;
+    document.querySelectorAll('.ai-tool').forEach((b) => {
+      b.classList.toggle('active', b.dataset.tool === tool);
+    });
+  }
+  document.querySelectorAll('.ai-tool').forEach((b) => {
+    b.addEventListener('click', () => aiSelect(b.dataset.tool));
+  });
+  aiSelect('titles');
+
+  async function aiCopy(text, btn){
+    if (!text) return;
+    let ok = false;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard &&
+          navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch (e) { ok = false; }
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand('copy');
+        ta.remove();
+      } catch (e) { ok = false; }
+    }
+    if (btn) {
+      const old = btn.textContent;
+      btn.textContent = ok ? 'Copied' : 'Copy failed';
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    }
+  }
+
+  function aiRender(items){
+    aiItems = items || [];
+    aiResults.innerHTML = '';
+    for (const item of aiItems) {
+      const row = document.createElement('div');
+      row.className = 'ai-row';
+      const span = document.createElement('span');
+      span.textContent = item;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tk-copy';
+      btn.textContent = 'Copy';
+      btn.addEventListener('click', (e) => aiCopy(item, e.currentTarget));
+      row.appendChild(span);
+      row.appendChild(btn);
+      aiResults.appendChild(row);
+    }
+    aiActions.style.display = aiItems.length ? '' : 'none';
+  }
+
+  if (aiCopyAll) {
+    aiCopyAll.addEventListener('click', (e) => {
+      const joiner = aiTool === 'tags' ? ', '
+        : aiTool === 'hashtags' ? ' ' : '\n';
+      aiCopy(aiItems.join(joiner), e.currentTarget);
+    });
+  }
+
+  fetch('/api/ai-tools/quota')
+    .then((r) => r.json())
+    .then((d) => aiSetLeft(d && d.left))
+    .catch(() => {});
+
+  const AI_ERRORS = {
+    invalid_request: 'Please type a topic first.',
+    daily_limit: 'The free daily limit is reached — please try again tomorrow.',
+    not_configured: 'This tool is being set up — please try again later.',
+    ai_unavailable: 'The AI is busy right now — please try again in a moment.',
+  };
+
+  aiForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = aiInput.value.trim();
+    if (!input) { aiShowMsg(AI_ERRORS.invalid_request, true); return; }
+    aiBtn.disabled = true;
+    aiShowMsg('Please wait', false);
+    try {
+      const r = await fetch('/api/ai-tools/generate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tool: aiTool, input: input}),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        throw new Error(AI_ERRORS[data.error] ||
+                        'Generation failed. Please try again.');
+      }
+      aiShowMsg('', false);
+      aiRender(data.items || []);
+      if (typeof data.left === 'number') aiSetLeft(data.left);
+    } catch (err) {
+      aiShowMsg(err.message || 'Generation failed. Please try again.', true);
+    } finally {
+      aiBtn.disabled = false;
+    }
+  });
+})();
 </script>
 {% include "_spjs.html" %}
 {% include "_installjs.html" %}
+{% include "_appupdatejs.html" %}
 </body>
 </html>

@@ -1,0 +1,132 @@
+{# "Update App" button logic — the on-demand refresh for the
+   installed PWA. Included right after _installjs.html on every
+   page that carries the footer (home, platform, tool pages).
+   Kept OUT of _installjs.html on purpose: that file carries a
+   tested no-timers invariant (the install sheet must never
+   auto-hide), while this script's toast hides itself — the
+   site's established .sp-toast behaviour. #}
+<script>
+/* --- "Update App" button (footer + standalone header twin) ---
+   The installed PWA's on-demand refresh, the owner's model: a
+   user who presses Update gets today's version immediately; a
+   user who never presses is never disturbed. The press fetches
+   /api/version with cache:"no-store" (the endpoint itself is
+   also served no-store) and compares it with the version this
+   browser last recorded (localStorage "qgrab_app_version"):
+   - equal  -> a toast says the app is already latest; no reload.
+   - differ -> the service worker is asked to update, EVERY
+     Cache Storage entry is deleted (the shell cache name is
+     static — "qgrab-shell-v5" — so clearing is what guarantees
+     the reload cannot be answered by the old shell), the new
+     version is recorded, a one-shot sessionStorage flag is set,
+     and the page reloads; on the way back in, the flag produces
+     the "App updated" toast and is cleared.
+   - fetch fails (offline) -> a toast explains, button restored.
+   Feedback reuses the site's .sp-toast styling/mechanism: the
+   SP section's own #spToast element when the page has one, a
+   same-class element created on the fly when it does not
+   (platform pages). No timers count anything down — the toast
+   simply hides itself after a few seconds. */
+(function () {
+  var footBtn = document.getElementById('appUpdateBtn');
+  var topBtn = document.getElementById('appUpdateBtnTop');
+  function isStandalone() {
+    return (window.matchMedia &&
+            window.matchMedia('(display-mode: standalone)').matches) ||
+           window.navigator.standalone === true;
+  }
+  if (topBtn && isStandalone()) topBtn.hidden = false;
+
+  var toastTimer = null;
+  function toastEl() {
+    var t = document.getElementById('spToast') ||
+            document.getElementById('appToast');
+    if (!t && document.body) {
+      t = document.createElement('div');
+      t.className = 'sp-toast';
+      t.id = 'appToast';
+      t.setAttribute('role', 'status');
+      document.body.appendChild(t);
+    }
+    return t;
+  }
+  function showToast(msg) {
+    var t = toastEl();
+    if (!t) return;
+    t.textContent = msg;
+    t.style.display = 'block';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.style.display = 'none'; }, 4500);
+  }
+
+  /* Arriving back from an update reload: say so once. */
+  try {
+    if (window.sessionStorage &&
+        window.sessionStorage.getItem('qgrab_just_updated') === '1') {
+      window.sessionStorage.removeItem('qgrab_just_updated');
+      showToast('App updated — you now have the latest version ✔');
+    }
+  } catch (e) { /* storage unavailable: nothing to announce */ }
+
+  var buttons = [];
+  if (footBtn) buttons.push(footBtn);
+  if (topBtn) buttons.push(topBtn);
+  if (!buttons.length) return;
+  var busy = false;
+  function setBusy(on) {
+    busy = on;
+    buttons.forEach(function (b) {
+      b.disabled = on;
+      var span = b.querySelector ? b.querySelector('span') : null;
+      var label = span || b;
+      if (on) {
+        if (!b.dataset.label) b.dataset.label = label.textContent;
+        label.textContent = 'Checking…';
+      } else if (b.dataset.label) {
+        label.textContent = b.dataset.label;
+      }
+    });
+  }
+  async function doUpdate() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      var resp = await fetch('/api/version', { cache: 'no-store' });
+      if (!resp || !resp.ok) throw new Error('bad response');
+      var data = await resp.json();
+      var version = data && data.version;
+      if (!version) throw new Error('no version');
+      var current = null;
+      try { current = window.localStorage.getItem('qgrab_app_version'); }
+      catch (e) { /* treated as unset: the update path runs */ }
+      if (current === version) {
+        showToast('You already have the latest version.');
+        setBusy(false);
+        return;
+      }
+      try {
+        if ('serviceWorker' in window.navigator &&
+            window.navigator.serviceWorker.getRegistration) {
+          var reg = await window.navigator.serviceWorker.getRegistration();
+          if (reg && reg.update) await reg.update();
+        }
+      } catch (e) { /* a failed SW poke never blocks the refresh */ }
+      try {
+        if (typeof caches !== 'undefined' && caches.keys) {
+          var keys = await caches.keys();
+          await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        }
+      } catch (e) { /* same: clearing is best-effort, reload decides */ }
+      try {
+        window.localStorage.setItem('qgrab_app_version', version);
+        window.sessionStorage.setItem('qgrab_just_updated', '1');
+      } catch (e) { /* the reload still brings the fresh shell */ }
+      window.location.reload();
+    } catch (e) {
+      showToast("Couldn't check for updates — please check your connection and try again.");
+      setBusy(false);
+    }
+  }
+  buttons.forEach(function (b) { b.addEventListener('click', doUpdate); });
+})();
+</script>

@@ -15,6 +15,16 @@
        shows the thanks block and updates the summary
      - SP tool: counters render from the quota endpoint and a
        generation fills the script pane via job polling
+     - toolkit: submitting a pasted link renders the details
+       card (title, meta with null counts hidden, thumbnail,
+       hashtag/tag chips, channel link) from /api/video-details
+     - ai tools: the quota note renders from /api/ai-tools/quota
+       and a generation renders one row per item and updates
+       the left count from /api/ai-tools/generate
+     - update app: a stored version equal to /api/version's
+       toasts "already latest" without reloading; an older one
+       records the new version, sets the just-updated flag and
+       reloads
    Added in the 2026-11-04 audit round: the pre-existing suites
    covered the SP tool's JS in isolation, but nothing executed
    the downloader / menu / theme / reviews code at runtime.
@@ -201,6 +211,18 @@ async function fetchStub(url) {
     mp3: true,
     captions: [{ code: 'en', name: 'English' }],
   });
+  if (u.includes('/api/video-details')) return jsonResp(200, {
+    ok: true, title: 'Toolkit Video #cats', description: 'A short description.',
+    thumbnail: 'https://img.example/big.jpg',
+    webpage_url: 'https://www.youtube.com/watch?v=MIW2VPprnLw',
+    uploader: 'Tester', channel_url: 'https://www.youtube.com/@Tester',
+    upload_date: '2025-11-02', view_count: 1234, like_count: 56,
+    comment_count: null, duration: 372, duration_h: '6:12', site: 'Youtube',
+    tags: ['cats', 'fun'], hashtags: ['#cats'],
+  });
+  if (u.includes('/api/ai-tools/quota')) return jsonResp(200, { left: 10, max: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 });
+  if (u.includes('/api/ai-tools/generate')) return jsonResp(200, { ok: true, tool: 'titles', items: ['Title One', 'Title Two'], left: 9, max: 10 });
+  if (u.includes('/api/version')) return jsonResp(200, { version: '2026-11-08.1' });
   if (u.includes('/api/rate')) return jsonResp(200, { ok: true, average: 5, count: 1, reviews: [] });
   if (u.includes('/api/script-prompt/quota')) return jsonResp(200, { script_left: 10, prompts_left: 10, script_max: 10, prompts_max: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 });
   if (u.includes('/api/script-prompt/status')) { spPolls++; return jsonResp(200, { status: 'done', title: 'Test Video', mode: 'script', route: 'captions', script: 'Hello script text.', prompts: [], truncated: false }); }
@@ -323,6 +345,67 @@ function check(name, fn) {
   check('review submit updates summary', () => {
     assert.strictEqual(document.getElementById('rateNum').textContent, '5.0');
   });
+
+  /* toolkit: paste a link -> details card renders from the API */
+  document.getElementById('tkInput').value = 'https://www.youtube.com/watch?v=MIW2VPprnLw';
+  document.getElementById('tkForm').dispatch('submit');
+  await flush();
+  check('toolkit renders details card', () => {
+    assert.strictEqual(document.getElementById('tkCard').style.display, '');
+    assert.strictEqual(document.getElementById('tkTitle').textContent, 'Toolkit Video #cats');
+    const meta = document.getElementById('tkMeta').textContent;
+    assert.ok(meta.includes('1,234 views'), meta);
+    assert.ok(meta.includes('Published 2025-11-02'), meta);
+    assert.ok(!meta.includes('comments'), meta); /* null count hidden */
+  });
+  check('toolkit fills thumbnail, chips and channel link', () => {
+    assert.strictEqual(document.getElementById('tkThumb').src, 'https://img.example/big.jpg');
+    assert.strictEqual(document.getElementById('tkThumbDl').href, 'https://img.example/big.jpg');
+    assert.strictEqual(document.getElementById('tkHashtags').children.length, 1);
+    assert.strictEqual(document.getElementById('tkHashtags').children[0].textContent, '#cats');
+    assert.strictEqual(document.getElementById('tkTags').children.length, 2);
+    assert.strictEqual(document.getElementById('tkChannel').style.display, '');
+    assert.strictEqual(document.getElementById('tkChannel').href, 'https://www.youtube.com/@Tester');
+    assert.strictEqual(document.getElementById('tkTagsNone').style.display, 'none');
+  });
+
+  /* ai tools: quota note renders; a generation fills result rows */
+  check('AI tools quota note rendered', () => {
+    assert.ok(document.getElementById('aiLeft').textContent.includes('10'),
+      document.getElementById('aiLeft').textContent);
+  });
+  document.getElementById('aiInput').value = 'funny cats';
+  document.getElementById('aiForm').dispatch('submit');
+  await flush();
+  check('AI generate renders rows + updates left count', () => {
+    const rows = document.getElementById('aiResults').children;
+    assert.strictEqual(rows.length, 2);
+    assert.strictEqual(rows[0].children[0].textContent, 'Title One');
+    assert.ok(document.getElementById('aiLeft').textContent.includes('9'));
+    assert.strictEqual(document.getElementById('aiActions').style.display, '');
+  });
+
+  /* update app: stored version == server version -> toast, no reload */
+  let reloads = 0;
+  windowObj.location.reload = () => { reloads++; };
+  localStorage.setItem('qgrab_app_version', '2026-11-08.1');
+  document.getElementById('appUpdateBtn').dispatch('click');
+  await flush();
+  check('update check at latest version toasts, no reload', () => {
+    assert.strictEqual(document.getElementById('spToast').textContent,
+      'You already have the latest version.');
+    assert.strictEqual(reloads, 0);
+  });
+  /* update app: older stored version -> record, flag, reload */
+  localStorage.setItem('qgrab_app_version', '2026-11-01.1');
+  document.getElementById('appUpdateBtn').dispatch('click');
+  await flush();
+  check('update with older version records + flags + reloads', () => {
+    assert.strictEqual(reloads, 1);
+    assert.strictEqual(localStorage.getItem('qgrab_app_version'), '2026-11-08.1');
+    assert.strictEqual(sessionStorage.getItem('qgrab_just_updated'), '1');
+  });
+  sessionStorage.removeItem('qgrab_just_updated');
 
   check('SP counters rendered from quota endpoint', () => {
     assert.ok(document.getElementById('spLeftScript').textContent.includes('10'));

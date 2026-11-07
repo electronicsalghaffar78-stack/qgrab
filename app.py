@@ -596,6 +596,27 @@ def _shape_invidious_info(base, data, url):
         "_qgrab_instance": base,
     }
 
+    # Extra metadata the API carries (surfaced by /api/video-
+    # details): description (the API serves it as HTML — flatten
+    # to plain text), counts, publish epoch, channel URL, keywords.
+    desc = data.get("description")
+    if desc:
+        flat = str(desc)
+        for br in ("<br>", "<br/>", "<br />"):
+            flat = flat.replace(br, "\n")
+        shaped["description"] = _html_lib.unescape(
+            re.sub(r"<[^>]+>", "", flat)).strip() or None
+    for src, dst in (("viewCount", "view_count"),
+                     ("likeCount", "like_count"),
+                     ("published", "timestamp")):
+        if data.get(src) is not None:
+            shaped[dst] = data[src]
+    if data.get("authorUrl"):
+        shaped["uploader_url"] = ("https://www.youtube.com"
+                                   + data["authorUrl"])
+    if data.get("keywords"):
+        shaped["tags"] = [k for k in data["keywords"] if k]
+
     # The API also lists the video's caption tracks; shape them like
     # yt-dlp's "subtitles" dict so the Subtitles / Transcript options
     # work on the Invidious path too.
@@ -851,6 +872,17 @@ def _shape_tikwm_info(data, url):
         "extractor_key": "TikTok",
         "formats": formats,
         "_qgrab_source": "tikwm",
+        # Extra metadata tikwm's answer carries (surfaced by
+        # /api/video-details): on TikTok the caption IS the
+        # description; counts/dates ride along when present.
+        "description": data.get("title") or None,
+        "view_count": data.get("play_count"),
+        "like_count": data.get("digg_count"),
+        "comment_count": data.get("comment_count"),
+        "timestamp": data.get("create_time"),
+        "uploader_url": ("https://www.tiktok.com/@"
+                         + author["unique_id"]
+                         if author.get("unique_id") else None),
     }
 
 
@@ -956,9 +988,17 @@ def _extract_info_instagram_embed(url):
         else None
     edges = ((media or {}).get("edge_media_to_caption")
              or {}).get("edges") or []
+    caption = None
     if edges:
-        text = ((edges[0].get("node") or {}).get("text") or "")
-        title = text.split("\n")[0].strip()[:120] or None
+        caption = ((edges[0].get("node") or {}).get("text") or "") \
+            or None
+        if caption:
+            title = caption.split("\n")[0].strip()[:120] or None
+    owner = (media or {}).get("owner") or {}
+    like_edge = (media or {}).get("edge_media_preview_like") or {}
+    comment_edge = ((media or {}).get("edge_media_to_parent_comment")
+                    or (media or {}).get("edge_media_to_comment")
+                    or {})
     info = {
         "id": code,
         "title": title or "Instagram video",
@@ -967,7 +1007,13 @@ def _extract_info_instagram_embed(url):
         "duration_string": (
             f"{duration // 60}:{duration % 60:02d}"
             if duration else None),
-        "uploader": None,
+        "uploader": owner.get("username"),
+        # Extra metadata the embed blob carries (surfaced by
+        # /api/video-details): the full caption, counts, date.
+        "description": caption,
+        "like_count": like_edge.get("count"),
+        "comment_count": comment_edge.get("count"),
+        "timestamp": (media or {}).get("taken_at_timestamp"),
         "webpage_url": url,
         "extractor_key": "Instagram",
         "formats": [{
@@ -3014,6 +3060,134 @@ def api_search():
     return jsonify(payload)
 
 
+# ---------------------------------------------------------------------------
+# Video Toolkit: /api/video-details
+#
+# The Toolkit section (homepage) pastes a video page URL and shows
+# everything publicly known about it: title, description, best
+# thumbnail, channel, publish date, counts, hashtags and tags.
+# It reuses /api/info's extraction path (extract_info — cascade,
+# fallbacks, cache) and shapes the info dict for display. Fields
+# a platform does not publish stay null — never invented — and
+# the UI hides nulls.
+# ---------------------------------------------------------------------------
+
+_HASHTAG_RE = re.compile(r"#[\w]+")
+
+
+def _extract_hashtags(*texts):
+    """Hashtags from the given texts, in first-seen order,
+    duplicates removed. Each entry keeps its leading '#'."""
+    out = []
+    seen = set()
+    for text in texts:
+        if not text:
+            continue
+        for tag in _HASHTAG_RE.findall(str(text)):
+            if tag not in seen:
+                seen.add(tag)
+                out.append(tag)
+    return out
+
+
+def _details_count(value):
+    """A view/like/comment count as an int, or None when the
+    extractor did not genuinely provide a number."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _details_best_thumbnail(info):
+    """The largest thumbnail the extractor offered: the shaped
+    'thumbnail' field when present, else the biggest entry of
+    the raw 'thumbnails' ladder by pixel area."""
+    if info.get("thumbnail"):
+        return info["thumbnail"]
+    best, best_area = None, -1
+    for thumb in info.get("thumbnails") or []:
+        if not isinstance(thumb, dict) or not thumb.get("url"):
+            continue
+        area = (thumb.get("width") or 0) * (thumb.get("height") or 0)
+        if area >= best_area:
+            best, best_area = thumb["url"], area
+    return best
+
+
+def _details_upload_date(info):
+    """Publish date as YYYY-MM-DD, from yt-dlp's upload_date
+    (YYYYMMDD) or a publish epoch (timestamp/release_timestamp);
+    None when neither is genuinely there."""
+    raw = info.get("upload_date")
+    if raw:
+        raw = str(raw)
+        if len(raw) == 8 and raw.isdigit():
+            return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+        return raw
+    ts = _details_count(info.get("timestamp")
+                        or info.get("release_timestamp"))
+    if ts:
+        return time.strftime("%Y-%m-%d", time.gmtime(ts))
+    return None
+
+
+def _shape_video_details(info, url):
+    """Shape an extract_info() dict into the /api/video-details
+    payload. Pure shaping — no fetching, no invention."""
+    duration = info.get("duration")
+    try:
+        duration = int(duration) if duration else None
+    except (TypeError, ValueError):
+        duration = None
+    tags = [str(t) for t in info.get("tags") or [] if t]
+    return {
+        "title": info.get("title") or "Untitled",
+        "description": info.get("description") or None,
+        "thumbnail": _details_best_thumbnail(info),
+        "webpage_url": info.get("webpage_url") or url,
+        "uploader": info.get("uploader"),
+        "channel_url": info.get("channel_url")
+                       or info.get("uploader_url"),
+        "upload_date": _details_upload_date(info),
+        "view_count": _details_count(info.get("view_count")),
+        "like_count": _details_count(info.get("like_count")),
+        "comment_count": _details_count(info.get("comment_count")),
+        "duration": duration,
+        "duration_h": info.get("duration_string")
+                      or _fmt_duration(duration),
+        "site": info.get("extractor_key") or info.get("extractor"),
+        "tags": tags[:100],
+        "hashtags": _extract_hashtags(info.get("title"),
+                                      info.get("description")),
+    }
+
+
+@app.route("/api/video-details", methods=["GET"])
+def api_video_details():
+    url = clean_url(request.args.get("url") or "")
+    if not url:
+        return jsonify({"error": i18n.get_strings(
+            _current_lang())["api_invalid"]}), 400
+    try:
+        info = extract_info(url)
+    except Exception as e:
+        # Same contract as /api/info: raw extractor errors stay
+        # in the server log; visitors get one friendly message.
+        app.logger.warning("video-details failed for %s: %s", url, e)
+        return jsonify({"error": i18n.get_strings(
+            _current_lang())["api_friendly"]}), 422
+    if info.get("_type") == "playlist":
+        entries = [e for e in info.get("entries") or [] if e]
+        if entries:
+            info = entries[0]
+    payload = {"ok": True}
+    payload.update(_shape_video_details(info, url))
+    return jsonify(payload)
+
+
 def _fetch_to_file(media_url, dest, timeout=120):
     """Download media_url into dest, following redirects (the
     Invidious /videoplayback endpoint answers 307 to a companion
@@ -4634,6 +4808,328 @@ def _sp_quota_snapshot():
         "prompts_max": SP_DAILY_CAP_PROMPTS,
         "resets_at": int(_sp_next_reset().timestamp()),
     }
+
+
+# ---------------------------------------------------------------------------
+# App version (the installed PWA's "Update App" button)
+#
+# APP_VERSION is the release stamp the homepage footer's Update
+# App button compares against the copy stored in the visitor's
+# browser (localStorage "qgrab_app_version"). BUMP THIS STRING ON
+# EVERY RELEASE that changes anything a visitor's browser could
+# have cached — otherwise the button truthfully-but-uselessly
+# reports "already latest" while the service worker still holds
+# the old shell. The value is a free-form string; only equality
+# matters. GET /api/version is served no-store so the check
+# itself can never be answered from a cache.
+# ---------------------------------------------------------------------------
+
+APP_VERSION = "2026-11-08.1"
+
+
+@app.route("/api/version", methods=["GET"])
+def api_version():
+    """The current app release stamp, read-only. no-store: the
+    Update App button's whole decision rests on this answer being
+    fresh."""
+    resp = jsonify({"version": APP_VERSION})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# AI Tools: /api/ai-tools/generate + /api/ai-tools/quota
+#
+# Six small Gemini generators (titles, tags, hashtags, channel
+# names, keywords, thumbnail ideas) behind ONE shared panel on
+# the homepage. They reuse the Script+Prompt Gemini machinery
+# wholesale — the same (model, key) cascade (_gemini_call), the
+# same configured keys, no new env vars — and the same daily-
+# counter mechanics as the SP counters: ONE shared cap for all
+# six tools, a slot RESERVED when a generation starts and
+# REFUNDED when it fails, on the same America/Los_Angeles quota
+# day. The cap is deliberately small (owner's pattern: protect
+# the free Gemini quota) — retune only on the owner's order.
+#
+# Unlike Script+Prompt these answers are a handful of short
+# lines (~a few hundred output tokens, not an 8192-token
+# script), so the endpoint is SYNCHRONOUS with a bounded
+# cascade: a short per-attempt timeout (AI_GEMINI_TIMEOUT) and a
+# tight slow-failure budget (AI_SLOW_MAX_ATTEMPTS) cap the
+# worst-case wait at roughly
+# AI_SLOW_MAX_ATTEMPTS x AI_GEMINI_TIMEOUT plus sub-second fast
+# (quota) failures — far inside gunicorn's 600 s worker timeout.
+# ---------------------------------------------------------------------------
+
+AI_TOOLS_DAILY_CAP = 10       # successful generations per day, all tools
+AI_INPUT_LIMIT = 300          # max topic characters sent to Gemini
+AI_GEMINI_TIMEOUT = 25        # seconds, per model attempt
+AI_SLOW_MAX_ATTEMPTS = 2      # pairs tried after a slow failure
+
+_AI_LANG_RULE = (
+    "LANGUAGE: answer in the SAME language and the SAME script "
+    "as the user's topic text — an English topic gets an English "
+    "answer, an Urdu-script topic gets an Urdu-script answer, a "
+    "Roman Urdu topic gets a Roman Urdu answer. Never switch the "
+    "answer into a different language than the topic.")
+
+_AI_JSON_RULE = (
+    "Answer with STRICT JSON only: {\"items\": [\"...\", ...]} "
+    "— no markdown fences, no numbering, no commentary, nothing "
+    "outside the JSON object.")
+
+AI_TOOL_PROMPTS = {
+    "titles": (
+        "You are an expert YouTube title writer. Given a video "
+        "topic, write exactly 10 catchy, click-worthy video "
+        "titles a real viewer would want to tap. Each item is "
+        "ONE complete title — specific, honest about the topic, "
+        "no clickbait lies, no hashtags inside titles.\n\n"
+        + _AI_LANG_RULE + "\n\n" + _AI_JSON_RULE),
+    "tags": (
+        "You are a YouTube SEO expert. Given a video topic, "
+        "produce 15 to 20 search tags for it: one tag per item, "
+        "each a short lowercase keyword phrase viewers actually "
+        "search for, most important first. No '#' symbols, no "
+        "commas inside an item.\n\n"
+        + _AI_LANG_RULE + "\n\n" + _AI_JSON_RULE),
+    "hashtags": (
+        "You are a social-video hashtag expert. Given a video "
+        "topic, produce 15 to 20 hashtags for it: one hashtag "
+        "per item, each item a single hashtag starting with '#' "
+        "and containing no spaces. Mix broad and specific tags.\n\n"
+        + _AI_LANG_RULE + "\n\n" + _AI_JSON_RULE),
+    "channel_names": (
+        "You are a branding expert. Given a channel topic or "
+        "niche, invent exactly 12 unique, memorable YouTube "
+        "channel names for it: short, easy to spell and say, no "
+        "numbers or special characters unless they truly fit.\n\n"
+        + _AI_LANG_RULE + "\n\n" + _AI_JSON_RULE),
+    "keywords": (
+        "You are a YouTube keyword researcher. Given a video "
+        "topic, list exactly 15 related keyword and search-phrase "
+        "ideas a creator could make videos about or target: one "
+        "keyword phrase per item, most relevant first.\n\n"
+        + _AI_LANG_RULE + "\n\n" + _AI_JSON_RULE),
+    "thumbnail_ideas": (
+        "You are a YouTube thumbnail designer. Given a video "
+        "topic, invent exactly 5 thumbnail concepts. Each item is "
+        "ONE string of exactly 3 short lines joined by newline "
+        "characters: line 1 starts 'Text: ' followed by the big "
+        "on-thumbnail text (at most 4 words), line 2 starts "
+        "'Colors: ' followed by the background and text colors, "
+        "line 3 starts 'Layout: ' followed by the focal element "
+        "and composition in a few words.\n\n"
+        + _AI_LANG_RULE + "\n\n" + _AI_JSON_RULE),
+}
+
+# How many items of each tool the endpoint returns at most
+# (the model is asked for these counts; the cap also trims a
+# model that over-delivers).
+AI_TOOL_MAX_ITEMS = {"titles": 10, "tags": 20, "hashtags": 20,
+                     "channel_names": 12, "keywords": 15,
+                     "thumbnail_ideas": 5}
+
+_ai_daily_lock = threading.Lock()
+_ai_daily = {"date": None, "done": 0, "reserved": 0}
+
+
+def _ai_quota_rollover_locked():
+    """Reset the AI counter when the Pacific date rolls over
+    (the same quota day as the SP counters). Caller holds
+    _ai_daily_lock."""
+    today = _sp_quota_now().date()
+    if _ai_daily["date"] != today:
+        _ai_daily["date"] = today
+        _ai_daily["done"] = 0
+        _ai_daily["reserved"] = 0
+
+
+def _ai_quota_reserve():
+    """Reserve one slot for a generation that is about to run.
+    False when the day is already full (successes + in-flight
+    reservations at the cap)."""
+    with _ai_daily_lock:
+        _ai_quota_rollover_locked()
+        if _ai_daily["done"] + _ai_daily["reserved"] \
+                >= AI_TOOLS_DAILY_CAP:
+            return False
+        _ai_daily["reserved"] += 1
+        return True
+
+
+def _ai_quota_settle(success):
+    """Settle a finished generation's reservation: a success
+    becomes a counted generation; a failure refunds the slot."""
+    with _ai_daily_lock:
+        _ai_quota_rollover_locked()
+        _ai_daily["reserved"] = max(0, _ai_daily["reserved"] - 1)
+        if success:
+            _ai_daily["done"] += 1
+
+
+def _ai_quota_snapshot():
+    """The public counter state served by GET /api/ai-tools/quota
+    (read-only; never generates)."""
+    with _ai_daily_lock:
+        _ai_quota_rollover_locked()
+        left = max(0, AI_TOOLS_DAILY_CAP - _ai_daily["done"]
+                   - _ai_daily["reserved"])
+    return {
+        "left": left,
+        "max": AI_TOOLS_DAILY_CAP,
+        "resets_at": int(_sp_next_reset().timestamp()),
+    }
+
+
+_AI_BULLET_RE = re.compile(r"^(?:\d+\s*[.)\-:]\s*|[-*•·]\s+)")
+
+
+def _ai_clean_item(text, tool):
+    """One model item, cleaned: surrounding whitespace, quotes
+    and markdown bold removed, a leading number/bullet prefix
+    removed. Hashtags are normalised to start with '#' and carry
+    no spaces."""
+    item = str(text).strip().strip("`").strip()
+    item = _AI_BULLET_RE.sub("", item).strip()
+    item = item.replace("**", "").replace("__", "").strip()
+    if len(item) >= 2 and item[0] == item[-1] \
+            and item[0] in "\"'“”":
+        item = item[1:-1].strip()
+    item = re.sub(r"[ \t]+", " ", item)
+    if tool == "hashtags" and item:
+        item = item.replace(" ", "").replace("＃", "#")
+        if not item.startswith("#"):
+            item = "#" + item.lstrip("#")
+    return item
+
+
+def _ai_parse_items(raw, tool):
+    """The model's reply -> a clean list of item strings.
+
+    Primary path: the strict JSON the prompt asks for
+    ({"items": [...]} — a bare list or another list-shaped key
+    is accepted too). Fallback: line-based cleaning of a plain
+    text reply (numbering, bullets and markdown stripped; a
+    tags reply that arrives as ONE comma-separated line is
+    split). Duplicates are dropped (case-insensitively for
+    tags/hashtags), order preserved, and the list is trimmed
+    to the tool's item cap. An unusable reply yields []."""
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+    items = None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        for key in ("items", "results", "tags", "hashtags",
+                    "titles", "names", "keywords", "ideas"):
+            if isinstance(data.get(key), list):
+                items = data[key]
+                break
+        if items is None and len(data) == 1:
+            only = next(iter(data.values()))
+            if isinstance(only, str):
+                items = [only]
+        if items is None:
+            # A structured reply with no usable list in it is
+            # simply unusable — never fall through to treating
+            # the raw JSON text as an item.
+            items = []
+    elif isinstance(data, str):
+        items = [data]
+    if items is None:
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if tool == "tags" and len(lines) == 1 and "," in lines[0]:
+            lines = [p.strip() for p in lines[0].split(",")]
+        items = lines
+    out, seen = [], set()
+    fold = tool in ("tags", "hashtags")
+    for raw_item in items:
+        if not isinstance(raw_item, (str, int, float)):
+            continue
+        item = _ai_clean_item(raw_item, tool)
+        if not item:
+            continue
+        marker = item.lower() if fold else item
+        if marker in seen:
+            continue
+        seen.add(marker)
+        out.append(item)
+    return out[:AI_TOOL_MAX_ITEMS[tool]]
+
+
+def _ai_generate(tool, topic):
+    """One AI Tools generation through the shared Gemini
+    cascade. Returns the cleaned item list; raises
+    _GeminiUnavailable when every (model, key) pair failed."""
+    parts = [{"text": f"Topic: {topic}"}]
+    raw, _model = _gemini_call(
+        parts, AI_TOOL_PROMPTS[tool], AI_GEMINI_TIMEOUT,
+        slow_max_attempts=AI_SLOW_MAX_ATTEMPTS)
+    return _ai_parse_items(raw, tool)
+
+
+@app.route("/api/ai-tools/generate", methods=["POST"])
+def api_ai_tools_generate():
+    """One AI Tools generation (synchronous). Called ONLY from
+    the homepage AI Tools section's Generate button — never
+    automatically. Body: {"tool": <whitelist>, "input": <topic,
+    1..300 chars>}. Answers:
+      200 {"ok", "tool", "items", "left", "max"}
+      400 {"error": "invalid_request"} — bad tool / bad input
+      429 {"error": "daily_limit"}     — the shared day is full
+      502 {"error": "ai_unavailable"}  — the cascade failed
+      503 {"error": "not_configured"}  — no Gemini key configured
+    The daily slot is reserved before the call and refunded on
+    any failure, exactly like the Script+Prompt counters."""
+    data = request.get_json(silent=True) or {}
+    tool = data.get("tool")
+    topic = data.get("input")
+    if tool not in AI_TOOL_PROMPTS \
+            or not isinstance(topic, str) \
+            or not topic.strip() \
+            or len(topic.strip()) > AI_INPUT_LIMIT:
+        return jsonify({"error": "invalid_request"}), 400
+    topic = topic.strip()
+    if not _gemini_api_keys():
+        return jsonify({"error": "not_configured"}), 503
+    if not _ai_quota_reserve():
+        return jsonify({"error": "daily_limit"}), 429
+    try:
+        items = _ai_generate(tool, topic)
+    except _GeminiUnavailable as e:
+        app.logger.warning("ai-tools gemini failed (%s): %s",
+                           tool, e)
+        _ai_quota_settle(False)
+        return jsonify({"error": "ai_unavailable"}), 502
+    except Exception as e:
+        app.logger.warning("ai-tools crashed (%s): %s", tool, e)
+        _ai_quota_settle(False)
+        return jsonify({"error": "ai_unavailable"}), 502
+    if not items:
+        app.logger.warning(
+            "ai-tools returned no usable items (%s)", tool)
+        _ai_quota_settle(False)
+        return jsonify({"error": "ai_unavailable"}), 502
+    _ai_quota_settle(True)
+    snap = _ai_quota_snapshot()
+    return jsonify({"ok": True, "tool": tool, "items": items,
+                    "left": snap["left"], "max": snap["max"]})
+
+
+@app.route("/api/ai-tools/quota", methods=["GET"])
+def api_ai_tools_quota():
+    """The AI Tools daily counter, read-only: how many free
+    generations are left today (the America/Los_Angeles day),
+    the cap, and "resets_at" — the next Pacific midnight as a
+    UTC epoch. Reading it never generates anything."""
+    return jsonify(_ai_quota_snapshot())
 
 
 # ---------------------------------------------------------------------------
