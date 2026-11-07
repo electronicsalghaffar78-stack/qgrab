@@ -4824,7 +4824,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-08.1"
+APP_VERSION = "2026-11-08.2"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -4863,8 +4863,17 @@ def api_version():
 
 AI_TOOLS_DAILY_CAP = 10       # successful generations per day, all tools
 AI_INPUT_LIMIT = 300          # max topic characters sent to Gemini
-AI_GEMINI_TIMEOUT = 25        # seconds, per model attempt
-AI_SLOW_MAX_ATTEMPTS = 2      # pairs tried after a slow failure
+AI_GEMINI_TIMEOUT = 15        # seconds, per model attempt
+AI_SLOW_MAX_ATTEMPTS = 6      # pairs tried after a slow failure
+# (2026-11-08 live fix: with timeout 25 / budget 2 the cascade
+# died on the first chain model — gemini-3.8-flash was timing
+# out live and both budgeted attempts burned on it before the
+# cascade ever reached the second model. SP's text route, with
+# a budget of 6, walked past it to gemini-3.6-flash and
+# succeeded the same night. AI now matches that budget with a
+# shorter per-attempt timeout: worst case ~90 s only when
+# several pairs hang; the common bad case is one 15 s timeout
+# then a fast answer from the next model.)
 
 _AI_LANG_RULE = (
     "LANGUAGE: answer in the SAME language and the SAME script "
