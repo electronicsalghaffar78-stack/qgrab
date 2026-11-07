@@ -202,7 +202,7 @@ async function fetchStub(url) {
     captions: [{ code: 'en', name: 'English' }],
   });
   if (u.includes('/api/rate')) return jsonResp(200, { ok: true, average: 5, count: 1, reviews: [] });
-  if (u.includes('/api/script-prompt/quota')) return jsonResp(200, { script_left: 150, prompts_left: 150, script_max: 150, prompts_max: 150, resets_at: Math.floor(Date.now() / 1000) + 3600 });
+  if (u.includes('/api/script-prompt/quota')) return jsonResp(200, { script_left: 10, prompts_left: 10, script_max: 10, prompts_max: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 });
   if (u.includes('/api/script-prompt/status')) { spPolls++; return jsonResp(200, { status: 'done', title: 'Test Video', mode: 'script', route: 'captions', script: 'Hello script text.', prompts: [], truncated: false }); }
   if (u.includes('/api/script-prompt')) return jsonResp(202, { job_id: 'job1', status: 'running' });
   return jsonResp(404, { error: 'unstubbed ' + u });
@@ -325,8 +325,8 @@ function check(name, fn) {
   });
 
   check('SP counters rendered from quota endpoint', () => {
-    assert.ok(document.getElementById('spLeftScript').textContent.includes('150'));
-    assert.ok(document.getElementById('spLeftPrompts').textContent.includes('150'));
+    assert.ok(document.getElementById('spLeftScript').textContent.includes('10'));
+    assert.ok(document.getElementById('spLeftPrompts').textContent.includes('10'));
     assert.ok(document.getElementById('spRefreshAt').textContent.length > 5);
   });
   document.getElementById('spUrl').value = 'https://www.tiktok.com/@x/video/123';

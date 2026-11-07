@@ -28,6 +28,7 @@ YOUTUBE-FALLBACK-REPORT.md.
 """
 
 import base64
+import html as _html_lib
 import json
 import mimetypes
 import os
@@ -42,8 +43,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import urllib.error
 import uuid
-from urllib.parse import parse_qs, parse_qsl, quote, urlencode, \
-    urlparse, urlunparse
+from urllib.parse import parse_qs, parse_qsl, quote, unquote, \
+    urlencode, urlparse, urlunparse
 
 from flask import Flask, request, jsonify, render_template, Response, abort, send_file
 import yt_dlp
@@ -2214,6 +2215,505 @@ def ratings_summary():
 
 
 # ---------------------------------------------------------------------------
+# Search Videos — keyword search per platform (public sources ONLY:
+# no logins, no cookies, no accounts, ever)
+#
+#   youtube   -> the configured Invidious instances' public search API
+#   tiktok    -> tikwm.com's public feed/search endpoint first (rich
+#                data; fetched with the impersonated client — a plain
+#                fetch is answered with a Cloudflare challenge), then
+#                a web-search-engine chain site:-scoped to tiktok.com
+#   facebook  -> a web-search-engine chain (Brave, DuckDuckGo html,
+#                Bing, Yahoo — measured order, see the hardening
+#                notes in SEARCH-FEATURE-REPORT.md), site:-scoped to
+#                facebook.com video pages / fb.watch links
+#   instagram -> the same engine machinery (Brave, Bing, DuckDuckGo),
+#                site:-scoped to instagram.com reel/post pages
+#
+# A platform whose sources all answer nothing usable returns a
+# structured "unavailable" payload (HTTP 200, ok:false) — never
+# fabricated results. Results are capped at 12. Successes are cached
+# in memory (5 min for YouTube, 30 min for the engine-fed platforms)
+# and a last-good copy is kept for 24 h (stale-while-error): if every
+# source fails but a stale entry exists, the stale results are
+# served with "cached": true instead of 'unavailable'.
+# ---------------------------------------------------------------------------
+
+SEARCH_PLATFORMS = ("youtube", "facebook", "tiktok", "instagram")
+SEARCH_MAX_RESULTS = 12
+_SEARCH_CACHE_TTL = 300  # seconds (YouTube)
+_SEARCH_CACHE_TTL_WEB = 1800  # seconds (facebook / instagram / tiktok)
+_SEARCH_STALE_TTL = 86400  # seconds — last-good copy for stale-while-error
+_search_cache = {}       # "platform|q.lower()" -> (payload, expiry)
+_search_stale = {}       # same key -> (payload, expiry), 24 h horizon
+_search_cache_lock = threading.Lock()
+
+
+def _search_cache_get(key):
+    with _search_cache_lock:
+        hit = _search_cache.get(key)
+    if hit and hit[1] > time.time():
+        return hit[0]
+    return None
+
+
+def _search_cache_put(key, payload):
+    platform = key.split("|", 1)[0]
+    ttl = (_SEARCH_CACHE_TTL if platform == "youtube"
+           else _SEARCH_CACHE_TTL_WEB)
+    now = time.time()
+    with _search_cache_lock:
+        if len(_search_cache) > 256:
+            for old in [k for k, (_p, exp) in _search_cache.items()
+                        if exp <= now]:
+                _search_cache.pop(old, None)
+        if len(_search_stale) > 256:
+            for old in [k for k, (_p, exp) in _search_stale.items()
+                        if exp <= now]:
+                _search_stale.pop(old, None)
+        _search_cache[key] = (payload, now + ttl)
+        _search_stale[key] = (payload, now + _SEARCH_STALE_TTL)
+
+
+def _search_stale_get(key):
+    """The last-good payload for key, if it is inside the 24 h
+    stale horizon — served (marked cached) when every live source
+    fails, so a flaky engine blip doesn't become 'unavailable'."""
+    with _search_cache_lock:
+        hit = _search_stale.get(key)
+    if hit and hit[1] > time.time():
+        return hit[0]
+    return None
+
+
+def _search_cache_clear():
+    """Drop every cached search (tests / maintenance)."""
+    with _search_cache_lock:
+        _search_cache.clear()
+        _search_stale.clear()
+
+
+def _fmt_duration(seconds):
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0:
+        return None
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def _shape_youtube_search_results(data):
+    """Shape an Invidious /api/v1/search answer into the unified
+    search-result list. Non-video entries are dropped."""
+    out = []
+    for item in data or []:
+        if not isinstance(item, dict) or item.get("type") != "video":
+            continue
+        video_id = item.get("videoId") or ""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+            continue
+        out.append({
+            "id": video_id,
+            "title": item.get("title") or "Untitled",
+            "author": item.get("author") or "",
+            "thumbnail": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+            "duration": item.get("lengthSeconds"),
+            "duration_h": _fmt_duration(item.get("lengthSeconds")),
+            "views": item.get("viewCountText") or "",
+            "published": item.get("publishedText") or "",
+            "webpage_url": f"https://www.youtube.com/watch?v={video_id}",
+            "embed_url": f"https://www.youtube-nocookie.com/embed/{video_id}",
+        })
+        if len(out) >= SEARCH_MAX_RESULTS:
+            break
+    return out
+
+
+def _search_youtube(q):
+    """Keyword search via each Invidious instance in order. Returns
+    a result list (possibly empty); raises when every instance
+    fails, so the endpoint can answer 'unavailable'."""
+    last_error = None
+    for base in INVIDIOUS_INSTANCES:
+        api_url = (f"{base}/api/v1/search?q={quote(q)}"
+                   f"&type=video")
+        try:
+            data = _http_get_json(api_url, timeout=15)
+        except Exception as e:
+            last_error = e
+            app.logger.info("search youtube failed via %s: %s", base, e)
+            continue
+        if isinstance(data, list):
+            return _shape_youtube_search_results(data)
+        last_error = ValueError(f"unexpected search answer via {base}")
+    if last_error is not None:
+        raise last_error
+    raise ValueError("No Invidious instance configured.")
+
+
+def _shape_tiktok_search_results(data):
+    """Shape a tikwm feed/search answer (data.videos[]) into the
+    unified search-result list."""
+    out = []
+    videos = (data or {}).get("videos") or []
+    for item in videos:
+        if not isinstance(item, dict):
+            continue
+        video_id = str(item.get("video_id") or "")
+        if not video_id:
+            continue
+        author = item.get("author") or {}
+        unique_id = author.get("unique_id") or ""
+        webpage = (f"https://www.tiktok.com/@{unique_id}/video/{video_id}"
+                   if unique_id else
+                   f"https://www.tiktok.com/video/{video_id}")
+        play_count = item.get("play_count")
+        out.append({
+            "id": video_id,
+            "title": item.get("title") or "Untitled",
+            "author": author.get("nickname") or unique_id or "",
+            "thumbnail": item.get("cover") or "",
+            "duration": item.get("duration"),
+            "duration_h": _fmt_duration(item.get("duration")),
+            "views": (f"{play_count} views"
+                      if isinstance(play_count, int) else ""),
+            "published": "",
+            "webpage_url": webpage,
+            "embed_url": f"https://www.tiktok.com/embed/v2/{video_id}",
+        })
+        if len(out) >= SEARCH_MAX_RESULTS:
+            break
+    return out
+
+
+def _search_tiktok_tikwm(q):
+    """Keyword search via tikwm's public feed/search endpoint.
+    Raises on a Cloudflare challenge page / non-JSON / code != 0 so
+    the chain in _search_tiktok can fall through to the web-search
+    engines."""
+    api_url = ("https://www.tikwm.com/api/feed/search?keywords="
+               + quote(q) + "&count=12&cursor=0&web=1&hd=1")
+    text = _http_get_text(api_url, timeout=15)
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        raise ValueError("tikwm search answered a non-JSON page "
+                         "(likely a bot challenge)")
+    if not isinstance(data, dict) or data.get("code") != 0:
+        msg = data.get("msg") if isinstance(data, dict) else None
+        raise ValueError(f"tikwm search failed: {msg or 'no answer'}")
+    return _shape_tiktok_search_results(data.get("data") or {})
+
+
+# --- Facebook / Instagram / TikTok-via-engines: honest public ------
+# web-search routes.
+#
+# None of these platforms offers a public keyword search for videos
+# (all are login-walled), so the only honest public route is a
+# general web search engine, scoped with site: to the platform's own
+# video pages. Whatever real video URLs the engines return are
+# shaped below; engines that block the fetch or return no video
+# URLs simply fall through to the next source in the chain.
+#
+# Chain order per platform was MEASURED live on 2026-11-08 (full
+# matrices in SEARCH-FEATURE-REPORT.md, "Hardening" section):
+#   facebook:  Brave (hits on every query) -> DuckDuckGo html (big
+#              counts when its anomaly page stays away) -> Bing
+#              (generic "<q> facebook video") -> Yahoo. NOT kept:
+#              Bing's site:facebook.com/watch and /reel variants and
+#              DuckDuckGo Lite — 0 real video URLs on every query.
+#   instagram: Brave -> Bing -> DuckDuckGo html.
+#   tiktok:    Brave -> DuckDuckGo html -> Bing (engine fallback
+#              behind tikwm, see _search_tiktok).
+
+_FB_EMBED = ("https://www.facebook.com/plugins/video.php?href={url}"
+             "&show_text=0")
+
+
+def _clean_link_text(raw):
+    text = re.sub(r"<[^>]+>", " ", raw or "")
+    return re.sub(r"\s+", " ", _html_lib.unescape(text)).strip()
+
+
+def _unwrap_ddg_href(href):
+    """DuckDuckGo html results wrap targets in /l/?uddg=<encoded>."""
+    parsed = urlparse(href or "")
+    values = parse_qs(parsed.query).get("uddg")
+    if values:
+        return values[0]
+    if href.startswith("//"):
+        return "https:" + href
+    return href
+
+
+def _is_platform_video_url(platform, url):
+    parsed = urlparse(url or "")
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or ""
+    if platform == "facebook":
+        if host == "fb.watch":
+            return len(path) > 1
+        if host != "facebook.com" and not host.endswith(".facebook.com"):
+            return False
+        if host == "apps.facebook.com":
+            return False
+        if path in ("/watch", "/watch/"):
+            # The bare /watch page is only a video when it carries
+            # a v= id; /watch/explore, /watch/hashtag etc. are
+            # browse pages, not videos.
+            return "v=" in (parsed.query or "")
+        return ("/reel/" in path or "/videos/" in path
+                or "/share/r/" in path or "/share/v/" in path)
+    if platform == "instagram":
+        if host != "instagram.com" and not host.endswith(".instagram.com"):
+            return False
+        return (path.startswith("/reel/") or path.startswith("/reels/")
+                or path.startswith("/p/"))
+    if platform == "tiktok":
+        if host != "tiktok.com" and not host.endswith(".tiktok.com"):
+            return False
+        return "/video/" in path
+    return False
+
+
+def _shape_web_search_results(platform, pairs):
+    """Shape (title, url) pairs from a web-search results page into
+    the unified list, keeping only real platform video URLs."""
+    out = []
+    seen = set()
+    for title, url in pairs:
+        url = (url or "").split("#")[0]
+        if not url or url in seen:
+            continue
+        if not _is_platform_video_url(platform, url):
+            continue
+        seen.add(url)
+        parts = [p for p in urlparse(url).path.split("/") if p]
+        if platform == "instagram":
+            code = parts[1] if len(parts) >= 2 else ""
+            kind = parts[0] if parts else "reel"
+            embed = (f"https://www.instagram.com/{kind}/{code}/embed"
+                     if code else "")
+            vid_id = code
+            author = ""
+            default_title = "Untitled"
+        elif platform == "tiktok":
+            # Canonical shape: /@<user>/video/<id>
+            vid_id = parts[-1] if parts else ""
+            author = (parts[0].lstrip("@")
+                      if parts and parts[0].startswith("@") else "")
+            embed = (f"https://www.tiktok.com/embed/v2/{vid_id}"
+                     if vid_id else "")
+            default_title = "Untitled"
+        else:  # facebook (incl. fb.watch short links)
+            embed = _FB_EMBED.format(url=quote(url, safe=""))
+            vid_id = url
+            author = ""
+            default_title = "Facebook video"
+        out.append({
+            "id": vid_id,
+            "title": title or default_title,
+            "author": author,
+            "thumbnail": "",
+            "duration": None,
+            "duration_h": None,
+            "views": "",
+            "published": "",
+            "webpage_url": url,
+            "embed_url": embed,
+        })
+        if len(out) >= SEARCH_MAX_RESULTS:
+            break
+    return out
+
+
+def _parse_ddg_results(text):
+    pairs = []
+    for href, title in re.findall(
+            r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>'
+            r"(.*?)</a>", text or "", re.S):
+        pairs.append((_clean_link_text(title), _unwrap_ddg_href(
+            _html_lib.unescape(href))))
+    return pairs
+
+
+def _unwrap_bing_href(href):
+    """Bing wraps result links in /ck/a?u=a1<base64url target>."""
+    parsed = urlparse(href or "")
+    host = (parsed.hostname or "").lower()
+    if host.endswith("bing.com") and parsed.path.startswith("/ck/a"):
+        values = parse_qs(parsed.query).get("u")
+        if values:
+            token = values[0]
+            if token.startswith("a1"):
+                token = token[2:]
+            token += "=" * (-len(token) % 4)
+            try:
+                return base64.urlsafe_b64decode(token).decode(
+                    "utf-8", "replace")
+            except Exception:
+                return href
+    return href
+
+
+def _parse_bing_results(text):
+    pairs = []
+    for href, title in re.findall(
+            r'<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+            text or "", re.S):
+        pairs.append((_clean_link_text(title), _unwrap_bing_href(
+            _html_lib.unescape(href))))
+    return pairs
+
+
+def _parse_brave_results(text):
+    """Brave Search results are server-rendered 'snippet' blocks:
+    the first real <a href> in a block is the result link, and the
+    first long text node that isn't the '>' breadcrumb is its
+    title. Brave's own redirect links are skipped."""
+    pairs = []
+    for block in re.split(r'<div class="snippet ', text or "")[1:]:
+        m = re.search(r'<a href="(https?://[^"]+)"', block)
+        if not m:
+            continue
+        href = _html_lib.unescape(m.group(1))
+        if "/a/redirect" in href or "search.brave.com" in href:
+            continue
+        texts = [_clean_link_text(t) for t in
+                 re.findall(r">([^<>]{10,200})<", block[:5000])]
+        texts = [t for t in texts if t and not t.startswith("›")]
+        pairs.append((texts[0] if texts else "", href))
+    return pairs
+
+
+def _parse_yahoo_results(text):
+    """Yahoo wraps result targets in r.search.yahoo.com links with
+    an /RU=<percent-encoded target>/ segment."""
+    pairs = []
+    for href, inner in re.findall(
+            r'<a[^>]+href="(https://r\.search\.yahoo\.com/[^"]+)"'
+            r"[^>]*>(.*?)</a>", text or "", re.S):
+        m = re.search(r"/RU=([^/]+)/", href)
+        if not m:
+            continue
+        pairs.append((_clean_link_text(inner), unquote(m.group(1))))
+    return pairs
+
+
+def _web_attempts(platform, q):
+    """The measured engine chain for a platform: a list of
+    (source-name, url, parser) in reliability order."""
+    if platform == "facebook":
+        return [
+            ("brave", "https://search.brave.com/search?q="
+             + quote(f"site:facebook.com {q}"), _parse_brave_results),
+            ("ddg", "https://html.duckduckgo.com/html/?q="
+             + quote(f"site:facebook.com {q} video"), _parse_ddg_results),
+            ("bing", "https://www.bing.com/search?q="
+             + quote(f"{q} facebook video"), _parse_bing_results),
+            ("yahoo", "https://search.yahoo.com/search?p="
+             + quote(f"site:facebook.com {q}"), _parse_yahoo_results),
+        ]
+    if platform == "instagram":
+        return [
+            ("brave", "https://search.brave.com/search?q="
+             + quote(f"site:instagram.com/reel {q}"),
+             _parse_brave_results),
+            ("bing", "https://www.bing.com/search?q="
+             + quote(f"site:instagram.com/reel OR site:instagram.com/p {q}"),
+             _parse_bing_results),
+            ("ddg", "https://html.duckduckgo.com/html/?q="
+             + quote(f"site:instagram.com/reel {q}"), _parse_ddg_results),
+        ]
+    if platform == "tiktok":
+        return [
+            ("brave", "https://search.brave.com/search?q="
+             + quote(f"site:tiktok.com {q}"), _parse_brave_results),
+            ("ddg", "https://html.duckduckgo.com/html/?q="
+             + quote(f"site:tiktok.com {q}"), _parse_ddg_results),
+            ("bing", "https://www.bing.com/search?q="
+             + quote(f"site:tiktok.com {q}"), _parse_bing_results),
+        ]
+    return []
+
+
+def _run_web_chain(platform, q, min_results=5):
+    """Run a platform's engine chain, AGGREGATING deduped results
+    across sources and stopping early once min_results valid
+    results are collected. Each source gets a short timeout and a
+    block/anomaly page parses to zero pairs, so a blocked engine
+    fails fast and the chain moves on. If the whole first pass
+    yields nothing, the single best (first) source is retried once
+    after a short pause — engines rate-limit in bursts, and a
+    one-second pause clears most burst blocks. Worst case for four
+    sources: ~4x8s + one 8s retry, inside ~35-40s."""
+    attempts = _web_attempts(platform, q)
+    collected = []
+    seen = set()
+
+    def _absorb(results):
+        for r in results:
+            if r["webpage_url"] not in seen:
+                seen.add(r["webpage_url"])
+                collected.append(r)
+
+    def _one_pass(todo):
+        for name, url, parser in todo:
+            if len(collected) >= min_results:
+                break
+            try:
+                text = _http_get_text(url, timeout=8)
+            except Exception as e:
+                app.logger.info("search %s via %s failed: %s",
+                                platform, name, e)
+                continue
+            _absorb(_shape_web_search_results(platform, parser(text)))
+
+    _one_pass(attempts)
+    if not collected and attempts:
+        time.sleep(1)
+        _one_pass(attempts[:1])
+    return collected[:SEARCH_MAX_RESULTS]
+
+
+def _search_facebook(q):
+    return _run_web_chain("facebook", q)
+
+
+def _search_instagram(q):
+    return _run_web_chain("instagram", q)
+
+
+def _search_tiktok(q):
+    """tikwm's feed/search first — it returns rich cards (cover,
+    duration, play counts) and its host already answers this app's
+    single-video resolver from the production server. Measured
+    live from the dev sandbox, though, tikwm's Cloudflare answers
+    EVERY search request (GET/POST, www and bare host) with a 403
+    challenge, and the keyless mirrors probed (urlebird search,
+    api.tikwm.com) were dead ends — so the measured engine chain
+    (Brave/DDG/Bing site:tiktok.com) backs it up and serves real
+    results wherever tikwm won't."""
+    try:
+        results = _search_tiktok_tikwm(q)
+    except Exception as e:
+        app.logger.info("search tiktok via tikwm failed: %s", e)
+        results = []
+    if results:
+        return results
+    return _run_web_chain("tiktok", q)
+
+
+_SEARCH_SOURCES = {
+    "youtube": _search_youtube,
+    "facebook": _search_facebook,
+    "tiktok": _search_tiktok,
+    "instagram": _search_instagram,
+}
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -2369,6 +2869,42 @@ def api_info():
         "mp3": has_audio,
         "captions": pick_captions(info),
     })
+
+
+@app.route("/api/search", methods=["GET"])
+def api_search():
+    platform = (request.args.get("platform") or "").strip().lower()
+    if platform not in SEARCH_PLATFORMS:
+        return jsonify({"error": "Unknown platform."}), 400
+    q = (request.args.get("q") or "").strip()[:100]
+    if not q:
+        return jsonify({"error": "Missing search text."}), 400
+    key = platform + "|" + q.lower()
+    cached = _search_cache_get(key)
+    if cached is not None:
+        return jsonify(cached)
+    try:
+        results = _SEARCH_SOURCES[platform](q)
+    except Exception as e:
+        app.logger.info("search failed for %s %r: %s", platform, q, e)
+        results = None
+    if not results:
+        # Every live source answered nothing usable. Stale-while-
+        # error: a last-good copy inside its 24 h horizon is served
+        # (marked cached) rather than failing the visitor outright.
+        stale = _search_stale_get(key)
+        if stale is not None:
+            payload = dict(stale)
+            payload["cached"] = True
+            return jsonify(payload)
+        # Nothing cached either — a structured 'unavailable',
+        # never fabricated results.
+        return jsonify({"ok": False, "platform": platform,
+                        "reason": "unavailable", "results": []})
+    payload = {"ok": True, "platform": platform, "q": q,
+               "results": results[:SEARCH_MAX_RESULTS]}
+    _search_cache_put(key, payload)
+    return jsonify(payload)
 
 
 def _fetch_to_file(media_url, dest, timeout=120):
@@ -3908,11 +4444,13 @@ def _sp_download_audio_mp3(url, expected_duration=None,
 # Gemini free quotas — 3 API keys (3 projects) x 6 cascade models
 # x ~20 free requests/day per model per project (the observed
 # free-tier floor) = ~360 generations/day in one shared pool. The
-# per-mode caps below sum to 300, deliberately under that floor,
-# so a counter-full day still leaves the cascade headroom. Retune
-# here if keys or models are added, or if the quotas change.
-SP_DAILY_CAP_SCRIPT = 150     # successful script generations per day
-SP_DAILY_CAP_PROMPTS = 150    # successful prompt generations per day
+# caps were originally 150 per mode (300 total, deliberately under
+# that floor). OWNER ORDER 2026-11-08: the caps are deliberately
+# lowered to 10 per day each — the owner wants only a small number
+# of free generations per day. Retune here if the owner orders it,
+# if keys or models are added, or if the quotas change.
+SP_DAILY_CAP_SCRIPT = 10      # successful script generations per day
+SP_DAILY_CAP_PROMPTS = 10     # successful prompt generations per day
 SP_DAILY_CAPS = {"script": SP_DAILY_CAP_SCRIPT,
                  "prompts": SP_DAILY_CAP_PROMPTS}
 _SP_QUOTA_TZ = ZoneInfo("America/Los_Angeles")

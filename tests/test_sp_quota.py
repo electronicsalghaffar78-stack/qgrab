@@ -2,7 +2,7 @@
 mirroring the clip counters on his video tool).
 
 Two server-enforced counters — Scripts and Prompts — each capped
-at 150 successful generations per day and counting DOWN. The day
+at 10 successful generations per day and counting DOWN. The day
 is the Google quota day: midnight in America/Los_Angeles. A slot
 is reserved when a job starts; a success counts it, a failure
 REFUNDS it. GET /api/script-prompt/quota reports the left counts,
@@ -90,10 +90,10 @@ def test_quota_endpoint_fresh_and_reset_time():
     _reset_state()
     client = qgrab.app.test_client()
     body = _quota(client)
-    assert body["script_left"] == qgrab.SP_DAILY_CAP_SCRIPT == 150
-    assert body["prompts_left"] == qgrab.SP_DAILY_CAP_PROMPTS == 150
-    assert body["script_max"] == 150
-    assert body["prompts_max"] == 150
+    assert body["script_left"] == qgrab.SP_DAILY_CAP_SCRIPT == 10
+    assert body["prompts_left"] == qgrab.SP_DAILY_CAP_PROMPTS == 10
+    assert body["script_max"] == 10
+    assert body["prompts_max"] == 10
     # resets_at: a real epoch, in the future, at most a day away,
     # and exactly a Pacific midnight.
     resets_at = body["resets_at"]
@@ -105,7 +105,7 @@ def test_quota_endpoint_fresh_and_reset_time():
             reset_local.second) == (0, 0, 0), reset_local
     # Reading the quota created nothing and counted nothing.
     assert len(qgrab._sp_jobs) == 0
-    assert _quota(client)["script_left"] == 150
+    assert _quota(client)["script_left"] == 10
 
 
 def test_successful_jobs_decrement():
@@ -123,13 +123,13 @@ def test_successful_jobs_decrement():
         final = _run_one_job(client, "script")
         assert final["status"] == "done"
         body = _quota(client)
-        assert body["script_left"] == 149, body
-        assert body["prompts_left"] == 150, body
+        assert body["script_left"] == 9, body
+        assert body["prompts_left"] == 10, body
         final = _run_one_job(client, "prompts")
         assert final["status"] == "done"
         body = _quota(client)
-        assert body["script_left"] == 149, body
-        assert body["prompts_left"] == 149, body
+        assert body["script_left"] == 9, body
+        assert body["prompts_left"] == 9, body
     finally:
         qgrab._sp_generate_payload = original
 
@@ -152,12 +152,12 @@ def test_inflight_reservation_counts_then_settles():
         job_id = resp.get_json()["job_id"]
         # While the job runs, its reserved slot already shows as
         # used — simultaneous visitors cannot overshoot the cap.
-        assert _quota(client)["script_left"] == 149
+        assert _quota(client)["script_left"] == 9
         gate.set()
         final = _poll_until_settled(client, job_id)
         assert final["status"] == "done"
         # After success the slot stays counted (now as a success).
-        assert _quota(client)["script_left"] == 149
+        assert _quota(client)["script_left"] == 9
     finally:
         gate.set()
         qgrab._sp_generate_payload = original
@@ -178,8 +178,8 @@ def test_failed_job_refunds():
         assert final["error"] == "no_speech"
         # The reservation was refunded: the day is whole again.
         body = _quota(client)
-        assert body["script_left"] == 150, body
-        assert body["prompts_left"] == 150, body
+        assert body["script_left"] == 10, body
+        assert body["prompts_left"] == 10, body
     finally:
         qgrab._sp_generate_payload = original
 
@@ -219,7 +219,7 @@ def test_daily_limit_at_cap():
         # The other mode's day is untouched and still runs.
         final = _run_one_job(client, "prompts")
         assert final["status"] == "done"
-        assert _quota(client)["prompts_left"] == 149
+        assert _quota(client)["prompts_left"] == 9
     finally:
         qgrab._sp_generate_payload = original
 
@@ -229,19 +229,19 @@ def test_rollover_resets_counts():
     client = qgrab.app.test_client()
     with qgrab._sp_daily_lock:
         qgrab._sp_quota_rollover_locked()
-        qgrab._sp_daily["done"]["script"] = 40
-        qgrab._sp_daily["done"]["prompts"] = 55
+        qgrab._sp_daily["done"]["script"] = 4
+        qgrab._sp_daily["done"]["prompts"] = 5
     body = _quota(client)
-    assert body["script_left"] == 110, body
-    assert body["prompts_left"] == 95, body
+    assert body["script_left"] == 6, body
+    assert body["prompts_left"] == 5, body
     # Jump the quota clock two Pacific days ahead: both counters
     # reset to a fresh day.
     real_now = qgrab._sp_quota_now
     qgrab._sp_quota_now = lambda: real_now() + timedelta(days=2)
     try:
         body = _quota(client)
-        assert body["script_left"] == 150, body
-        assert body["prompts_left"] == 150, body
+        assert body["script_left"] == 10, body
+        assert body["prompts_left"] == 10, body
         with qgrab._sp_daily_lock:
             assert qgrab._sp_daily["done"] == \
                 {"script": 0, "prompts": 0}

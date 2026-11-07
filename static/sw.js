@@ -13,7 +13,15 @@ const SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      .then((cache) =>
+        // Tolerant shell caching (install fix, 2026-11-07): add each shell
+        // file individually, so ONE failing fetch cannot fail the whole
+        // install — a failed install means the worker never activates and
+        // Chrome never offers the install prompt.
+        Promise.allSettled(SHELL.map((url) => cache.add(url)))
+      )
+      .then(() => self.skipWaiting())
   );
 });
 

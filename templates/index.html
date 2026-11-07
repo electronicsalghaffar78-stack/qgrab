@@ -140,6 +140,56 @@
   #dlStatus{display:none;margin-top:12px;text-align:center;color:var(--muted);
        font-weight:600;font-size:.95rem}
 
+  /* search videos */
+  .search-sec{padding-top:34px}
+  .stabs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;max-width:640px;margin:0 auto 14px}
+  @media (max-width:560px){ .stabs{grid-template-columns:repeat(2,1fr)} }
+  .stab{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--card);
+        border:2px solid var(--line);border-radius:12px;padding:12px 8px;cursor:pointer;
+        font-weight:700;font-size:.95rem;color:var(--text);font-family:inherit}
+  .stab svg{width:20px;height:20px;flex:none}
+  .stab[data-platform="youtube"].active{border-color:#FF0000;background:rgba(255,0,0,.10)}
+  .stab[data-platform="facebook"].active{border-color:#1877F2;background:rgba(24,119,242,.12)}
+  .stab[data-platform="tiktok"].active{border-color:var(--text);background:var(--bg2)}
+  .stab[data-platform="instagram"].active{border-color:#FF0069;background:rgba(255,0,105,.10)}
+  .sbar{display:flex;gap:10px;max-width:640px;margin:0 auto}
+  .sbar input{flex:1;min-width:0;background:var(--card);border:1.5px solid var(--line);
+    border-radius:10px;color:var(--text);font-size:1rem;padding:13px 14px;outline:none}
+  .sbar input:focus{border-color:var(--accent)}
+  @media (max-width:560px){ .sbar{flex-direction:column} }
+  #searchMsg{display:none;margin:16px auto 0;max-width:640px;text-align:center;color:var(--muted);font-size:.95rem}
+  #searchMsg.err{background:var(--err-bg);border:1px solid var(--err-line);color:var(--err-text);
+       padding:12px 14px;border-radius:10px}
+  .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-top:20px}
+  .scard{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+         display:flex;flex-direction:column;box-shadow:0 8px 22px var(--sh-soft)}
+  .scard .sthumb{width:100%;aspect-ratio:16/9;object-fit:cover;background:#000;display:block}
+  .scard .sph{width:100%;aspect-ratio:16/9;background:var(--bg2);color:var(--faint);
+       display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem;letter-spacing:.5px}
+  .scard .sbody{padding:11px 12px;display:flex;flex-direction:column;gap:5px;flex:1}
+  .scard .stitle{font-size:.92rem;font-weight:700;line-height:1.35;
+       display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .scard .smeta{color:var(--muted);font-size:.8rem}
+  .scard .sbtns{display:flex;gap:8px;margin-top:auto;padding-top:8px}
+  .scard .sbtns button{flex:1;border:0;border-radius:8px;font-weight:700;font-size:.88rem;
+       padding:9px 6px;cursor:pointer;color:#fff;font-family:inherit}
+  .scard .watch-btn{background:linear-gradient(90deg,var(--accent),var(--accent2))}
+  .scard .dl-btn{background:var(--ok)}
+  .scard .sbtns button:active{transform:scale(.97)}
+
+  /* on-site player modal */
+  #playerModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:60;
+       align-items:center;justify-content:center;padding:16px}
+  #playerModal.open{display:flex}
+  .player-box{width:min(880px,100%);background:var(--card);border:1px solid var(--line);
+       border-radius:14px;padding:12px}
+  .player-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .player-head .ptitle{font-weight:700;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #playerClose{background:var(--bg2);border:1px solid var(--line);color:var(--text);
+       border-radius:8px;font-size:1rem;font-weight:700;padding:6px 13px;cursor:pointer;flex:none}
+  .player-frame{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden}
+  .player-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+
   /* trust chips */
   .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
   .chip{display:flex;align-items:center;gap:7px;background:var(--bg2);border:1px solid var(--line);
@@ -262,6 +312,36 @@
         <div id="dlStatus" role="status"></div>
       </div>
     </div>
+
+  <section id="search-videos" class="search-sec">
+    <h2>Search Videos</h2>
+    <p class="sub">Pick a platform, type a video, movie or reel name, then watch it here or download it.</p>
+    <div class="stabs" role="tablist" aria-label="Search platform">
+      <button type="button" class="stab active" data-platform="youtube" role="tab"><svg viewBox="0 0 24 24" fill="#FF0000" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>YouTube</button>
+      <button type="button" class="stab" data-platform="facebook" role="tab"><svg viewBox="0 0 24 24" fill="#1877F2" aria-hidden="true"><path d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>Facebook</button>
+      <button type="button" class="stab" data-platform="tiktok" role="tab"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>TikTok</button>
+      <button type="button" class="stab" data-platform="instagram" role="tab"><svg viewBox="0 0 24 24" fill="url(#ig-grad)" aria-hidden="true"><path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg>Instagram</button>
+    </div>
+    <form class="sbar" id="searchForm">
+      <input id="searchInput" type="search" autocomplete="off"
+             placeholder="Search YouTube videos..." aria-label="Search videos">
+      <button class="btn" id="searchBtn" type="submit">Search</button>
+    </form>
+    <div id="searchMsg" role="status"></div>
+    <div class="sgrid" id="searchResults"></div>
+  </section>
+
+  <div id="playerModal" role="dialog" aria-modal="true">
+    <div class="player-box">
+      <div class="player-head">
+        <div class="ptitle" id="playerTitle"></div>
+        <button type="button" id="playerClose" aria-label="Close player">&#10005;</button>
+      </div>
+      <div class="player-frame"><iframe id="playerFrame" title="Video player"
+        allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+        allowfullscreen referrerpolicy="no-referrer"></iframe></div>
+    </div>
+  </div>
 
   <section id="script-prompt" class="sp-sec">
     <h2>{{ t.sp_h2 }}</h2>
@@ -633,6 +713,149 @@ form.addEventListener('submit', async (e) => {
     btn.disabled = false; btn.textContent = I18N.download;
   }
 });
+</script>
+<script>
+/* --- Search Videos UI --- */
+(function(){
+  const PLAT_NAMES = {youtube:'YouTube', facebook:'Facebook', tiktok:'TikTok', instagram:'Instagram'};
+  let sPlatform = 'youtube';
+  const sForm = document.getElementById('searchForm');
+  const sInput = document.getElementById('searchInput');
+  const sBtn = document.getElementById('searchBtn');
+  const sMsg = document.getElementById('searchMsg');
+  const sGrid = document.getElementById('searchResults');
+  const modal = document.getElementById('playerModal');
+  const frame = document.getElementById('playerFrame');
+  const pTitle = document.getElementById('playerTitle');
+  if (!sForm || !sInput || !sGrid) return;
+
+  document.querySelectorAll('.stab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.stab').forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+      sPlatform = tab.dataset.platform || 'youtube';
+      sInput.placeholder = 'Search ' + PLAT_NAMES[sPlatform] + ' videos...';
+      sInput.focus();
+    });
+  });
+
+  function searchNote(msg, isErr){
+    sMsg.textContent = msg;
+    sMsg.className = isErr ? 'err' : '';
+    sMsg.style.display = msg ? 'block' : 'none';
+  }
+  function closePlayer(){
+    modal.classList.remove('open');
+    frame.src = '';
+    pTitle.textContent = '';
+  }
+  document.getElementById('playerClose').addEventListener('click', closePlayer);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closePlayer(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePlayer(); });
+
+  function openPlayer(item){
+    pTitle.textContent = item.title || '';
+    frame.src = item.embed_url || '';
+    modal.classList.add('open');
+  }
+  function downloadViaMain(item){
+    /* Reuse the main downloader exactly like a pasted link: fill
+       its input and submit its form, which runs the /api/info
+       lookup and renders formats above the /download proxy. */
+    const urlInput = document.getElementById('urlInput');
+    const grabForm = document.getElementById('grabForm');
+    if (!urlInput || !grabForm) return;
+    urlInput.value = item.webpage_url || '';
+    document.getElementById('download').scrollIntoView({behavior:'smooth'});
+    if (grabForm.requestSubmit) grabForm.requestSubmit();
+    else grabForm.dispatchEvent(new Event('submit', {cancelable:true}));
+  }
+
+  function renderResults(items){
+    sGrid.innerHTML = '';
+    for (const item of items) {
+      const card = document.createElement('div');
+      card.className = 'scard';
+      if (item.thumbnail) {
+        const img = document.createElement('img');
+        img.className = 'sthumb';
+        img.loading = 'lazy';
+        img.alt = '';
+        img.src = item.thumbnail;
+        img.addEventListener('error', () => img.remove());
+        card.appendChild(img);
+      } else {
+        const ph = document.createElement('div');
+        ph.className = 'sph';
+        ph.textContent = PLAT_NAMES[sPlatform];
+        card.appendChild(ph);
+      }
+      const body = document.createElement('div');
+      body.className = 'sbody';
+      const title = document.createElement('div');
+      title.className = 'stitle';
+      title.textContent = item.title || 'Untitled';
+      body.appendChild(title);
+      const bits = [];
+      if (item.author) bits.push(item.author);
+      if (item.duration_h) bits.push(item.duration_h);
+      if (item.views) bits.push(item.views);
+      if (item.published) bits.push(item.published);
+      if (bits.length) {
+        const meta = document.createElement('div');
+        meta.className = 'smeta';
+        meta.textContent = bits.join(' · ');
+        body.appendChild(meta);
+      }
+      const btns = document.createElement('div');
+      btns.className = 'sbtns';
+      const watch = document.createElement('button');
+      watch.type = 'button';
+      watch.className = 'watch-btn';
+      watch.textContent = 'Watch';
+      watch.addEventListener('click', () => openPlayer(item));
+      const dl = document.createElement('button');
+      dl.type = 'button';
+      dl.className = 'dl-btn';
+      dl.textContent = 'Download';
+      dl.addEventListener('click', () => downloadViaMain(item));
+      btns.append(watch, dl);
+      body.appendChild(btns);
+      card.appendChild(body);
+      sGrid.appendChild(card);
+    }
+  }
+
+  sForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = sInput.value.trim();
+    if (!q) return;
+    const name = PLAT_NAMES[sPlatform];
+    sGrid.innerHTML = '';
+    searchNote('Searching ' + name + '...', false);
+    sBtn.disabled = true;
+    try {
+      const r = await fetch('/api/search?platform=' + encodeURIComponent(sPlatform) +
+                             '&q=' + encodeURIComponent(q));
+      const data = await r.json();
+      if (r.status === 400) throw new Error(data.error || 'Bad search.');
+      if (!data.ok) {
+        searchNote('Search is not available for ' + name + ' yet — paste the video link in the downloader above to download it.', true);
+        return;
+      }
+      if (!data.results || !data.results.length) {
+        searchNote('No results found on ' + name + ' for that search. Try different words.', false);
+        return;
+      }
+      searchNote('', false);
+      renderResults(data.results);
+    } catch (err) {
+      searchNote('Search failed. Please try again in a moment.', true);
+    } finally {
+      sBtn.disabled = false;
+    }
+  });
+})();
 </script>
 {% include "_spjs.html" %}
 {% include "_installjs.html" %}

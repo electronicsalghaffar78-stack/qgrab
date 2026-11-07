@@ -117,8 +117,8 @@ function jsonRes(status, body) {
 /* ---------- scenario 1: counters render + refresh ------------ */
 async function scenarioCounters() {
   const quota = {
-    script_left: 150, prompts_left: 149,
-    script_max: 150, prompts_max: 150, resets_at: RESETS_AT,
+    script_left: 10, prompts_left: 9,
+    script_max: 10, prompts_max: 10, resets_at: RESETS_AT,
   };
   const env = buildEnv({
     fetchHandler: async (url) => {
@@ -132,7 +132,7 @@ async function scenarioCounters() {
       }
       if (url.startsWith('/api/script-prompt/status')) {
         /* The finished job consumed one script slot. */
-        quota.script_left = 149;
+        quota.script_left = 9;
         return jsonRes(200, { status: 'done',
           script: 'QUOTA SCRIPT', prompts: [],
           mode: 'script', route: 'captions' });
@@ -144,9 +144,9 @@ async function scenarioCounters() {
   await flush();
   /* Counters rendered from the load-time quota fetch. */
   assert.strictEqual(el.spLeftScript.textContent,
-                     'Scripts left today: 150');
+                     'Scripts left today: 10');
   assert.strictEqual(el.spLeftPrompts.textContent,
-                     'Prompts left today: 149');
+                     'Prompts left today: 9');
   /* Refresh line: the template text + a formatted local time. */
   assert.ok(/^Counters refresh daily at \d{1,2}:\d{2}/.test(
     el.spRefreshAt.textContent),
@@ -158,9 +158,9 @@ async function scenarioCounters() {
   await flush();
   assert.strictEqual(el.spScript.value, 'QUOTA SCRIPT');
   assert.strictEqual(el.spLeftScript.textContent,
-                     'Scripts left today: 149');
+                     'Scripts left today: 9');
   assert.strictEqual(el.spLeftPrompts.textContent,
-                     'Prompts left today: 149');
+                     'Prompts left today: 9');
   console.log('PASS counters: render on load, refresh line shows ' +
               'a local time, counters refresh after generation');
 }
@@ -170,8 +170,8 @@ async function scenarioDailyLimit() {
   const env = buildEnv({
     fetchHandler: async (url) => {
       if (url === '/api/script-prompt/quota') {
-        return jsonRes(200, { script_left: 0, prompts_left: 12,
-          script_max: 150, prompts_max: 150,
+        return jsonRes(200, { script_left: 0, prompts_left: 2,
+          script_max: 10, prompts_max: 10,
           resets_at: RESETS_AT });
       }
       if (url === '/api/info') return jsonRes(200, {});
