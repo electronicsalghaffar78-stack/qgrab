@@ -349,6 +349,179 @@ def test_stale_cache_served_on_failure():
         A._SEARCH_SOURCES["facebook"] = orig
 
 
+# ----------------------------------------------------------------
+# Serper (2026-11-08): official Google search API as PRIMARY source
+# for facebook / instagram / tiktok. The POST helper and the env
+# var are monkeypatched — nothing here touches the live network
+# and no real key is ever used.
+# ----------------------------------------------------------------
+
+_SERPER_FB_ORGANIC = {
+    "organic": [
+        {"title": "Funny Cat Video | Facebook",
+         "link": "https://www.facebook.com/watch/?v=123456"},
+        {"title": "Help page", "link": "https://www.facebook.com/help/123"},
+        {"title": "A reel", "link": "https://www.facebook.com/reel/987654"},
+        {"title": "No link at all"},
+        {"position": 4},
+    ]}
+
+
+class _serper_env:
+    """Set/clear QGRAB_SERPER_API_KEY and stub A._http_post_json,
+    restoring both on exit."""
+
+    def __init__(self, key, post):
+        self.key = key
+        self.post = post
+
+    def __enter__(self):
+        self._old_env = os.environ.get("QGRAB_SERPER_API_KEY")
+        if self.key is None:
+            os.environ.pop("QGRAB_SERPER_API_KEY", None)
+        else:
+            os.environ["QGRAB_SERPER_API_KEY"] = self.key
+        self._old_post = A._http_post_json
+        A._http_post_json = self.post
+        return self
+
+    def __exit__(self, *exc):
+        if self._old_env is None:
+            os.environ.pop("QGRAB_SERPER_API_KEY", None)
+        else:
+            os.environ["QGRAB_SERPER_API_KEY"] = self._old_env
+        A._http_post_json = self._old_post
+        return False
+
+
+def _stub_chain(platform_to_result):
+    """Replace A._run_web_chain with a recorder; returns (state,
+    restore). platform_to_result maps platform -> result list."""
+    orig = A._run_web_chain
+    state = {"calls": []}
+
+    def fake(platform, q):
+        state["calls"].append(platform)
+        return platform_to_result(platform)
+
+    A._run_web_chain = fake
+    return state, (lambda: setattr(A, "_run_web_chain", orig))
+
+
+def test_serper_facebook_hit_chain_not_called():
+    calls = []
+
+    def post(url, payload, headers=None, timeout=None):
+        calls.append((url, payload, headers))
+        return _SERPER_FB_ORGANIC
+
+    state, restore = _stub_chain(lambda p: [])
+    try:
+        with _serper_env("test-key", post):
+            out = A._search_facebook("funny cat")
+    finally:
+        restore()
+    # Only valid FB video URLs survive the hardened filter, in order.
+    assert [r["webpage_url"] for r in out] == [
+        "https://www.facebook.com/watch/?v=123456",
+        "https://www.facebook.com/reel/987654"]
+    assert out[0]["title"] == "Funny Cat Video | Facebook"
+    # The scraping chain was NOT consulted at all.
+    assert state["calls"] == []
+    # Exactly ONE Serper request, correctly shaped.
+    assert len(calls) == 1
+    url, payload, headers = calls[0]
+    assert url == A.SERPER_API_URL
+    assert payload == {"q": "funny cat site:facebook.com", "num": 10}
+    assert headers["X-API-KEY"] == "test-key"
+
+
+def test_serper_403_falls_through_to_chain():
+    import urllib.error
+
+    def post(url, payload, headers=None, timeout=None):
+        raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+
+    state, restore = _stub_chain(
+        lambda p: A._shape_web_search_results(
+            p, [("Cats", "https://www.facebook.com/reel/555")]))
+    try:
+        with _serper_env("bad-or-exhausted-key", post):
+            out = A._search_facebook("cats")
+    finally:
+        restore()
+    assert state["calls"] == ["facebook"]
+    assert [r["webpage_url"] for r in out] == [
+        "https://www.facebook.com/reel/555"]
+
+
+def test_serper_zero_valid_results_falls_through():
+    def post(url, payload, headers=None, timeout=None):
+        return {"organic": [
+            {"title": "Elsewhere", "link": "https://example.com/x"},
+            {"title": "FB home", "link": "https://www.facebook.com/"}]}
+
+    state, restore = _stub_chain(
+        lambda p: A._shape_web_search_results(
+            p, [("Cats", "https://www.facebook.com/reel/556")]))
+    try:
+        with _serper_env("k", post):
+            out = A._search_facebook("cats")
+    finally:
+        restore()
+    assert state["calls"] == ["facebook"]
+    assert [r["webpage_url"] for r in out] == [
+        "https://www.facebook.com/reel/556"]
+
+
+def test_serper_unset_key_is_silent_passthrough():
+    def post(url, payload, headers=None, timeout=None):
+        raise AssertionError(
+            "POST helper must not be called without a key")
+
+    state, restore = _stub_chain(
+        lambda p: A._shape_web_search_results(
+            p, [("Cats", "https://www.instagram.com/reel/AbC123/")]))
+    try:
+        with _serper_env(None, post):
+            out = A._search_instagram("cats")
+    finally:
+        restore()
+    assert state["calls"] == ["instagram"]
+    assert [r["id"] for r in out] == ["AbC123"]
+
+
+def test_serper_tiktok_parses_handle_and_id():
+    seen = []
+
+    def post(url, payload, headers=None, timeout=None):
+        seen.append(payload)
+        return {"organic": [
+            {"title": "Cool dance - dancer1 on TikTok",
+             "link": "https://www.tiktok.com/@dancer1/video/"
+                     "7300000000000000001"},
+            {"title": "Profile page",
+             "link": "https://www.tiktok.com/@dancer1"},
+            {"title": "Another one",
+             "link": "https://www.tiktok.com/@mover2/video/"
+                     "7300000000000000002?lang=en"},
+        ]}
+
+    with _serper_env("k", post):
+        out = A._search_serper("tiktok", "dance")
+    assert seen == [{"q": "dance site:tiktok.com", "num": 10}]
+    assert len(out) == 2
+    first = out[0]
+    assert first["id"] == "7300000000000000001"
+    assert first["author"] == "dancer1"
+    assert first["title"] == "Cool dance - dancer1 on TikTok"
+    assert first["thumbnail"] == ""  # Serper offers none -> placeholder
+    assert first["webpage_url"] == (
+        "https://www.tiktok.com/@dancer1/video/7300000000000000001")
+    assert first["embed_url"] == (
+        "https://www.tiktok.com/embed/v2/7300000000000000001")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

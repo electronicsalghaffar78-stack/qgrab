@@ -758,6 +758,39 @@ def _http_get_text(url, headers=None, timeout=15):
         return resp.read().decode("utf-8", "replace")
 
 
+def _http_post_json(url, payload, headers=None, timeout=15):
+    """POST a JSON body and parse the JSON answer: impersonated
+    curl_cffi first, urllib as the fallback — the same two-step as
+    _http_get_text, for the one API that needs a POST (Serper).
+    Raises on an HTTP error status (the status rides on the
+    exception: _MediaFetchError.code or HTTPError.code) and on a
+    non-JSON answer. Header VALUES are never logged here or by
+    callers — one of them is an API key."""
+    hdrs = dict(headers or {})
+    hdrs.setdefault("Content-Type", "application/json")
+    body = json.dumps(payload).encode("utf-8")
+    if HAS_CFFI_REQUESTS:
+        try:
+            resp = _cffi_requests.post(
+                url, data=body, headers=hdrs, impersonate="chrome",
+                timeout=timeout)
+            try:
+                if resp.status_code >= 400:
+                    raise _MediaFetchError(resp.status_code)
+                return json.loads(resp.text)
+            finally:
+                resp.close()
+        except _MediaFetchError:
+            raise
+        except Exception as e:
+            app.logger.info(
+                "json POST (impersonated) failed for %s: %s", url, e)
+    req = urllib.request.Request(url, data=body, headers=hdrs,
+                                 method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8", "replace"))
+
+
 # --- TikTok: the tikwm.com resolver --------------------------------
 
 TIKWM_API_URL = "https://www.tikwm.com/api/"
@@ -2219,6 +2252,10 @@ def ratings_summary():
 # no logins, no cookies, no accounts, ever)
 #
 #   youtube   -> the configured Invidious instances' public search API
+#   facebook / instagram / tiktok -> Serper (the official Google
+#                search API, key in QGRAB_SERPER_API_KEY) FIRST when
+#                a key is configured; the sources below are the
+#                fallback for no-key / Serper-failure / zero-result.
 #   tiktok    -> tikwm.com's public feed/search endpoint first (rich
 #                data; fetched with the impersonated client — a plain
 #                fetch is answered with a Cloudflare challenge), then
@@ -2677,24 +2714,94 @@ def _run_web_chain(platform, q, min_results=5):
     return collected[:SEARCH_MAX_RESULTS]
 
 
+# --- Serper: the official Google search API -----------------------
+#
+# PRIMARY source for facebook / instagram / tiktok (owner approved
+# 2026-11-08). The scraping chain below works from a residential-
+# looking IP but is rate-limited/blocked from this host's
+# datacenter IP, so an official key-authenticated search API is
+# the reliable route: one Serper query per user search, scoped
+# with site: to the platform's own pages, and the pairs go through
+# the very same hardened filters/shapers as the chain's results.
+#
+# The API key exists ONLY as the QGRAB_SERPER_API_KEY environment
+# variable on the host (same pattern as QGRAB_YT_COOKIES_B64:
+# never in git, never in a file, never logged). It is read at call
+# time. Unset/empty = Serper is skipped silently and the behaviour
+# is EXACTLY what it was before Serper existed. Any Serper failure
+# (HTTP 400/403/429 = bad key or out of credits, a network error,
+# an odd payload) or a Serper answer with zero valid platform
+# videos falls through to the existing sources unchanged.
+
+SERPER_API_URL = "https://google.serper.dev/search"
+
+
+def _search_serper(platform, q):
+    """One Serper query for the platform, shaped by the shared
+    web-search shaper. Returns a (possibly empty) result list and
+    NEVER raises: with no key configured it returns [] without any
+    request at all, and every real failure is logged at info level
+    (platform + HTTP status only — never the key or headers) and
+    reported as [] so the caller falls through to the chain."""
+    key = (os.environ.get("QGRAB_SERPER_API_KEY") or "").strip()
+    if not key:
+        return []
+    query = f"{q} site:{platform}.com"
+    try:
+        data = _http_post_json(
+            SERPER_API_URL, {"q": query, "num": 10},
+            headers={"X-API-KEY": key,
+                     "Content-Type": "application/json"},
+            timeout=15)
+    except Exception as e:
+        status = (getattr(e, "code", None)
+                  or getattr(e, "status", None) or "no response")
+        app.logger.info("search %s via serper failed (HTTP %s)",
+                        platform, status)
+        return []
+    organic = data.get("organic") if isinstance(data, dict) else None
+    if not isinstance(organic, list):
+        app.logger.info("search %s via serper: no organic results "
+                        "in answer", platform)
+        return []
+    pairs = []
+    for item in organic:
+        if not isinstance(item, dict):
+            continue
+        link = item.get("link") or ""
+        if link:
+            pairs.append((item.get("title") or "", link))
+    return _shape_web_search_results(platform, pairs)
+
+
 def _search_facebook(q):
+    results = _search_serper("facebook", q)
+    if results:
+        return results
     return _run_web_chain("facebook", q)
 
 
 def _search_instagram(q):
+    results = _search_serper("instagram", q)
+    if results:
+        return results
     return _run_web_chain("instagram", q)
 
 
 def _search_tiktok(q):
-    """tikwm's feed/search first — it returns rich cards (cover,
-    duration, play counts) and its host already answers this app's
-    single-video resolver from the production server. Measured
-    live from the dev sandbox, though, tikwm's Cloudflare answers
-    EVERY search request (GET/POST, www and bare host) with a 403
-    challenge, and the keyless mirrors probed (urlebird search,
-    api.tikwm.com) were dead ends — so the measured engine chain
-    (Brave/DDG/Bing site:tiktok.com) backs it up and serves real
-    results wherever tikwm won't."""
+    """Serper first (official Google results — the reliable route
+    from this host), then tikwm's feed/search — it returns rich
+    cards (cover, duration, play counts) and its host already
+    answers this app's single-video resolver from the production
+    server. Measured live from the dev sandbox, though, tikwm's
+    Cloudflare answers EVERY search request (GET/POST, www and
+    bare host) with a 403 challenge, and the keyless mirrors
+    probed (urlebird search, api.tiktok.com) were dead ends — so
+    the measured engine chain (Brave/DDG/Bing site:tiktok.com)
+    backs both up and serves real results wherever they won't."""
+    results = _search_serper("tiktok", q)
+    if results:
+        return results
     try:
         results = _search_tiktok_tikwm(q)
     except Exception as e:
