@@ -522,6 +522,31 @@ def test_serper_tiktok_parses_handle_and_id():
         "https://www.tiktok.com/embed/v2/7300000000000000001")
 
 
+def test_player_embed_markup_and_canonical_youtube_src():
+    """2026-11-08 phone fix (Error 153): the Watch modal's iframe
+    must send the standard cross-origin referrer (the old markup
+    said referrerpolicy="no-referrer", which YouTube refuses
+    with "Video player configuration error"), carry the full
+    allow list, and the search JS must rebuild YouTube embeds
+    into the canonical www.youtube.com URL with autoplay /
+    rel=0 / playsinline / origin instead of loading the
+    server-provided youtube-nocookie URL as-is."""
+    client = A.app.test_client()
+    html = client.get("/").get_data(as_text=True)
+    import re
+    m = re.search(r'<iframe id="playerFrame"[^>]*>', html)
+    assert m, "player iframe missing"
+    tag = m.group(0)
+    assert 'referrerpolicy="strict-origin-when-cross-origin"' in tag, tag
+    assert "no-referrer" not in tag, tag
+    for token in ("accelerometer", "autoplay", "encrypted-media",
+                  "gyroscope", "picture-in-picture", "web-share"):
+        assert token in tag, (token, tag)
+    assert "https://www.youtube.com/embed/" in html
+    assert "?autoplay=1&rel=0&playsinline=1&origin=" in html
+    assert "youtube-nocookie" in html  # detector for the old shape
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

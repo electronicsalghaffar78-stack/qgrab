@@ -73,6 +73,12 @@
   function addMsg(role, text) {
     var div = document.createElement('div');
     div.className = 'asst-msg ' + (role === 'user' ? 'me' : 'bot');
+    /* Per-bubble direction: on an RTL-language page a plain
+       bubble inherits rtl and an English message can render
+       reversed ("i olleH"). dir="auto" + the plaintext bidi
+       isolation in the .asst-msg CSS lets every message use
+       the direction of its own text. */
+    div.setAttribute('dir', 'auto');
     div.textContent = text;
     msgs.appendChild(div);
     msgs.scrollTop = msgs.scrollHeight;

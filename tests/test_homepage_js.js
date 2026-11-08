@@ -26,10 +26,17 @@
        records the new version, sets the just-updated flag and
        reloads
      - assistant: the panel opens from the floating button, a
-       question renders the user + answer messages with a
-       "Take me there" goto button (whose click closes the
-       panel), and the Talk to Support form submits and shows
-       the server's confirmation
+       question renders the user + answer messages (each bubble
+       carrying dir="auto" so mixed-direction text never renders
+       reversed) with a "Take me there" goto button (whose click
+       closes the panel), and the Talk to Support form submits
+       and shows the server's confirmation
+     - search: each platform tab keeps its OWN query + results
+       (switching away and back restores them; a never-searched
+       tab shows the clean state), and Watch opens the on-site
+       modal with the canonical www.youtube.com embed src for
+       YouTube results while a Facebook result keeps its
+       official plugin embed src untouched
    Added in the 2026-11-04 audit round: the pre-existing suites
    covered the SP tool's JS in isolation, but nothing executed
    the downloader / menu / theme / reviews code at runtime.
@@ -227,6 +234,25 @@ async function fetchStub(url) {
   });
   if (u.includes('/api/ai-tools/quota')) return jsonResp(200, { left: 10, max: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 });
   if (u.includes('/api/ai-tools/generate')) return jsonResp(200, { ok: true, tool: 'titles', items: ['Title One', 'Title Two'], left: 9, max: 10 });
+  if (u.includes('/api/search')) {
+    const pu = new URL(u, 'http://stub');
+    const plat = pu.searchParams.get('platform') || 'youtube';
+    const qq = pu.searchParams.get('q') || '';
+    if (plat === 'youtube') return jsonResp(200, { ok: true, results: [
+      { id: 'MIW2VPprnLw', title: 'YT one ' + qq, author: 'Chan', thumbnail: '', duration_h: '3:32', views: '', published: '',
+        webpage_url: 'https://www.youtube.com/watch?v=MIW2VPprnLw',
+        embed_url: 'https://www.youtube-nocookie.com/embed/MIW2VPprnLw' },
+      { id: 'dQw4w9WgXcQ', title: 'YT two ' + qq, author: 'Chan', thumbnail: '', duration_h: '3:33', views: '', published: '',
+        webpage_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        embed_url: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ' },
+    ] });
+    if (plat === 'facebook') return jsonResp(200, { ok: true, results: [
+      { id: 'fb1', title: 'FB one ' + qq, author: '', thumbnail: '', duration_h: '', views: '', published: '',
+        webpage_url: 'https://www.facebook.com/watch/?v=123',
+        embed_url: 'https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2Fwatch%2F%3Fv%3D123&show_text=0' },
+    ] });
+    return jsonResp(200, { ok: true, results: [] });
+  }
   if (u.includes('/api/assistant')) return jsonResp(200, { ok: true, answer: 'Use the downloader box at the top of the page.', goto: 'download', support: false, left: 29, max: 30 });
   if (u.includes('/api/support')) return jsonResp(200, { ok: true, message: 'Thank you! Your message has been received. We will look into it and reply to your email within 24–48 hours. If it is a problem with the site, we aim to fix it within 24–48 hours — please try again after that.' });
   if (u.includes('/api/version')) return jsonResp(200, { version: '2026-11-08.1' });
@@ -258,6 +284,20 @@ const ctx = vm.createContext(windowObj);
 const starInput = document.getElementById('starInput');
 for (let v = 1; v <= 5; v++) { const b = new El('button'); b.dataset.v = String(v); starInput.appendChild(b); }
 document.getElementById('hmenuPanel').hidden = true;
+
+/* Search tabs: the stub DOM has no real .stab buttons, so hand
+   the search UI four tab elements through querySelectorAll
+   (every other selector keeps the stub's empty answer), and
+   give window.location an origin for the player-src builder. */
+const stabEls = ['youtube', 'facebook', 'tiktok', 'instagram'].map((p) => {
+  const b = new El('button');
+  b.dataset.platform = p;
+  if (p === 'youtube') b.classList.add('active');
+  return b;
+});
+const realQSA = document.querySelectorAll;
+document.querySelectorAll = (sel) => (sel === '.stab' ? stabEls.slice() : realQSA(sel));
+windowObj.location.origin = 'https://qgrab.onrender.com';
 
 const results = [];
 function check(name, fn) {
@@ -414,6 +454,74 @@ function check(name, fn) {
   });
   sessionStorage.removeItem('qgrab_just_updated');
 
+  /* search: per-platform tab state + the on-site Watch player */
+  const sGrid = document.getElementById('searchResults');
+  const sInputEl = document.getElementById('searchInput');
+  const frameEl = document.getElementById('playerFrame');
+  const modalEl = document.getElementById('playerModal');
+  const hasCls = (n, c) => (n.className || '').split(/\s+/).includes(c);
+  const watchBtns = () => walk(sGrid).filter((n) => hasCls(n, 'watch-btn'));
+  const cardTitles = () => walk(sGrid).filter((n) => hasCls(n, 'stitle')).map((n) => n.textContent);
+  sInputEl.value = 'cats';
+  document.getElementById('searchForm').dispatch('submit');
+  await flush();
+  check('search renders YouTube results', () => {
+    assert.strictEqual(sGrid.children.length, 2);
+    assert.deepStrictEqual(cardTitles(), ['YT one cats', 'YT two cats']);
+  });
+  watchBtns()[0].dispatch('click');
+  check('Watch plays YouTube in the modal via the canonical embed', () => {
+    assert.ok(modalEl.classList.contains('open'));
+    assert.strictEqual(frameEl.src,
+      'https://www.youtube.com/embed/MIW2VPprnLw?autoplay=1&rel=0&playsinline=1&origin=https%3A%2F%2Fqgrab.onrender.com');
+  });
+  document.getElementById('playerClose').dispatch('click');
+  check('player close clears the frame + hides the modal', () => {
+    assert.strictEqual(frameEl.src, '');
+    assert.ok(!modalEl.classList.contains('open'));
+  });
+  stabEls[1].dispatch('click'); /* -> facebook */
+  check('switching to Facebook shows its own clean state', () => {
+    assert.strictEqual(sInputEl.value, '');
+    assert.strictEqual(sGrid.children.length, 0);
+    assert.strictEqual(sInputEl.placeholder, 'Search Facebook videos...');
+  });
+  sInputEl.value = 'dogs';
+  document.getElementById('searchForm').dispatch('submit');
+  await flush();
+  check('Facebook search renders its own results', () => {
+    assert.strictEqual(sGrid.children.length, 1);
+    assert.deepStrictEqual(cardTitles(), ['FB one dogs']);
+  });
+  watchBtns()[0].dispatch('click');
+  check('Facebook Watch keeps the official plugin embed untouched', () => {
+    assert.strictEqual(frameEl.src,
+      'https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2Fwatch%2F%3Fv%3D123&show_text=0');
+  });
+  document.getElementById('playerClose').dispatch('click');
+  stabEls[0].dispatch('click'); /* -> back to youtube */
+  check('returning to YouTube restores its query + results', () => {
+    assert.strictEqual(sInputEl.value, 'cats');
+    assert.strictEqual(sGrid.children.length, 2);
+    assert.deepStrictEqual(cardTitles(), ['YT one cats', 'YT two cats']);
+  });
+  watchBtns()[1].dispatch('click');
+  check('restored YouTube results still play canonically', () => {
+    assert.strictEqual(frameEl.src,
+      'https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0&playsinline=1&origin=https%3A%2F%2Fqgrab.onrender.com');
+  });
+  document.getElementById('playerClose').dispatch('click');
+  stabEls[2].dispatch('click'); /* -> tiktok, never searched */
+  check('a never-searched platform shows the clean state', () => {
+    assert.strictEqual(sInputEl.value, '');
+    assert.strictEqual(sGrid.children.length, 0);
+  });
+  stabEls[1].dispatch('click'); /* -> facebook again */
+  check('Facebook kept its own search too', () => {
+    assert.strictEqual(sInputEl.value, 'dogs');
+    assert.strictEqual(sGrid.children.length, 1);
+  });
+
   /* assistant: open the panel, ask, get an answer + goto */
   const asstPanel = document.getElementById('asstPanel');
   document.getElementById('asstBtn').dispatch('click');
@@ -430,6 +538,10 @@ function check(name, fn) {
     assert.strictEqual(asstMsgs.children[0].textContent, 'How do I download a video?');
     assert.strictEqual(asstMsgs.children[1].textContent, 'Use the downloader box at the top of the page.');
     assert.strictEqual(document.getElementById('asstInput').value, '');
+  });
+  check('assistant bubbles carry dir=auto (text never reversed)', () => {
+    assert.strictEqual(asstMsgs.children[0].getAttribute('dir'), 'auto');
+    assert.strictEqual(asstMsgs.children[1].getAttribute('dir'), 'auto');
   });
   const gotoBtn = asstMsgs.children[1].children.find((c) => c.tagName === 'BUTTON');
   check('assistant goto button appears under the answer', () => {

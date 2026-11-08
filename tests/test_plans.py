@@ -6,10 +6,15 @@ Covers the RENDERED homepage:
     AFTER the QGrab logo (the owner's placement: top header,
     beside the brand name) and inside the <header> element —
     not in the three-dot menu panel;
-  * the #plans section sits after the AI Tools section and
-    holds both cards with exactly the approved facts (Basic —
-    Free; Premium — $10 first month for new users, then
-    $20/month, "Coming Soon");
+  * the header nav keeps a real gap (>= 8px) between the brand
+    group and the controls group and wraps instead of letting
+    the Plans pill and the Update App button overlap
+    (2026-11-08 phone fix);
+  * the #plans section is the LAST content section on the page
+    (2026-11-08 phone fix: moved to the very bottom, right
+    before the footer) and holds both cards with exactly the
+    approved facts (Basic — Free; Premium — $10 first month
+    for new users, then $20/month, "Coming Soon");
   * announcement-only scope: the section contains NO form
     elements (no <form>, <input>, <select> or <textarea>) and
     both plan buttons are disabled — there is no checkout,
@@ -63,6 +68,28 @@ check("Plans link carries the plans-link pill class",
       bool(plans_m) and 'class="plans-link"' in plans_m.group(0))
 
 # ------------------------------------------------------------------
+# Header spacing (2026-11-08 phone fix): on the owner's phone the
+# Plans pill and the Update App button touched/overlapped, the
+# pill half-hidden behind the button. The header nav must be a
+# wrapping flex row with a real gap (>= 8px) between the brand
+# group (logo + Plans pill) and the controls group, the controls
+# group must carry its own gap, and the pill must never shrink.
+# ------------------------------------------------------------------
+nav_m = re.search(r"\.nav\{([^}]*)\}", html)
+nav_css = nav_m.group(1) if nav_m else ""
+gap_m = re.search(r"(?:column-)?gap:\s*(\d+)px", nav_css)
+check("header nav wraps instead of overlapping",
+      "flex-wrap:wrap" in nav_css, nav_css[:100])
+check("header nav gap between brand and controls is >= 8px",
+      bool(gap_m) and int(gap_m.group(1)) >= 8, nav_css[:100])
+hnav_m = re.search(r"\.hnav\{([^}]*)\}", html)
+check("header controls group (.hnav) carries its own gap",
+      bool(hnav_m) and "gap:" in hnav_m.group(1))
+pill_m = re.search(r"\.plans-link\{([^}]*)\}", html)
+check("Plans pill can never be squeezed (flex:none)",
+      bool(pill_m) and "flex:none" in pill_m.group(1))
+
+# ------------------------------------------------------------------
 # #plans section + cards
 # ------------------------------------------------------------------
 sec_m = re.search(r'<section id="plans"[^>]*>([\s\S]*?)</section>', html)
@@ -71,6 +98,24 @@ sec = sec_m.group(1) if sec_m else ""
 ai_i = html.find('id="ai-tools"')
 check("#plans section comes after the AI Tools section",
       bool(sec_m) and ai_i != -1 and sec_m.start() > ai_i)
+
+# 2026-11-08 phone fix: the owner moved Plans to the very BOTTOM
+# of the page — it must be the LAST <section> on the homepage,
+# after the FAQ, the Script+Prompt tool and the install section,
+# immediately before the footer.
+sec_starts = [m.start() for m in re.finditer(r"<section", html)]
+check("#plans is the last <section> on the homepage",
+      bool(sec_m) and bool(sec_starts)
+      and sec_m.start() == max(sec_starts),
+      f"plans at {sec_m.start() if sec_m else -1}, "
+      f"last section at {max(sec_starts) if sec_starts else -1}")
+for anchor in ('id="script-prompt"', 'id="faq"', 'id="install"'):
+    check(f"#plans comes after the {anchor} section",
+          bool(sec_m) and html.find(anchor) != -1
+          and sec_m.start() > html.find(anchor))
+foot_i = html.find("<footer")
+check("#plans sits before the footer",
+      bool(sec_m) and foot_i != -1 and sec_m.start() < foot_i)
 
 for frag in ("Basic", "Free", "All tools included",
              "AI features limited to 10 uses per day",

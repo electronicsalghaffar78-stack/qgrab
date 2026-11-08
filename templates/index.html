@@ -83,15 +83,17 @@
   /* header */
   header{position:sticky;top:0;background:var(--header-bg);backdrop-filter:blur(8px);
          border-bottom:1px solid var(--line);z-index:10}
-  .nav{display:flex;align-items:center;justify-content:space-between;height:58px}
+  .nav{display:flex;align-items:center;justify-content:space-between;
+       min-height:58px;column-gap:16px;row-gap:6px;flex-wrap:wrap;
+       padding-top:5px;padding-bottom:5px}
   .logo{display:flex;align-items:center;gap:9px;font-size:1.35rem;font-weight:800;letter-spacing:-.5px;color:var(--text)}
   .logo img{width:34px;height:34px;border-radius:9px;display:block}
   .logo .wm{white-space:nowrap}
   .logo .wm>span{color:var(--accent)}
   .nav nav a{color:var(--muted);margin-left:18px;font-size:.95rem}
   .nav nav a:hover{color:var(--text)}
-  .brand-side{display:flex;align-items:center;gap:14px;min-width:0}
-  .plans-link{display:inline-flex;align-items:center;background:linear-gradient(90deg,var(--star),var(--accent2));
+  .brand-side{display:flex;align-items:center;gap:14px;min-width:0;flex:none}
+  .plans-link{display:inline-flex;align-items:center;flex:none;background:linear-gradient(90deg,var(--star),var(--accent2));
        color:#241a00;font-weight:800;font-size:.9rem;padding:6px 14px;border-radius:999px;white-space:nowrap;
        box-shadow:0 4px 14px var(--sh-soft)}
   .plans-link:hover{filter:brightness(1.07);color:#241a00}
@@ -434,8 +436,6 @@
 
   {% include "_aitools.html" %}
 
-  {% include "_plans.html" %}
-
   <div id="playerModal" role="dialog" aria-modal="true">
     <div class="player-box">
       <div class="player-head">
@@ -443,8 +443,8 @@
         <button type="button" id="playerClose" aria-label="Close player">&#10005;</button>
       </div>
       <div class="player-frame"><iframe id="playerFrame" title="Video player"
-        allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-        allowfullscreen referrerpolicy="no-referrer"></iframe></div>
+        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
     </div>
   </div>
 
@@ -606,6 +606,11 @@
       </ul>
     </div>
   </section>
+
+  {# Plans is the LAST content section (2026-11-08 phone fix:
+     the owner asked for it at the very bottom of the page,
+     right before the footer — it used to sit mid-page). #}
+  {% include "_plans.html" %}
 
   {% include "_footer.html" %}
 </div>
@@ -835,12 +840,38 @@ form.addEventListener('submit', async (e) => {
   const pTitle = document.getElementById('playerTitle');
   if (!sForm || !sInput || !sGrid) return;
 
+  /* Per-platform search state (2026-11-08 phone fix): every tab
+     keeps its OWN query text, results and status note. Switching
+     tabs used to leave the previous platform's search on screen —
+     a YouTube search still showing under the Facebook tab. Now
+     the state is saved when a tab is left and restored when it
+     is re-entered; a platform that was never searched shows the
+     clean prompt state. */
+  const sStates = {};
+  for (const p in PLAT_NAMES) {
+    sStates[p] = { q: '', items: null, note: '', noteErr: false };
+  }
+  function saveSearchState(){
+    sStates[sPlatform].q = sInput.value;
+  }
+  function restoreSearchState(){
+    const st = sStates[sPlatform];
+    sInput.value = st.q;
+    sInput.placeholder = 'Search ' + PLAT_NAMES[sPlatform] + ' videos...';
+    if (st.items) renderResults(st.items);
+    else sGrid.innerHTML = '';
+    searchNote(st.note, st.noteErr);
+  }
+
   document.querySelectorAll('.stab').forEach((tab) => {
     tab.addEventListener('click', () => {
+      const next = tab.dataset.platform || 'youtube';
+      if (next === sPlatform) return;
+      saveSearchState();
       document.querySelectorAll('.stab').forEach((t) => t.classList.remove('active'));
       tab.classList.add('active');
-      sPlatform = tab.dataset.platform || 'youtube';
-      sInput.placeholder = 'Search ' + PLAT_NAMES[sPlatform] + ' videos...';
+      sPlatform = next;
+      restoreSearchState();
       sInput.focus();
     });
   });
@@ -859,9 +890,41 @@ form.addEventListener('submit', async (e) => {
   modal.addEventListener('click', (e) => { if (e.target === modal) closePlayer(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePlayer(); });
 
+  /* Player src (2026-11-08 phone fix): a YouTube result used to
+     load the server-provided youtube-nocookie embed URL inside
+     an iframe marked referrerpolicy="no-referrer". YouTube
+     refuses that combination with "Video player configuration
+     error" (Error 153) and pushes the visitor off to
+     youtube.com. Rebuild the canonical www.youtube.com embed
+     URL here — autoplay, no related videos, playsinline, and
+     this site's origin — while the iframe markup now sends the
+     standard strict-origin-when-cross-origin referrer. The
+     video plays in this modal; the visitor is never navigated
+     away. Other platforms keep their official embed URLs
+     (TikTok embed/v2, the Facebook plugin, the Instagram embed)
+     exactly as the server shaped them. */
+  function playerSrc(item){
+    const embed = item.embed_url || '';
+    const page = item.webpage_url || '';
+    const isYouTube = embed.indexOf('youtube') !== -1 ||
+                      page.indexOf('youtube.com') !== -1 ||
+                      page.indexOf('youtu.be') !== -1;
+    if (isYouTube) {
+      const m = embed.match(/\/embed\/([A-Za-z0-9_-]{6,})/) ||
+                page.match(/[?&]v=([A-Za-z0-9_-]{6,})/);
+      if (m) {
+        let origin = '';
+        try { origin = window.location.origin || ''; } catch (e) {}
+        return 'https://www.youtube.com/embed/' + m[1] +
+          '?autoplay=1&rel=0&playsinline=1&origin=' +
+          encodeURIComponent(origin);
+      }
+    }
+    return embed;
+  }
   function openPlayer(item){
     pTitle.textContent = item.title || '';
-    frame.src = item.embed_url || '';
+    frame.src = playerSrc(item);
     modal.classList.add('open');
   }
   function downloadViaMain(item){
@@ -936,27 +999,46 @@ form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const q = sInput.value.trim();
     if (!q) return;
-    const name = PLAT_NAMES[sPlatform];
+    /* The search belongs to the platform it was submitted on,
+       even if the visitor switches tabs while it runs: results
+       and the note land in that platform's state, and render
+       immediately only if it is still the active tab. */
+    const platform = sPlatform;
+    const name = PLAT_NAMES[platform];
+    const st = sStates[platform];
+    st.q = q;
+    st.items = null;
+    st.note = '';
+    st.noteErr = false;
     sGrid.innerHTML = '';
     searchNote('Searching ' + name + '...', false);
     sBtn.disabled = true;
     try {
-      const r = await fetch('/api/search?platform=' + encodeURIComponent(sPlatform) +
+      const r = await fetch('/api/search?platform=' + encodeURIComponent(platform) +
                              '&q=' + encodeURIComponent(q));
       const data = await r.json();
       if (r.status === 400) throw new Error(data.error || 'Bad search.');
       if (!data.ok) {
-        searchNote('Search is not available for ' + name + ' yet — paste the video link in the downloader above to download it.', true);
+        st.note = 'Search is not available for ' + name + ' yet — paste the video link in the downloader above to download it.';
+        st.noteErr = true;
+        if (platform === sPlatform) searchNote(st.note, true);
         return;
       }
       if (!data.results || !data.results.length) {
-        searchNote('No results found on ' + name + ' for that search. Try different words.', false);
+        st.note = 'No results found on ' + name + ' for that search. Try different words.';
+        st.noteErr = false;
+        if (platform === sPlatform) searchNote(st.note, false);
         return;
       }
-      searchNote('', false);
-      renderResults(data.results);
+      st.items = data.results;
+      if (platform === sPlatform) {
+        searchNote('', false);
+        renderResults(data.results);
+      }
     } catch (err) {
-      searchNote('Search failed. Please try again in a moment.', true);
+      st.note = 'Search failed. Please try again in a moment.';
+      st.noteErr = true;
+      if (platform === sPlatform) searchNote(st.note, true);
     } finally {
       sBtn.disabled = false;
     }

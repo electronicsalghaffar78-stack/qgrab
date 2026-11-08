@@ -482,6 +482,33 @@ def test_widget_markup_on_main_pages():
             assert marker in html, (path, marker)
 
 
+def test_widget_portrait_chat_layout():
+    """2026-11-08 phone fixes: the panel is a fixed-height
+    portrait chat sheet (min(430px, 100vw) wide, min(80vh,
+    660px) tall), the message list is the flex-1 scroller, the
+    composer input is a real 44px-tall 16px-font field (the old
+    layout crushed it into a tiny blank box), and every bubble
+    gets dir="auto" + plaintext bidi isolation so English text
+    on an RTL page never renders reversed ("i olleH")."""
+    import re
+    client = qgrab.app.test_client()
+    html = client.get("/").get_data(as_text=True)
+    for marker in ("width:min(430px,calc(100vw - 24px))",
+                   "height:min(80vh,660px)",
+                   "unicode-bidi:plaintext",
+                   "text-align:start",
+                   "setAttribute('dir', 'auto')"):
+        assert marker in html, marker
+    m = re.search(r"\.asst-form input\{([^}]*)\}", html)
+    assert m, "composer input rule missing"
+    assert "min-height:44px" in m.group(1), m.group(1)
+    assert "font-size:16px" in m.group(1), m.group(1)
+    m = re.search(r"\.asst-msgs\{([^}]*)\}", html)
+    assert m and "flex:1" in m.group(1), m
+    m = re.search(r"\.asst-panel\{([^}]*)\}", html)
+    assert m and "flex-direction:column" in m.group(1), m
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]
