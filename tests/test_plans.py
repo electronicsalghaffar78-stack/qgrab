@@ -117,6 +117,23 @@ foot_i = html.find("<footer")
 check("#plans sits before the footer",
       bool(sec_m) and foot_i != -1 and sec_m.start() < foot_i)
 
+# ------------------------------------------------------------------
+# Specs ("QGrab at a Glance") position — 2026-11-08 removal release:
+# the owner moved the quality/specs section to sit DIRECTLY BELOW
+# the Script+Prompt section and ABOVE the Supported Platforms
+# section (it used to sit down by All Tools).
+# ------------------------------------------------------------------
+sp_i = html.find('id="script-prompt"')
+specs_i = html.find('class="specs"')
+supp_i = html.find('class="platforms"')
+check("specs section renders on the homepage", specs_i != -1)
+check("specs section sits below the Script+Prompt section",
+      sp_i != -1 and specs_i != -1 and specs_i > sp_i,
+      f"script-prompt at {sp_i}, specs at {specs_i}")
+check("specs section sits above the Supported Platforms section",
+      specs_i != -1 and supp_i != -1 and specs_i < supp_i,
+      f"specs at {specs_i}, platforms grid at {supp_i}")
+
 for frag in ("Basic", "Free", "All tools included",
              "AI features limited to 10 uses per day",
              "Free forever", "Current plan",
