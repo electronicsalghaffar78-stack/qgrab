@@ -32,7 +32,7 @@ def test_app_version_value():
     # The release this feature ships with. Bump APP_VERSION (and
     # this expectation) on every future release — see the
     # APP_VERSION comment in app.py.
-    assert qgrab.APP_VERSION == "2026-11-08.11"
+    assert qgrab.APP_VERSION == "2026-11-08.12"
 
 
 if __name__ == "__main__":

@@ -57,37 +57,12 @@
   [dir="rtl"] .hmenu{margin-left:0;margin-right:10px}
   [dir="rtl"] .hmenu-panel{right:auto;left:0;text-align:right}
 
-  /* header "Install App" button (PWA) + install guide bottom sheet.
-     The sheet replaces the old auto-vanishing hint pill: it stays
-     open until the visitor closes it, so the numbered steps can
-     actually be followed to the end (icon on the home screen). */
-  .install-btn{display:inline-flex;align-items:center;gap:7px;height:36px;
-    padding:0 14px;border-radius:999px;flex:none;cursor:pointer;margin-right:10px;
-    background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;
-    border:0;font-family:inherit;font-weight:700;font-size:.88rem;white-space:nowrap}
-  .install-btn:hover{filter:brightness(1.08)}
-  .install-btn svg{width:16px;height:16px;display:block}
-  .install-btn[hidden]{display:none}
-  [dir="rtl"] .install-btn{margin-right:0;margin-left:10px}
-  .install-backdrop{position:fixed;inset:0;z-index:70;background:rgba(6,8,12,.55);
-    display:flex;align-items:flex-end;justify-content:center}
-  .install-backdrop[hidden]{display:none}
-  .install-sheet{background:var(--card);color:var(--text);width:100%;max-width:560px;
-    max-height:86vh;overflow:auto;border:1px solid var(--line);border-bottom:0;
-    border-radius:18px 18px 0 0;box-shadow:0 -14px 36px var(--sh-strong);
-    padding:16px 20px calc(18px + env(safe-area-inset-bottom))}
-  .install-sheet-head{display:flex;align-items:center;justify-content:space-between;
-    gap:12px;margin-bottom:6px}
-  .install-sheet-title{font-weight:800;font-size:1.05rem}
-  .install-sheet-close{flex:none;width:34px;height:34px;border-radius:999px;
-    background:var(--bg2);border:1px solid var(--line);color:var(--text);
-    font-size:1.3rem;line-height:1;cursor:pointer;padding:0;font-family:inherit}
-  .install-sheet-close:hover{border-color:var(--accent)}
-  .install-steps{margin:8px 0 4px;padding-left:24px;text-align:left;line-height:1.55}
-  .install-steps li{margin:8px 0}
-  .install-steps[hidden]{display:none}
-  [dir="rtl"] .install-steps{text-align:right;padding-left:0;padding-right:24px}
-  @media (max-width:480px){ .install-btn{padding:0 10px;font-size:.8rem} }
+  /* (2026-11-08.12 — the owner's order: NO Install App button
+     in the header, and the install guide sheet that only it
+     could open is retired with it. Installing now lives only
+     in the homepage's #install section: its own button, shown
+     by the homepage script when the browser offers an install
+     prompt, plus the always-visible manual steps.) */
 
   /* RTL: keep layout intact, keep the URL field LTR */
   [dir="rtl"] .hint{text-align:right}
@@ -179,9 +154,9 @@
   /* "this takes about 2-3 minutes" toast: shown when a job
      starts, fades itself after ~5s, informational only — it
      never blocks or gates the result */
-  /* "Update App" footer button (the header twin reuses
-     .install-btn): asks /api/version and refreshes the shell
-     on demand — see _installjs.html. */
+  /* "Update App" footer button: asks /api/version and
+     refreshes the installed app's shell on demand — the logic
+     lives in _appupdatejs.html. */
   .app-update-foot{background:var(--bg2);border:1px solid var(--line);
     color:var(--text);border-radius:9px;font-weight:700;font-size:.9rem;
     padding:9px 16px;cursor:pointer;font-family:inherit}
@@ -195,9 +170,8 @@
   @keyframes sp-toast-in{from{opacity:0}to{opacity:1}}
   /* Support Assistant: floating button + chat panel
      (markup in _assistant.html, logic in _assistantjs.html).
-     z-index 40/45: above page content, below the toast (60),
-     the player modal (60) and the install backdrop (70), so
-     the widget never covers the install sheet's buttons. */
+     z-index 40/45: above page content, below the toast (60)
+     and the player modal (60). */
   .asst-fab{position:fixed;right:20px;bottom:20px;z-index:40;
     display:flex;align-items:center;gap:8px;border-radius:999px;
     padding:10px 18px 10px 14px;background:var(--card);

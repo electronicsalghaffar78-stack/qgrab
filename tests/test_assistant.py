@@ -565,7 +565,7 @@ def test_widget_markup_on_main_pages():
     for path in ("/", "/youtube-video-downloader",
                  "/video-to-script-prompt"):
         html = client.get(path).get_data(as_text=True)
-        for marker in ('id="asstBtn"', "🤖", ">Assistant<",
+        for marker in ('id="asstBtn"', "🤖", ">AI Assistant<",
                        'id="asstPanel"', "QGrab Assistant",
                        "Ask me anything about QGrab",
                        'id="asstSupportBtn"', "Talk to Support",

@@ -120,8 +120,8 @@ check("theme toggle + three-dot menu sit together in the "
       "right-corner cluster",
       _right_i != -1 and _right_i < _theme_i and _right_i < _menu_i,
       f"right {_right_i}, theme {_theme_i}, menu {_menu_i}")
-check("the Install button stays outside the right cluster",
-      -1 != hdr.find('id="installBtn"') < _right_i)
+check("header has NO Install App button (owner's order, .12)",
+      'id="installBtn"' not in hdr and "install-btn" not in hdr)
 right_m = re.search(r"\.nav-right\{([^}]*)\}", html)
 check(".nav-right is a flex cluster with a gap",
       bool(right_m) and "display:flex" in right_m.group(1)

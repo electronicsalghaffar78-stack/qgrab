@@ -1,40 +1,31 @@
-"""Tests for the PWA "Install App" header button + install guide.
+"""Tests for QGrab's install surface AFTER the owner's
+2026-11-08.12 order: NO "Install App" button in the header.
 
-Chrome/Android no longer shows an automatic install banner, so the
-header carries a visible Install App button (_installbtn.html) on
-the homepage, the platform pages and the Script+Prompt page;
-_installjs.html captures beforeinstallprompt and fires the native
-prompt from the button.
+The header used to carry a PWA Install App button
+(_installbtn.html) on the homepage, the platform pages and the
+Script+Prompt page, wired by _installjs.html, with an
+install-guide bottom sheet as the no-prompt fallback. The owner
+ordered the header button deleted outright ("khatam kar do"),
+so the button, its script and the sheet it alone could open are
+all retired. What remains, by design:
 
-Chrome withholds beforeinstallprompt from new / low-engagement
-visitors, though, and iOS never sends it — those visitors used to
-get only a how-to hint pill that vanished after ~6 s, so nobody
-could finish the steps and no QGrab icon ever reached the home
-screen. The fallback is now a proper install-guide bottom sheet:
-server-rendered numbered steps (Android and iOS variants), a
-visible close button, backdrop-tap / Escape to dismiss, and NO
-auto-hide timer. The Android steps name both menu labels —
-«Install app», falling back to «Add to Home screen» — so the flow
-truly ends with the icon on the home screen.
+  * the homepage #install SECTION keeps its own button
+    (id="installBtn", exactly one on the page) shown by the
+    homepage's inline script when the browser fires
+    beforeinstallprompt, plus the always-visible manual steps
+    (install_li1..3),
+  * the platform and tool pages carry no install button at all,
+  * the PWA manifest contract is unchanged — the installed app
+    itself is untouched; only the header entry point is gone.
 
 Covered here:
-  * install_app / install_hint_ios / install_hint_menu and the
-    seven guide keys (install_guide_close, install_step_android_1..3,
-    install_step_ios_1..3) exist, non-empty, in the raw dict of ALL
-    30 languages (no silent English fallback),
-  * the English Android steps carry the ⋮ glyph and both menu
-    labels, and the final steps promise the home-screen icon,
-  * the rendered homepage, a platform page and the tool page carry
-    the button AND the sheet markup (dialog role, close button,
-    both step lists, localised step text), the old hint pill is
-    gone, and the install script still wires beforeinstallprompt /
-    appinstalled / standalone handling with no auto-hide timer,
-  * the install script relocates the backdrop to the end of
-    <body> at init (document.body.appendChild(backdrop)): the
-    backdrop markup ships inside the sticky header, whose
-    backdrop-filter makes it the containing block for fixed
-    descendants, so without the move the sheet renders clipped
-    at the top of the viewport instead of as a bottom sheet,
+  * the homepage install-section strings (install_btn,
+    install_h2, install_p, install_li1..3) resolve non-empty in
+    all 30 languages,
+  * no page's <header> carries an install button / sheet markup;
+    the homepage carries exactly one id="installBtn" and it sits
+    inside the #install section; the other pages carry none;
+    the retired partials are gone from disk,
   * the served manifest parses and keeps display=standalone,
     start_url=/ and scope=/; every icon src answers 200 in the
     test client; the categories list is present; and the two
@@ -47,6 +38,7 @@ Run:  .venv/bin/python tests/test_install_button.py   (or pytest)
 
 import json
 import os
+import re
 import struct
 import sys
 from html import unescape
@@ -58,121 +50,70 @@ os.environ.setdefault("GEMINI_API_KEY", "test-key")
 import app as qgrab  # noqa: E402
 import i18n  # noqa: E402
 
-KEYS = ("install_app", "install_hint_ios", "install_hint_menu")
-GUIDE_KEYS = ("install_guide_close",
-              "install_step_android_1", "install_step_android_2",
-              "install_step_android_3",
-              "install_step_ios_1", "install_step_ios_2",
-              "install_step_ios_3")
+SECTION_KEYS = ("install_btn", "install_h2", "install_p",
+                "install_li1", "install_li2", "install_li3")
 PAGES = ("/", "/youtube-video-downloader", "/video-to-script-prompt")
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
 
-def _raw_dict(code):
-    return i18n.EN if code == "en" else i18n.TRANSLATIONS[code]
-
-
-def test_install_strings_all_languages():
+def test_install_section_strings_all_languages():
     assert len(i18n.LANG_CODES) == 30
     for code in i18n.LANG_CODES:
-        raw = _raw_dict(code)
-        for key in KEYS + GUIDE_KEYS:
-            assert key in raw, (code, key, "missing from language dict")
-            assert raw[key].strip(), (code, key, "empty")
         merged = i18n.get_strings(code)
-        for key in KEYS + GUIDE_KEYS:
-            assert merged[key].strip(), (code, key)
-        # step 1 renders the menu glyph as text in every language
-        assert "⋮" in raw["install_step_android_1"], code
-    print("  install + guide strings present in all 30 languages")
+        for key in SECTION_KEYS:
+            assert merged[key].strip(), (code, key, "empty")
+    print("  install-section strings resolve in all 30 languages")
 
 
-def test_guide_step_content_english():
-    en = i18n.EN
-    # Android step 2 must cover BOTH menu labels, with the fallback
-    # order, so a visitor whose menu has no «Install app» still
-    # finishes with the icon on the home screen.
-    a2 = en["install_step_android_2"]
-    assert "Install app" in a2 and "Add to Home screen" in a2, a2
-    # final steps (both platforms) end on the home screen
-    assert "home screen" in en["install_step_android_3"]
-    assert "home screen" in en["install_step_ios_3"]
-    assert "Add to Home Screen" in en["install_step_ios_2"]
-    print("  English guide steps: glyph, both labels, home-screen ending")
-
-
-def test_install_sheet_and_script_rendered():
+def test_header_has_no_install_button():
     client = qgrab.app.test_client()
     for path in PAGES:
         resp = client.get(path)
         assert resp.status_code == 200, (path, resp.status_code)
-        # unescape so dict strings with apostrophes (Jinja renders
-        # them as &#39;) compare equal to the raw i18n values
         html = unescape(resp.get_data(as_text=True))
-        # button + sheet markup ship together, on every button page
-        assert 'id="installBtn"' in html, path
-        assert 'id="installBackdrop"' in html, path
-        assert 'id="installSheet"' in html, path
-        assert 'role="dialog"' in html, path
-        assert 'id="installStepsAndroid"' in html, path
-        assert 'id="installStepsIos"' in html, path
-        # visible close button for the sheet
-        assert 'id="installSheetClose"' in html, path
-        # the old auto-vanishing hint pill is gone
-        assert 'id="installHint"' not in html, path
-        assert "install-hint" not in html, path
-        # English guide steps are rendered into the sheet
-        assert i18n.EN["install_app"] in html, path
-        assert i18n.EN["install_step_android_1"] in html, path
-        assert i18n.EN["install_step_android_2"] in html, path
-        assert i18n.EN["install_step_ios_2"] in html, path
-        assert i18n.EN["install_guide_close"] in html, path
-        # behaviour wiring is served with the page
-        assert "beforeinstallprompt" in html, path
-        assert "appinstalled" in html, path
-        assert "display-mode: standalone" in html, path
-        assert "openSheet" in html, path
-        assert "closeSheet" in html, path
-    # localised sheet follows the page language (title + steps)
-    html = unescape(client.get("/?lang=ur").get_data(as_text=True))
-    assert i18n.TRANSLATIONS["ur"]["install_app"] in html
-    assert i18n.TRANSLATIONS["ur"]["install_step_android_2"] in html
-    assert i18n.TRANSLATIONS["ur"]["install_step_ios_1"] in html
-    print("  install button + guide sheet rendered on home/platform/tool (en+ur)")
-
-
-def test_install_script_relocates_backdrop():
-    """The header's backdrop-filter traps position:fixed (see the
-    module docstring), so at init the script must move the
-    backdrop element out of the header to the end of <body> —
-    document.body.appendChild(backdrop) — before wiring events."""
-    with open(os.path.join(ROOT, "templates", "_installjs.html"),
-              encoding="utf-8") as fh:
-        js = fh.read()
-    move = "document.body.appendChild(backdrop)"
-    assert move in js, "backdrop relocation missing from install script"
-    # the move happens at init, ahead of the event wiring
-    assert js.index(move) < js.index("addEventListener"), \
-        "backdrop must be relocated before events are wired"
-    # and every page that renders the sheet serves the relocation
-    client = qgrab.app.test_client()
-    for path in PAGES:
+        hdr_m = re.search(r"<header>([\s\S]*?)</header>", html)
+        assert hdr_m, path
+        hdr = hdr_m.group(1)
+        # the owner's order: nothing install-related in the header
+        assert 'id="installBtn"' not in hdr, path
+        assert "install-btn" not in hdr, path
+        assert "installBackdrop" not in html, path
+        assert "installSheet" not in html, path
+        # right corner keeps theme toggle + three-dot menu cluster
+        assert 'class="nav-right"' in hdr, path
+        assert 'class="theme-toggle"' in hdr, path
+        assert 'id="hmenuBtn"' in hdr, path
+    # the other pages carry no install button anywhere
+    for path in PAGES[1:]:
         html = client.get(path).get_data(as_text=True)
-        assert move in html, (path, "relocation not served")
-    print("  install script relocates backdrop to end of <body> at init")
+        assert 'id="installBtn"' not in html, path
+        assert "beforeinstallprompt" not in html, path
+    print("  headers clean on home/platform/tool; no stray buttons")
 
 
-def test_no_autohide_timer_remains():
-    """The sheet must stay until closed: the install script may not
-    carry the old 6-second hint timer (or any timer) at all."""
-    with open(os.path.join(ROOT, "templates", "_installjs.html"),
-              encoding="utf-8") as fh:
-        js = fh.read()
-    assert "setTimeout" not in js
-    assert "installHint" not in js
-    assert "6000" not in js
-    assert "hintTimer" not in js
-    print("  no auto-hide timer in the install script")
+def test_homepage_install_section_button():
+    client = qgrab.app.test_client()
+    html = unescape(client.get("/").get_data(as_text=True))
+    # exactly one install button on the homepage...
+    assert html.count('id="installBtn"') == 1
+    # ...and it lives inside the #install section
+    sec_i = html.find('id="install"')
+    btn_i = html.find('id="installBtn"')
+    assert sec_i != -1 and btn_i > sec_i
+    # the homepage's own prompt wiring is still served
+    assert "beforeinstallprompt" in html
+    assert "deferredInstall" in html
+    assert "appinstalled" in html
+    # manual steps render inside the section
+    assert i18n.EN["install_li1"].split("<")[0][:20] in html
+    print("  homepage #install section: one button + prompt wiring")
+
+
+def test_retired_partials_gone():
+    for name in ("_installbtn.html", "_installjs.html"):
+        disk = os.path.join(ROOT, "templates", name)
+        assert not os.path.exists(disk), disk
+    print("  retired partials _installbtn/_installjs are gone")
 
 
 def _png_size(path):
@@ -223,16 +164,14 @@ def test_manifest_pwa_contract():
 
 
 if __name__ == "__main__":
-    test_install_strings_all_languages()
-    print("PASS install strings (30 languages)")
-    test_guide_step_content_english()
-    print("PASS guide step content")
-    test_install_sheet_and_script_rendered()
-    print("PASS install sheet rendered")
-    test_install_script_relocates_backdrop()
-    print("PASS backdrop relocation")
-    test_no_autohide_timer_remains()
-    print("PASS no auto-hide timer")
+    test_install_section_strings_all_languages()
+    print("PASS install section strings (30 languages)")
+    test_header_has_no_install_button()
+    print("PASS header has no install button")
+    test_homepage_install_section_button()
+    print("PASS homepage install section")
+    test_retired_partials_gone()
+    print("PASS retired partials gone")
     test_manifest_pwa_contract()
     print("PASS manifest PWA contract")
     print("ALL INSTALL BUTTON TESTS PASS")

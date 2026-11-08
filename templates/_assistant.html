@@ -1,9 +1,10 @@
 {# Support Assistant widget markup — the floating "🤖
-   Assistant" button and its chat panel. Included once on the
-   main pages (home, platform, script-prompt), next to the
+   AI Assistant" button and its chat panel. Included once on
+   the main pages (home, platform, script-prompt), next to the
    matching script in _assistantjs.html. The owner asked for a
-   ROBOT face and the readable word "Assistant" — never a
-   chat-dots icon — so every visitor understands what it is.
+   ROBOT face and the readable word "AI Assistant" (renamed
+   from "Assistant" 2026-11-08.12) — never a chat-dots icon —
+   so every visitor understands what it is.
    Styles live in _extras.html (.asst-*), but the composer's
    critical layout (2026-11-08.7) is INLINE on the elements:
    the site's global mobile rule .btn{width:100%} used to
@@ -16,7 +17,7 @@
         aria-haspopup="dialog" aria-expanded="false"
         aria-controls="asstPanel">
   <span class="asst-fab-emoji" aria-hidden="true">🤖</span>
-  <span class="asst-fab-label">Assistant</span>
+  <span class="asst-fab-label">AI Assistant</span>
 </button>
 <div class="asst-panel" id="asstPanel" style="display:none"
      role="dialog" aria-label="QGrab Assistant">
@@ -53,5 +54,5 @@
     <div class="asst-status" id="asstSupStatus" role="status"></div>
     <button type="button" class="asst-back" id="asstBackBtn">← Back to chat</button>
   </form>
-  <div class="asst-ver" id="asstVer">QGrab Assistant · v2026-11-08.11</div>
+  <div class="asst-ver" id="asstVer">QGrab Assistant · v2026-11-08.12</div>
 </div>

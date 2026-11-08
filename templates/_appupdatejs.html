@@ -1,10 +1,8 @@
 {# "Update App" button logic — the on-demand refresh for the
-   installed PWA. Included right after _installjs.html on every
-   page that carries the footer (home, platform, tool pages).
-   Kept OUT of _installjs.html on purpose: that file carries a
-   tested no-timers invariant (the install sheet must never
-   auto-hide), while this script's toast hides itself — the
-   site's established .sp-toast behaviour. #}
+   installed PWA, included on every page that carries the
+   footer (home, platform, tool pages). Its toast hides itself
+   after a few seconds — the site's established .sp-toast
+   behaviour. #}
 <script>
 /* --- "Update App" button (footer only — the owner's order
    2026-11-08.11 removed the header twin; the bottom copy is
