@@ -28,6 +28,7 @@ YOUTUBE-FALLBACK-REPORT.md.
 """
 
 import base64
+import hmac
 import html as _html_lib
 import json
 import mimetypes
@@ -4824,7 +4825,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-08.2"
+APP_VERSION = "2026-11-08.3"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -5139,6 +5140,445 @@ def api_ai_tools_quota():
     the cap, and "resets_at" — the next Pacific midnight as a
     UTC epoch. Reading it never generates anything."""
     return jsonify(_ai_quota_snapshot())
+
+
+# ---------------------------------------------------------------------------
+# Support Assistant: POST /api/assistant (chat) + POST
+# /api/support (Talk to Support form) + GET /api/support/inbox
+#
+# A floating "🤖 Assistant" button on the main pages opens a
+# small chat panel. Questions are answered by the SAME Gemini
+# cascade as the AI Tools (_gemini_call with the AI timeout /
+# slow-budget settings), grounded in a compact factual
+# knowledge base about QGrab (ASSISTANT_SYSTEM_PROMPT) — the
+# model answers ONLY from those facts, in the visitor's own
+# language, and may name ONE homepage section ("goto") the
+# visitor should be taken to. ONE shared daily cap for all
+# visitors, reserved on POST and refunded on failure, on the
+# same America/Los_Angeles quota day as the other counters.
+#
+# "Talk to Support" stores the visitor's email + message in
+# data/support.json (the ratings.json pattern: survives
+# restarts, NOT redeploys — the owner-side routine is a daily
+# inbox check). The only read path is GET /api/support/inbox,
+# gated by the SUPPORT_INBOX_KEY env var (endpoint disabled —
+# 404 — while the var is unset) and never linked anywhere.
+# ---------------------------------------------------------------------------
+
+ASSISTANT_DAILY_CAP = 30      # answered questions per day, all visitors
+ASSISTANT_MESSAGE_LIMIT = 500  # max characters in one question
+ASSISTANT_HISTORY_LIMIT = 6   # past turns the client may send back
+ASSISTANT_HISTORY_TEXT_LIMIT = 500  # chars kept per history turn
+
+SUPPORT_FILE = os.path.join(DATA_DIR, "support.json")
+SUPPORT_EMAIL_LIMIT = 254
+SUPPORT_MESSAGE_MIN = 10
+SUPPORT_MESSAGE_LIMIT = 2000
+SUPPORT_RATE_LIMIT = 3        # stored messages per IP ...
+SUPPORT_RATE_WINDOW = 24 * 60 * 60  # ... per rolling 24 hours
+MAX_STORED_SUPPORT = 200
+
+# The exact confirmation the visitor sees after the support
+# form is accepted (the frontend renders the server's string
+# verbatim — the wording is the owner's: no instant reply, the
+# problem is looked into first, a reply within 24–48 hours —
+# some issues take two days, and one day must never read as
+# a promise).
+SUPPORT_CONFIRMATION = (
+    "Thank you! Your message has been received. We will look "
+    "into it and reply to your email within 24–48 hours. If "
+    "it is a problem with the site, we aim to fix it within "
+    "24–48 hours — please try again after that.")
+
+# Section ids the assistant may send a visitor to — exactly the
+# ids present in templates/index.html (downloader box, Search
+# Videos, Video Toolkit, AI Tools, the Script+Prompt section
+# and Plans). A model-named target outside this list is dropped
+# to null server-side; the button never scrolls to a guess.
+ASSISTANT_GOTO_IDS = (
+    "download", "search-videos", "video-toolkit", "ai-tools",
+    "script-prompt", "plans")
+
+_ASSISTANT_LANG_RULE = (
+    "LANGUAGE: answer in the SAME language and the SAME script "
+    "as the visitor's message — an English message gets an "
+    "English answer, an Urdu-script message gets an Urdu-script "
+    "answer, a Roman Urdu message gets a Roman Urdu answer. "
+    "Never switch the answer into a different language than "
+    "the message.")
+
+ASSISTANT_SYSTEM_PROMPT = (
+    "You are the QGrab Assistant, the friendly on-site helper "
+    "of QGrab (qgrab.onrender.com), a free video downloader "
+    "website. Answer the visitor's question using ONLY the "
+    "facts below. If the facts do not cover the question, say "
+    "you don't know and suggest the Talk to Support button. "
+    "Never invent prices, features, links or policies. Keep "
+    "answers short and clear (2-5 sentences), in plain "
+    "language a beginner understands.\n\n"
+    "FACTS ABOUT QGRAB:\n"
+    "- QGrab is a free website for downloading videos: paste a "
+    "video link, pick a format, download. No account is needed "
+    "for the free tools.\n"
+    "- Downloads are supported from: YouTube, TikTok, "
+    "Facebook, Instagram, Pinterest, X (Twitter) and VK. "
+    "Threads, Vimeo, Reddit and Dailymotion are NOT supported.\n"
+    "- How to download: paste the video link into the "
+    "downloader box at the top of the homepage and press the "
+    "download button; when the formats appear, choose one "
+    "(every listed format plays with sound) and press its "
+    "Download button. MP3 audio and subtitles can also be "
+    "downloaded when offered.\n"
+    "- Private or login-only videos cannot be downloaded — "
+    "only public videos work.\n"
+    "- Search Videos: a section on the homepage with 4 tabs "
+    "(YouTube, Facebook, TikTok, Instagram). Type a video, "
+    "movie or reel name and press Search; each result has a "
+    "Watch button (plays on the site) and a Download button.\n"
+    "- Video Toolkit: a section on the homepage. Paste a video "
+    "link to see its thumbnail (with a Download Thumbnail "
+    "button), title, description, hashtags and tags, each with "
+    "copy buttons, plus a Download Video button.\n"
+    "- AI Tools: a section on the homepage with 6 free "
+    "generators — AI Title Generator, AI Tags Generator, AI "
+    "Hashtag Generator, AI Channel Name Generator, Keyword "
+    "Suggestions and AI Thumbnail Idea Generator. Together "
+    "they allow 10 uses per day in total. Answers come in the "
+    "same language you type the topic in. Keyword Suggestions "
+    "are AI ideas only, not real search-volume data. The "
+    "Thumbnail Idea Generator makes concepts (text, colours, "
+    "layout), not images.\n"
+    "- Video to Script + Prompt: a tool on the homepage (the "
+    "\"Video → Script + Prompt\" section) and on its own page. "
+    "Paste a YouTube or TikTok link and it writes the video's "
+    "script, or AI prompts to recreate it, in your language. "
+    "Free; Script and Prompts each allow 10 uses per day; a "
+    "generation takes about 2-3 minutes.\n"
+    "- Plans: Basic is free — all tools included, AI features "
+    "limited to 10 uses per day, free forever. Premium is "
+    "Coming Soon and CANNOT be bought yet — no payment is "
+    "taken anywhere on the site. When it launches, Premium "
+    "will cost $10 for the first month for new users, then "
+    "$20/month, with a 3-day free trial, everything "
+    "unlimited, cancel anytime, and a full refund if you "
+    "cancel. Premium billing, when it starts: you pay nothing "
+    "during the 3-day free trial; after the trial ends, "
+    "payment is charged automatically — $10 for the first "
+    "month, then $20 per month; cancel before the trial ends "
+    "and you pay nothing.\n"
+    "- Update App: the \"Update App\" button in the page "
+    "footer makes the installed QGrab app fetch the latest "
+    "version right away; if the app is already latest it "
+    "says so.\n"
+    "- Installing QGrab as an app: on the homepage's Install "
+    "section and the Install button — on Android/Chrome use "
+    "\"Install app\" or \"Add to Home screen\"; the installed "
+    "app opens like a normal app.\n"
+    "- Languages: the site works in 30 languages — the "
+    "language menu is at the top of the page.\n"
+    "- Reviews: visitors can rate QGrab with stars and write "
+    "a review in the Rate QGrab section on the homepage.\n"
+    "- Talk to Support: the button inside this Assistant "
+    "panel opens a form (your email and your problem). A real "
+    "person reads every message — we do NOT reply instantly; "
+    "we look into the problem first and reply to your email "
+    "within 24–48 hours. If it is a problem with the site, "
+    "we aim to fix it within 24–48 hours, so please try "
+    "again after that.\n\n"
+    "OUTPUT: answer with STRICT JSON only: {\"answer\": "
+    "\"...\", \"goto\": <section id or null>, \"support\": "
+    "<true or false>} — no markdown fences, no commentary "
+    "outside the JSON object. \"goto\" must be exactly one of "
+    "\"download\", \"search-videos\", \"video-toolkit\", "
+    "\"ai-tools\", \"script-prompt\", \"plans\" or null — use "
+    "it when taking the visitor to that part of the homepage "
+    "answers their question, otherwise null. \"support\" is "
+    "true when the visitor reports a bug or a problem with "
+    "the site that you cannot fix, otherwise false.\n\n"
+    + _ASSISTANT_LANG_RULE)
+
+_asst_daily_lock = threading.Lock()
+_asst_daily = {"date": None, "done": 0, "reserved": 0}
+
+
+def _asst_quota_rollover_locked():
+    """Reset the Assistant counter when the Pacific date rolls
+    over (the same quota day as the other counters). Caller
+    holds _asst_daily_lock."""
+    today = _sp_quota_now().date()
+    if _asst_daily["date"] != today:
+        _asst_daily["date"] = today
+        _asst_daily["done"] = 0
+        _asst_daily["reserved"] = 0
+
+
+def _asst_quota_reserve():
+    """Reserve one slot for a question that is about to run.
+    False when the day is already full (successes + in-flight
+    reservations at the cap)."""
+    with _asst_daily_lock:
+        _asst_quota_rollover_locked()
+        if _asst_daily["done"] + _asst_daily["reserved"] \
+                >= ASSISTANT_DAILY_CAP:
+            return False
+        _asst_daily["reserved"] += 1
+        return True
+
+
+def _asst_quota_settle(success):
+    """Settle a finished question's reservation: an answered
+    question becomes a counted one; a failure refunds the
+    slot."""
+    with _asst_daily_lock:
+        _asst_quota_rollover_locked()
+        _asst_daily["reserved"] = max(0, _asst_daily["reserved"] - 1)
+        if success:
+            _asst_daily["done"] += 1
+
+
+def _assistant_clean_history(history):
+    """The client's conversation tail, defensively cleaned:
+    only a list is honoured; only dict turns with role "user"
+    or "assistant" and a non-empty string text survive, each
+    trimmed to ASSISTANT_HISTORY_TEXT_LIMIT chars; at most the
+    last ASSISTANT_HISTORY_LIMIT turns are kept."""
+    if not isinstance(history, list):
+        return []
+    out = []
+    for turn in history:
+        if not isinstance(turn, dict):
+            continue
+        role = turn.get("role")
+        text = turn.get("text")
+        if role not in ("user", "assistant") \
+                or not isinstance(text, str) or not text.strip():
+            continue
+        out.append({"role": role,
+                    "text": text.strip()
+                    [:ASSISTANT_HISTORY_TEXT_LIMIT]})
+    return out[-ASSISTANT_HISTORY_LIMIT:]
+
+
+def _assistant_parse_reply(raw):
+    """The model's reply -> {"answer", "goto", "support"}.
+
+    Primary path: the strict JSON the prompt asks for; "goto"
+    is validated against ASSISTANT_GOTO_IDS (anything else
+    becomes null) and "support" counts only when it is the
+    boolean true. A reply that is not usable JSON is treated
+    as a plain-text answer (fences stripped) with goto null —
+    the visitor still gets the words the model wrote."""
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, dict) \
+            and isinstance(data.get("answer"), str) \
+            and data["answer"].strip():
+        goto = data.get("goto")
+        if goto not in ASSISTANT_GOTO_IDS:
+            goto = None
+        return {"answer": data["answer"].strip(),
+                "goto": goto,
+                "support": data.get("support") is True}
+    return {"answer": text, "goto": None, "support": False}
+
+
+def _assistant_ask(message, history):
+    """One Assistant question through the shared Gemini
+    cascade (the AI Tools timeout / slow-budget settings).
+    Returns the parsed reply dict; raises _GeminiUnavailable
+    when every (model, key) pair failed."""
+    lines = []
+    for turn in history:
+        who = "Visitor" if turn["role"] == "user" else "Assistant"
+        lines.append(f"{who}: {turn['text']}")
+    lines.append(f"Visitor (now): {message}")
+    parts = [{"text": "\n".join(lines)}]
+    raw, _model = _gemini_call(
+        parts, ASSISTANT_SYSTEM_PROMPT, AI_GEMINI_TIMEOUT,
+        slow_max_attempts=AI_SLOW_MAX_ATTEMPTS)
+    return _assistant_parse_reply(raw)
+
+
+@app.route("/api/assistant", methods=["POST"])
+def api_assistant():
+    """One Support Assistant question (synchronous). Called
+    ONLY from the floating Assistant panel — never
+    automatically. Body: {"message": <1..500 chars>,
+    "history": [{"role": "user"|"assistant", "text": ...},
+    ...] (optional, last 6 turns honoured)}. Answers:
+      200 {"ok", "answer", "goto", "support", "left", "max"}
+      400 {"error": "invalid_request"} — bad message
+      429 {"error": "daily_limit"}     — the shared day is full
+      502 {"error": "ai_unavailable"}  — the cascade failed
+      503 {"error": "not_configured"}  — no Gemini key configured
+    The daily slot is reserved before the call and refunded on
+    any failure, exactly like the AI Tools counter."""
+    data = request.get_json(silent=True) or {}
+    message = data.get("message")
+    if not isinstance(message, str) or not message.strip() \
+            or len(message.strip()) > ASSISTANT_MESSAGE_LIMIT:
+        return jsonify({"error": "invalid_request"}), 400
+    message = message.strip()
+    history = _assistant_clean_history(data.get("history"))
+    if not _gemini_api_keys():
+        return jsonify({"error": "not_configured"}), 503
+    if not _asst_quota_reserve():
+        return jsonify({"error": "daily_limit"}), 429
+    try:
+        reply = _assistant_ask(message, history)
+    except _GeminiUnavailable as e:
+        app.logger.warning("assistant gemini failed: %s", e)
+        _asst_quota_settle(False)
+        return jsonify({"error": "ai_unavailable"}), 502
+    except Exception as e:
+        app.logger.warning("assistant crashed: %s", e)
+        _asst_quota_settle(False)
+        return jsonify({"error": "ai_unavailable"}), 502
+    if not reply["answer"]:
+        app.logger.warning("assistant returned an empty answer")
+        _asst_quota_settle(False)
+        return jsonify({"error": "ai_unavailable"}), 502
+    _asst_quota_settle(True)
+    with _asst_daily_lock:
+        _asst_quota_rollover_locked()
+        left = max(0, ASSISTANT_DAILY_CAP - _asst_daily["done"]
+                   - _asst_daily["reserved"])
+    return jsonify({"ok": True, "answer": reply["answer"],
+                    "goto": reply["goto"],
+                    "support": reply["support"],
+                    "left": left, "max": ASSISTANT_DAILY_CAP})
+
+
+# ---------------------------------------------------------------------------
+# Talk to Support: stored messages + the protected inbox
+# ---------------------------------------------------------------------------
+
+_support_lock = threading.Lock()
+_support_hits = {}
+_support_hits_lock = threading.Lock()
+_SUPPORT_EMAIL_RE = re.compile(
+    r"^[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s]{2,}$")
+
+
+def _load_support():
+    try:
+        with open(SUPPORT_FILE, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, list):
+            return [m for m in data if isinstance(m, dict)
+                    and isinstance(m.get("email"), str)
+                    and isinstance(m.get("message"), str)]
+    except (OSError, ValueError):
+        pass
+    return []
+
+
+def _save_support(messages):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = SUPPORT_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(messages, fh, ensure_ascii=False)
+    os.replace(tmp, SUPPORT_FILE)
+
+
+def _support_rate_try_take(ip):
+    """Per-IP soft limit for support submissions: at most
+    SUPPORT_RATE_LIMIT stored messages per rolling 24 hours.
+    Same shape as _sp_rate_try_take (check + record in one
+    lock acquisition), with its own table so support traffic
+    never eats the generation allowance or vice versa."""
+    now = time.time()
+    with _support_hits_lock:
+        hits = [ts for ts in _support_hits.get(ip, [])
+                if now - ts < SUPPORT_RATE_WINDOW]
+        if len(hits) >= SUPPORT_RATE_LIMIT:
+            _support_hits[ip] = hits
+            return False
+        hits.append(now)
+        _support_hits[ip] = hits
+        return True
+
+
+def _support_rate_give_back(ip):
+    """Undo one hit taken by _support_rate_try_take — used
+    when the submission then fails to store, so a failed save
+    never burns the visitor's allowance."""
+    with _support_hits_lock:
+        hits = _support_hits.get(ip)
+        if hits:
+            hits.pop()
+
+
+@app.route("/api/support", methods=["POST"])
+def api_support():
+    """Store one Talk to Support message. Body: {"email",
+    "message" (10..2000 chars)}. Answers:
+      200 {"ok", "message": <the confirmation the panel shows
+           verbatim>}
+      400 {"error": "invalid_request"} — bad email / message
+      429 {"error": "rate_limited"}    — this IP already sent
+           SUPPORT_RATE_LIMIT messages in the last 24 hours
+      500 {"error": "save_failed"}     — the store write failed
+    Validation runs before the rate limit, so a rejected
+    submission never burns the visitor's allowance."""
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    message = data.get("message")
+    if not isinstance(email, str) \
+            or len(email.strip()) > SUPPORT_EMAIL_LIMIT \
+            or not _SUPPORT_EMAIL_RE.match(email.strip()) \
+            or not isinstance(message, str) \
+            or not SUPPORT_MESSAGE_MIN <= len(message.strip()) \
+            <= SUPPORT_MESSAGE_LIMIT:
+        return jsonify({"error": "invalid_request"}), 400
+    email = email.strip()
+    message = message.strip()
+    ip = _client_ip()
+    if not _support_rate_try_take(ip):
+        return jsonify({"error": "rate_limited"}), 429
+    entry = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "email": email,
+        "message": message,
+    }
+    with _support_lock:
+        messages = _load_support()
+        messages.append(entry)
+        try:
+            _save_support(messages[-MAX_STORED_SUPPORT:])
+        except OSError as e:
+            app.logger.warning("could not save support message: %s", e)
+            _support_rate_give_back(ip)
+            return jsonify({"error": "save_failed"}), 500
+    return jsonify({"ok": True, "message": SUPPORT_CONFIRMATION})
+
+
+@app.route("/api/support/inbox", methods=["GET"])
+def api_support_inbox():
+    """The owner-side read path for Talk to Support messages —
+    the ONLY way they can be read. Requires the header
+    X-Support-Key to equal the SUPPORT_INBOX_KEY env var;
+    while that var is unset the endpoint does not exist
+    (404), and a missing/wrong key is a plain 401. Success:
+    200 {"ok", "count", "messages"} newest first. The
+    endpoint is never linked from any page."""
+    expected = (os.environ.get("SUPPORT_INBOX_KEY") or "").strip()
+    if not expected:
+        return jsonify({"error": "not_found"}), 404
+    given = request.headers.get("X-Support-Key") or ""
+    if not hmac.compare_digest(given, expected):
+        return jsonify({"error": "unauthorized"}), 401
+    with _support_lock:
+        messages = _load_support()
+    messages = list(reversed(messages))
+    return jsonify({"ok": True, "count": len(messages),
+                    "messages": messages})
 
 
 # ---------------------------------------------------------------------------

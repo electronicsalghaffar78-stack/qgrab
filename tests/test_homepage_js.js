@@ -25,6 +25,11 @@
        toasts "already latest" without reloading; an older one
        records the new version, sets the just-updated flag and
        reloads
+     - assistant: the panel opens from the floating button, a
+       question renders the user + answer messages with a
+       "Take me there" goto button (whose click closes the
+       panel), and the Talk to Support form submits and shows
+       the server's confirmation
    Added in the 2026-11-04 audit round: the pre-existing suites
    covered the SP tool's JS in isolation, but nothing executed
    the downloader / menu / theme / reviews code at runtime.
@@ -222,6 +227,8 @@ async function fetchStub(url) {
   });
   if (u.includes('/api/ai-tools/quota')) return jsonResp(200, { left: 10, max: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 });
   if (u.includes('/api/ai-tools/generate')) return jsonResp(200, { ok: true, tool: 'titles', items: ['Title One', 'Title Two'], left: 9, max: 10 });
+  if (u.includes('/api/assistant')) return jsonResp(200, { ok: true, answer: 'Use the downloader box at the top of the page.', goto: 'download', support: false, left: 29, max: 30 });
+  if (u.includes('/api/support')) return jsonResp(200, { ok: true, message: 'Thank you! Your message has been received. We will look into it and reply to your email within 24–48 hours. If it is a problem with the site, we aim to fix it within 24–48 hours — please try again after that.' });
   if (u.includes('/api/version')) return jsonResp(200, { version: '2026-11-08.1' });
   if (u.includes('/api/rate')) return jsonResp(200, { ok: true, average: 5, count: 1, reviews: [] });
   if (u.includes('/api/script-prompt/quota')) return jsonResp(200, { script_left: 10, prompts_left: 10, script_max: 10, prompts_max: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 });
@@ -406,6 +413,49 @@ function check(name, fn) {
     assert.strictEqual(sessionStorage.getItem('qgrab_just_updated'), '1');
   });
   sessionStorage.removeItem('qgrab_just_updated');
+
+  /* assistant: open the panel, ask, get an answer + goto */
+  const asstPanel = document.getElementById('asstPanel');
+  document.getElementById('asstBtn').dispatch('click');
+  check('assistant panel opens on button click', () => {
+    assert.strictEqual(asstPanel.style.display, 'flex');
+    assert.strictEqual(document.getElementById('asstBtn').getAttribute('aria-expanded'), 'true');
+  });
+  document.getElementById('asstInput').value = 'How do I download a video?';
+  document.getElementById('asstForm').dispatch('submit');
+  await flush();
+  const asstMsgs = document.getElementById('asstMsgs');
+  check('assistant renders user + answer messages', () => {
+    assert.strictEqual(asstMsgs.children.length, 2);
+    assert.strictEqual(asstMsgs.children[0].textContent, 'How do I download a video?');
+    assert.strictEqual(asstMsgs.children[1].textContent, 'Use the downloader box at the top of the page.');
+    assert.strictEqual(document.getElementById('asstInput').value, '');
+  });
+  const gotoBtn = asstMsgs.children[1].children.find((c) => c.tagName === 'BUTTON');
+  check('assistant goto button appears under the answer', () => {
+    assert.ok(gotoBtn, 'goto button missing');
+    assert.strictEqual(gotoBtn.textContent, 'Take me there →');
+  });
+  gotoBtn.dispatch('click');
+  check('goto click closes the panel', () => {
+    assert.strictEqual(asstPanel.style.display, 'none');
+  });
+  /* assistant: Talk to Support form submits + confirms */
+  document.getElementById('asstBtn').dispatch('click');
+  document.getElementById('asstSupportBtn').dispatch('click');
+  check('support button switches to the support form', () => {
+    assert.strictEqual(document.getElementById('asstSupportForm').style.display, 'flex');
+    assert.strictEqual(document.getElementById('asstChatView').style.display, 'none');
+  });
+  document.getElementById('asstSupEmail').value = 'visitor@example.com';
+  document.getElementById('asstSupMsg').value = 'The download button does nothing.';
+  document.getElementById('asstSupportForm').dispatch('submit');
+  await flush();
+  check('support submit shows the server confirmation verbatim', () => {
+    assert.ok(document.getElementById('asstSupStatus').textContent
+      .startsWith('Thank you! Your message has been received.'));
+    assert.strictEqual(document.getElementById('asstSupMsg').value, '');
+  });
 
   check('SP counters rendered from quota endpoint', () => {
     assert.ok(document.getElementById('spLeftScript').textContent.includes('10'));

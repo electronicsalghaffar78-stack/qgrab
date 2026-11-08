@@ -1,0 +1,174 @@
+{# Support Assistant logic — the floating "🤖 Assistant"
+   panel: chat (POST /api/assistant) + the Talk to Support
+   form (POST /api/support). Included right after
+   _appupdatejs.html on every page that carries the widget
+   markup (_assistant.html): home, platform, script-prompt.
+   All visitor/model text is rendered with textContent only;
+   a "goto" answer renders a "Take me there →" button that
+   closes the panel and smooth-scrolls to the named section
+   (or hops to the homepage anchor when the section lives on
+   another page). No countdown anywhere — a plain "Please
+   wait" while the answer is on its way. #}
+<script>
+/* --- Support Assistant (chat + Talk to Support) --- */
+(function () {
+  var btn = document.getElementById('asstBtn');
+  var panel = document.getElementById('asstPanel');
+  if (!btn || !panel) return;
+  var closeBtn = document.getElementById('asstClose');
+  var chatView = document.getElementById('asstChatView');
+  var msgs = document.getElementById('asstMsgs');
+  var status = document.getElementById('asstStatus');
+  var form = document.getElementById('asstForm');
+  var input = document.getElementById('asstInput');
+  var sendBtn = document.getElementById('asstSend');
+  var supportBtn = document.getElementById('asstSupportBtn');
+  var supportForm = document.getElementById('asstSupportForm');
+  var supEmail = document.getElementById('asstSupEmail');
+  var supMsg = document.getElementById('asstSupMsg');
+  var supSend = document.getElementById('asstSupSend');
+  var supStatus = document.getElementById('asstSupStatus');
+  var backBtn = document.getElementById('asstBackBtn');
+
+  var history = [];   /* [{role: 'user'|'assistant', text}] */
+  var open = false;
+  var busy = false;
+
+  var ERRORS = {
+    invalid_request: 'Please type a question first.',
+    daily_limit: 'I have answered a lot of questions today — please try again tomorrow, or tap Talk to Support.',
+    ai_unavailable: 'Sorry, I could not answer just now. Please try again in a moment.',
+    not_configured: 'The assistant is not available right now. Please try Talk to Support.',
+  };
+  var SUP_ERRORS = {
+    invalid_request: 'Please enter a valid email and a message of at least 10 characters.',
+    rate_limited: 'You have already sent several messages today — please try again tomorrow.',
+    save_failed: 'Sorry, your message could not be saved. Please try again.',
+  };
+
+  function setOpen(on) {
+    open = on;
+    panel.style.display = on ? 'flex' : 'none';
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    if (on && input && input.focus) input.focus();
+  }
+  btn.addEventListener('click', function () { setOpen(!open); });
+  if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
+  document.addEventListener('keydown', function (e) {
+    if (open && e && e.key === 'Escape') setOpen(false);
+  });
+
+  function showChat() {
+    if (supportForm) supportForm.style.display = 'none';
+    if (chatView) chatView.style.display = '';
+  }
+  function showSupport() {
+    if (chatView) chatView.style.display = 'none';
+    if (supportForm) supportForm.style.display = 'flex';
+    if (supEmail && supEmail.focus) supEmail.focus();
+  }
+  if (supportBtn) supportBtn.addEventListener('click', showSupport);
+  if (backBtn) backBtn.addEventListener('click', showChat);
+
+  function addMsg(role, text) {
+    var div = document.createElement('div');
+    div.className = 'asst-msg ' + (role === 'user' ? 'me' : 'bot');
+    div.textContent = text;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+    return div;
+  }
+
+  function addGoto(gotoId, underEl) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'asst-goto';
+    b.textContent = 'Take me there →';
+    b.addEventListener('click', function () {
+      setOpen(false);
+      var target = document.getElementById(gotoId);
+      if (target && target.scrollIntoView) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        window.location.href = '/#' + gotoId;
+      }
+    });
+    underEl.appendChild(b);
+  }
+
+  if (form) form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    if (busy) return;
+    var text = (input.value || '').trim();
+    if (!text) { status.textContent = ERRORS.invalid_request; return; }
+    addMsg('user', text);
+    input.value = '';
+    busy = true;
+    if (sendBtn) sendBtn.disabled = true;
+    status.textContent = 'Please wait';
+    try {
+      var r = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          history: history.slice(-6),
+        }),
+      });
+      var data = await r.json().catch(function () { return {}; });
+      if (!r.ok || !data.ok) {
+        throw new Error(ERRORS[data.error] || ERRORS.ai_unavailable);
+      }
+      status.textContent = '';
+      var el = addMsg('assistant', data.answer || '');
+      history.push({ role: 'user', text: text });
+      history.push({ role: 'assistant', text: data.answer || '' });
+      if (history.length > 12) history = history.slice(-12);
+      if (data.goto) addGoto(data.goto, el);
+      if (data.support && supportBtn) {
+        supportBtn.classList.add('asst-attn');
+      }
+    } catch (err) {
+      status.textContent = err.message || ERRORS.ai_unavailable;
+    } finally {
+      busy = false;
+      if (sendBtn) sendBtn.disabled = false;
+    }
+  });
+
+  if (supportForm) supportForm.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    if (busy) return;
+    var email = (supEmail.value || '').trim();
+    var text = (supMsg.value || '').trim();
+    if (!email || text.length < 10) {
+      supStatus.textContent = SUP_ERRORS.invalid_request;
+      return;
+    }
+    busy = true;
+    if (supSend) supSend.disabled = true;
+    supStatus.textContent = 'Please wait';
+    try {
+      var r = await fetch('/api/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, message: text }),
+      });
+      var data = await r.json().catch(function () { return {}; });
+      if (!r.ok || !data.ok) {
+        throw new Error(SUP_ERRORS[data.error] ||
+                        'Sorry, something went wrong. Please try again.');
+      }
+      /* The server's confirmation, shown verbatim. */
+      supStatus.textContent = data.message || '';
+      supMsg.value = '';
+    } catch (err) {
+      supStatus.textContent = err.message ||
+        'Sorry, something went wrong. Please try again.';
+    } finally {
+      busy = false;
+      if (supSend) supSend.disabled = false;
+    }
+  });
+})();
+</script>
