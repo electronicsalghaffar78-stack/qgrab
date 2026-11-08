@@ -287,6 +287,20 @@
        border-radius:8px;font-size:1rem;font-weight:700;padding:6px 13px;cursor:pointer;flex:none}
   .player-frame{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden}
   .player-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  /* our own Fullscreen pill, pinned bottom-right over the video */
+  .player-fs{position:absolute;right:10px;bottom:10px;z-index:5;display:flex;align-items:center;gap:6px;
+       background:rgba(0,0,0,.72);color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:999px;
+       padding:7px 13px;font-size:.82rem;font-weight:700;line-height:1;cursor:pointer;font-family:inherit}
+  .player-fs:hover{background:rgba(0,0,0,.9)}
+  /* when the frame itself is natively fullscreen it fills the screen */
+  .player-frame:fullscreen{width:100%;height:100%;aspect-ratio:auto;border-radius:0}
+  .player-frame:-webkit-full-screen{width:100%;height:100%;aspect-ratio:auto;border-radius:0}
+  /* expanded fallback (iPhone Safari has no element fullscreen):
+     the modal takes the whole viewport and the frame stretches */
+  #playerModal.expanded{padding:0}
+  #playerModal.expanded .player-box{width:100%;height:100%;max-height:100dvh;border:0;border-radius:0;
+       display:flex;flex-direction:column}
+  #playerModal.expanded .player-frame{flex:1;aspect-ratio:auto}
 
   /* trust chips */
   .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
@@ -442,9 +456,10 @@
         <div class="ptitle" id="playerTitle"></div>
         <button type="button" id="playerClose" aria-label="Close player">&#10005;</button>
       </div>
-      <div class="player-frame"><iframe id="playerFrame" title="Video player"
-        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share"
-        allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+      <div class="player-frame" id="playerFrameWrap"><iframe id="playerFrame" title="Video player"
+        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+        allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe><button type="button"
+        id="playerFsBtn" class="player-fs" aria-label="Watch in fullscreen">&#9974; Fullscreen</button></div>
     </div>
   </div>
 
@@ -782,7 +797,10 @@ form.addEventListener('submit', async (e) => {
   const sGrid = document.getElementById('searchResults');
   const modal = document.getElementById('playerModal');
   const frame = document.getElementById('playerFrame');
+  const frameWrap = document.getElementById('playerFrameWrap');
+  const fsBtn = document.getElementById('playerFsBtn');
   const pTitle = document.getElementById('playerTitle');
+  let playerIsYouTube = false;
   if (!sForm || !sInput || !sGrid) return;
 
   /* Per-platform search state (2026-11-08 phone fix): every tab
@@ -828,9 +846,63 @@ form.addEventListener('submit', async (e) => {
   }
   function closePlayer(){
     modal.classList.remove('open');
+    modal.classList.remove('expanded');
     frame.src = '';
     pTitle.textContent = '';
+    playerIsYouTube = false;
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        const ep = document.exitFullscreen();
+        if (ep && typeof ep.catch === 'function') ep.catch(() => {});
+      }
+    } catch (e) {}
   }
+  /* Fullscreen (2026-11-08): our own pill button sits over the
+     video's bottom-right corner on every platform. A click asks
+     for native fullscreen on the frame wrapper via the standard
+     API (webkit prefix as fallback); for a YouTube embed it
+     then tries to lock the screen to landscape — Android Chrome
+     grants that inside fullscreen from a user gesture, every
+     other browser fails the call silently. iPhones cannot
+     fullscreen arbitrary elements at all, so when the API is
+     missing or rejects we fall back to the modal's "expanded"
+     mode (the player takes the whole viewport) — the button
+     toggles it back off, and Close always clears it. The
+     visitor always ends up with the biggest viewing area the
+     device allows; the button is never dead. */
+  async function togglePlayerFullscreen(){
+    if (modal.classList.contains('expanded')) {
+      modal.classList.remove('expanded');
+      return;
+    }
+    if (document.fullscreenElement) {
+      try {
+        const ep = document.exitFullscreen();
+        if (ep && typeof ep.catch === 'function') ep.catch(() => {});
+      } catch (e) {}
+      return;
+    }
+    const req = frameWrap &&
+      (frameWrap.requestFullscreen || frameWrap.webkitRequestFullscreen);
+    if (!req) { modal.classList.add('expanded'); return; }
+    try {
+      const p = req.call(frameWrap);
+      if (p && typeof p.catch === 'function') await p;
+    } catch (e) {
+      modal.classList.add('expanded');
+      return;
+    }
+    if (playerIsYouTube) {
+      try {
+        if (typeof screen !== 'undefined' && screen.orientation &&
+            screen.orientation.lock) {
+          const lp = screen.orientation.lock('landscape');
+          if (lp && typeof lp.catch === 'function') lp.catch(() => {});
+        }
+      } catch (e) {}
+    }
+  }
+  if (fsBtn) fsBtn.addEventListener('click', togglePlayerFullscreen);
   document.getElementById('playerClose').addEventListener('click', closePlayer);
   modal.addEventListener('click', (e) => { if (e.target === modal) closePlayer(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePlayer(); });
@@ -869,7 +941,9 @@ form.addEventListener('submit', async (e) => {
   }
   function openPlayer(item){
     pTitle.textContent = item.title || '';
-    frame.src = playerSrc(item);
+    const src = playerSrc(item);
+    playerIsYouTube = src.indexOf('youtube.com/embed/') !== -1;
+    frame.src = src;
     modal.classList.add('open');
   }
   function downloadViaMain(item){

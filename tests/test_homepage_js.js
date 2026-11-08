@@ -37,6 +37,12 @@
        modal with the canonical www.youtube.com embed src for
        YouTube results while a Facebook result keeps its
        official plugin embed src untouched
+     - player fullscreen: the Fullscreen pill requests native
+       fullscreen on the frame wrapper (a YouTube video also
+       tries the guarded landscape orientation lock, a TikTok
+       video does not), and when the API is missing or rejects
+       (iPhone) the modal's expanded viewport mode takes over
+       and toggles back off — the button is never dead
    Added in the 2026-11-04 audit round: the pre-existing suites
    covered the SP tool's JS in isolation, but nothing executed
    the downloader / menu / theme / reviews code at runtime.
@@ -250,6 +256,11 @@ async function fetchStub(url) {
       { id: 'fb1', title: 'FB one ' + qq, author: '', thumbnail: '', duration_h: '', views: '', published: '',
         webpage_url: 'https://www.facebook.com/watch/?v=123',
         embed_url: 'https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2Fwatch%2F%3Fv%3D123&show_text=0' },
+    ] });
+    if (plat === 'tiktok') return jsonResp(200, { ok: true, results: [
+      { id: '7300000000000000001', title: 'TT one ' + qq, author: 'dancer1', thumbnail: '', duration_h: '0:30', views: '', published: '',
+        webpage_url: 'https://www.tiktok.com/@dancer1/video/7300000000000000001',
+        embed_url: 'https://www.tiktok.com/embed/v2/7300000000000000001' },
     ] });
     return jsonResp(200, { ok: true, results: [] });
   }
@@ -520,6 +531,78 @@ function check(name, fn) {
   check('Facebook kept its own search too', () => {
     assert.strictEqual(sInputEl.value, 'dogs');
     assert.strictEqual(sGrid.children.length, 1);
+  });
+
+  /* player fullscreen: native request + YouTube landscape lock */
+  const fsBtn = document.getElementById('playerFsBtn');
+  const fsWrap = document.getElementById('playerFrameWrap');
+  check('fullscreen pill is wired in the player', () => {
+    assert.ok(fsBtn, 'fullscreen button element missing');
+    assert.ok((fsBtn.listeners.click || []).length >= 1,
+      'fullscreen button has no click handler');
+  });
+  let fsCalls = 0, lockCalls = [];
+  fsWrap.requestFullscreen = () => { fsCalls++; return Promise.resolve(); };
+  windowObj.screen = { orientation: { lock: (o) => { lockCalls.push(o); return Promise.resolve(); } } };
+  stabEls[0].dispatch('click'); /* -> youtube (its results are back) */
+  watchBtns()[0].dispatch('click');
+  fsBtn.dispatch('click');
+  await flush();
+  check('YouTube fullscreen goes native + locks landscape', () => {
+    assert.strictEqual(fsCalls, 1);
+    assert.deepStrictEqual(lockCalls, ['landscape']);
+    assert.ok(!modalEl.classList.contains('expanded'));
+  });
+  document.getElementById('playerClose').dispatch('click');
+  /* player fullscreen: TikTok goes native, NO orientation lock */
+  stabEls[2].dispatch('click'); /* -> tiktok */
+  sInputEl.value = 'dance';
+  document.getElementById('searchForm').dispatch('submit');
+  await flush();
+  check('TikTok search renders its result', () => {
+    assert.strictEqual(sGrid.children.length, 1);
+    assert.deepStrictEqual(cardTitles(), ['TT one dance']);
+  });
+  watchBtns()[0].dispatch('click');
+  check('TikTok Watch loads the embed/v2 src', () => {
+    assert.strictEqual(frameEl.src, 'https://www.tiktok.com/embed/v2/7300000000000000001');
+  });
+  fsCalls = 0; lockCalls = [];
+  fsBtn.dispatch('click');
+  await flush();
+  check('TikTok fullscreen is native only, no landscape lock', () => {
+    assert.strictEqual(fsCalls, 1);
+    assert.deepStrictEqual(lockCalls, []);
+    assert.ok(!modalEl.classList.contains('expanded'));
+  });
+  document.getElementById('playerClose').dispatch('click');
+  /* player fullscreen: a REJECTING request falls back to expanded */
+  fsWrap.requestFullscreen = () => Promise.reject(new Error('denied'));
+  watchBtns()[0].dispatch('click');
+  fsBtn.dispatch('click');
+  await flush();
+  check('rejected fullscreen falls back to expanded mode', () => {
+    assert.ok(modalEl.classList.contains('expanded'));
+  });
+  fsBtn.dispatch('click');
+  await flush();
+  check('the same button toggles expanded mode back off', () => {
+    assert.ok(!modalEl.classList.contains('expanded'));
+  });
+  document.getElementById('playerClose').dispatch('click');
+  /* player fullscreen: NO API at all (iPhone) -> expanded, and
+     closing the player clears it */
+  delete fsWrap.requestFullscreen;
+  watchBtns()[0].dispatch('click');
+  fsBtn.dispatch('click');
+  await flush();
+  check('missing fullscreen API expands the player', () => {
+    assert.ok(modalEl.classList.contains('expanded'));
+  });
+  document.getElementById('playerClose').dispatch('click');
+  check('closing the player clears expanded mode', () => {
+    assert.ok(!modalEl.classList.contains('expanded'));
+    assert.ok(!modalEl.classList.contains('open'));
   });
 
   /* assistant: open the panel, ask, get an answer + goto */

@@ -547,6 +547,44 @@ def test_player_embed_markup_and_canonical_youtube_src():
     assert "youtube-nocookie" in html  # detector for the old shape
 
 
+def test_player_fullscreen_button_and_fallback_markup():
+    """2026-11-08 player upgrade: the Watch modal carries our
+    OWN Fullscreen pill (⛶ + "Fullscreen") inside the frame
+    wrapper, the iframe allows fullscreen, and the page ships
+    the machinery behind the button — the standard request on
+    the wrapper with the webkit fallback, the guarded YouTube
+    landscape lock, and the "expanded" viewport mode iPhones
+    fall back to (Safari cannot fullscreen arbitrary elements,
+    so the button must never be dead there)."""
+    client = A.app.test_client()
+    html = client.get("/").get_data(as_text=True)
+    import re
+    m = re.search(r'<iframe id="playerFrame"[^>]*>', html)
+    assert m, "player iframe missing"
+    tag = m.group(0)
+    assert "fullscreen" in tag, tag  # allow list carries it
+    assert "allowfullscreen" in tag, tag
+    # frame wrapper + our pill inside it, readable label
+    assert 'id="playerFrameWrap"' in html
+    b = re.search(r'<button[^>]*id="playerFsBtn"[^>]*>(.*?)</button>',
+                  html, re.S)
+    assert b, "fullscreen button missing"
+    assert "Fullscreen" in b.group(0), b.group(0)
+    assert "&#9974;" in b.group(0) or "⛶" in b.group(0), b.group(0)
+    assert 'class="player-fs"' in b.group(0), b.group(0)
+    # styles: the pill, the native-fullscreen frame, expanded mode
+    assert ".player-fs{" in html
+    assert ".player-frame:fullscreen" in html
+    assert "#playerModal.expanded" in html
+    # JS: standard + webkit request, guarded landscape lock,
+    # expanded fallback toggling
+    assert "requestFullscreen" in html
+    assert "webkitRequestFullscreen" in html
+    assert "orientation.lock('landscape')" in html
+    assert "classList.add('expanded')" in html
+    assert "classList.remove('expanded')" in html
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]
