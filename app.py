@@ -5039,7 +5039,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-08.8"
+APP_VERSION = "2026-11-08.9"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -5577,6 +5577,9 @@ def api_ai_tools_thumbnail_image():
 # visitor should be taken to. ONE shared daily cap for all
 # visitors, reserved on POST and refunded on failure, on the
 # same America/Los_Angeles quota day as the other counters.
+# Exception (2026-11-08.9): a message that is ONLY a greeting
+# takes the fast-path — ASSISTANT_GREETING_REPLY, no Gemini
+# call — under the same reserve/settle cap accounting.
 #
 # "Talk to Support" stores the visitor's email + message in
 # data/support.json (the ratings.json pattern: survives
@@ -5590,6 +5593,52 @@ ASSISTANT_DAILY_CAP = 30      # answered questions per day, all visitors
 ASSISTANT_MESSAGE_LIMIT = 500  # max characters in one question
 ASSISTANT_HISTORY_LIMIT = 6   # past turns the client may send back
 ASSISTANT_HISTORY_TEXT_LIMIT = 500  # chars kept per history turn
+
+# Greeting fast-path (2026-11-08.9, owner's instruction): a
+# message that is ONLY a greeting gets an INSTANT canned reply
+# in English asking how the Assistant can help — no Gemini
+# call at all — so the visitor is invited to state their
+# problem, which then takes the normal AI path. The wording
+# is the owner's. The cap mechanics are NOT special-cased:
+# the slot is reserved before the branch and settled as a
+# success exactly like a Gemini-answered question.
+ASSISTANT_GREETING_REPLY = (
+    "Hello! How can I help you? You can ask me anything "
+    "about QGrab — how to download a video, search for "
+    "videos, or use any tool on the site.")
+
+_ASSISTANT_GREETINGS = frozenset((
+    "hello", "hi", "hii", "hiiii", "hey", "heyy", "salam",
+    "assalamualaikum", "assalamu alaikum", "aoa",
+    "good morning", "good afternoon", "good evening",
+    "yo", "hola"))
+
+# A greeting may carry ONE trailing word from this set and
+# still count as only a greeting ("hello there", "hi qgrab").
+_ASSISTANT_GREETING_TAILS = frozenset(
+    ("there", "qgrab", "assistant", "bot"))
+
+
+def _assistant_is_greeting(message):
+    """True when the message is ONLY a greeting: the greeting
+    words alone (case-insensitive; whitespace collapsed;
+    trailing punctuation such as "!" or "?" ignored),
+    optionally followed by ONE trailing word like "there" or
+    "qgrab". Anything with a real question or a problem
+    attached ("Hello, how do I download?", "hi my video is
+    not downloading") is NOT a greeting and takes the normal
+    AI path untouched."""
+    text = re.sub(r"\s+", " ", (message or "").strip().lower())
+    text = text.strip("!.?,~ ")
+    if not text:
+        return False
+    if text in _ASSISTANT_GREETINGS:
+        return True
+    for greet in _ASSISTANT_GREETINGS:
+        if text.startswith(greet + " "):
+            return text[len(greet) + 1:] \
+                in _ASSISTANT_GREETING_TAILS
+    return False
 
 SUPPORT_FILE = os.path.join(DATA_DIR, "support.json")
 SUPPORT_EMAIL_LIMIT = 254
@@ -5842,7 +5891,10 @@ def api_assistant():
       502 {"error": "ai_unavailable"}  — the cascade failed
       503 {"error": "not_configured"}  — no Gemini key configured
     The daily slot is reserved before the call and refunded on
-    any failure, exactly like the AI Tools counter."""
+    any failure, exactly like the AI Tools counter. A message
+    that is ONLY a greeting skips Gemini entirely: it returns
+    ASSISTANT_GREETING_REPLY instantly, settled as a success
+    under the same reserve/settle accounting."""
     data = request.get_json(silent=True) or {}
     message = data.get("message")
     if not isinstance(message, str) or not message.strip() \
@@ -5855,7 +5907,11 @@ def api_assistant():
     if not _asst_quota_reserve():
         return jsonify({"error": "daily_limit"}), 429
     try:
-        reply = _assistant_ask(message, history)
+        if _assistant_is_greeting(message):
+            reply = {"answer": ASSISTANT_GREETING_REPLY,
+                     "goto": None, "support": False}
+        else:
+            reply = _assistant_ask(message, history)
     except _GeminiUnavailable as e:
         app.logger.warning("assistant gemini failed: %s", e)
         _asst_quota_settle(False)

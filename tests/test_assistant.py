@@ -320,9 +320,13 @@ def test_assistant_empty_answer_refunds():
     def fake(req, timeout=None):
         return _FakeResponse("   ")
 
+    # NB: the message must NOT be a bare greeting — since
+    # 2026-11-08.9 a pure greeting ("hello?") takes the
+    # fast-path and never reaches Gemini (see the greeting
+    # tests below). This test is about an EMPTY model answer.
     with _patched(fake):
         resp = client.post("/api/assistant",
-                           json={"message": "hello?"})
+                           json={"message": "what does qgrab do?"})
     assert resp.status_code == 502, resp.status_code
     with qgrab._asst_daily_lock:
         assert qgrab._asst_daily["done"] == 0
@@ -344,6 +348,91 @@ def test_assistant_not_configured_without_key():
                 os.environ[name] = value
     assert resp.status_code == 503, resp.status_code
     assert resp.get_json()["error"] == "not_configured"
+
+
+# ----------------------------------------------------------------
+# Greeting fast-path (2026-11-08.9): a message that is ONLY a
+# greeting gets the owner's exact canned English reply
+# instantly — NO Gemini/transport call — under the SAME
+# reserve/settle cap accounting as an answered question. A
+# greeting with a real question attached takes the normal AI
+# path untouched.
+# ----------------------------------------------------------------
+
+# The owner's exact greeting wording, pinned as ONE literal.
+GREETING_REPLY = "Hello! How can I help you? You can ask me anything about QGrab — how to download a video, search for videos, or use any tool on the site."
+
+
+def test_greeting_matcher_words_and_tails():
+    for msg in ("hello", "Hello", "HELLO", "hi", "hii",
+                "hiiii", "hey", "heyy", "salam",
+                "Assalamualaikum", "assalamu alaikum", "aoa",
+                "good morning", "Good Afternoon",
+                "good evening", "yo", "hola",
+                "Hey!", "hello?", "hi.", "hello there",
+                "hi qgrab", "hey assistant", "hello bot",
+                "good morning there", "  hello  "):
+        assert qgrab._assistant_is_greeting(msg), msg
+    for msg in ("", "   ", "?", "history", "high quality",
+                "Hello, how do I download?",
+                "hi my video is not downloading",
+                "hello there friend", "hey you",
+                "good morning, how are you?",
+                "salam, ek masla hai", "how do I download?"):
+        assert not qgrab._assistant_is_greeting(msg), msg
+    assert qgrab.ASSISTANT_GREETING_REPLY == GREETING_REPLY
+
+
+def test_greeting_fastpath_exact_no_transport_cap_counts():
+    _reset_asst()
+    client = qgrab.app.test_client()
+    calls = []
+
+    def fake(req, timeout=None):
+        calls.append(1)
+        return _reply("Gemini must not be used for greetings.")
+
+    greetings = ("Hello", "hi", "Hey!", "salam",
+                 "Assalamualaikum", "hello there")
+    with _patched(fake) as patched:
+        for i, msg in enumerate(greetings):
+            resp = client.post("/api/assistant",
+                               json={"message": msg})
+            assert resp.status_code == 200, (msg, resp.status_code)
+            body = resp.get_json()
+            assert body["ok"] is True, body
+            assert body["answer"] == GREETING_REPLY, body
+            assert body["goto"] is None, body
+            assert body["support"] is False, body
+            # The cap counts a greeting exactly like one
+            # answered question: one slot per greeting.
+            assert body["left"] == 30 - (i + 1), body
+            assert body["max"] == 30, body
+    assert calls == [] and patched.bodies == [], \
+        "a greeting must never reach the Gemini transport"
+    with qgrab._asst_daily_lock:
+        assert qgrab._asst_daily["done"] == len(greetings)
+        assert qgrab._asst_daily["reserved"] == 0
+
+
+def test_greeting_with_question_uses_ai_path():
+    _reset_asst()
+    client = qgrab.app.test_client()
+
+    def fake(req, timeout=None):
+        return _reply("AI answer, not the canned greeting.")
+
+    for msg in ("Hello, how do I download a TikTok video?",
+                "hi, my download is stuck"):
+        with _patched(fake) as patched:
+            resp = client.post("/api/assistant",
+                               json={"message": msg})
+        assert resp.status_code == 200, (msg, resp.status_code)
+        body = resp.get_json()
+        assert body["answer"] == "AI answer, not the canned greeting.", body
+        assert body["answer"] != GREETING_REPLY, body
+        assert len(patched.bodies) == 1, \
+            "a greeting + question must go through Gemini"
 
 
 # ----------------------------------------------------------------
