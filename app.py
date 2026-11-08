@@ -240,6 +240,32 @@ _WINNER_TTL = 600  # seconds a winning attempt config is reused per URL
 _winner_cache = {}  # url -> (spec dict, expiry timestamp)
 _winner_lock = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# Download slots — the anti-freeze gate (2026-11-08.13)
+#
+# The site froze three times on 2026-11-08 with no crash and no
+# error in the logs: the process was alive but EVERY gunicorn
+# thread was busy. The cause is structural: this app runs ONE
+# worker with 8 threads, and a /download request holds its thread
+# for the whole job — a streaming proxy download lasts as long as
+# the visitor's connection, and a merged/MP3 download runs yt-dlp
+# plus ffmpeg *inside* the request, which can take minutes on
+# free-tier CPU. Eight people downloading at once therefore kept
+# all 8 threads, /healthz itself could not be served, and the
+# site looked dead until a manual redeploy.
+#
+# The fix: at most _HEAVY_DOWNLOAD_LIMIT downloads run at once.
+# The other threads stay free for pages, search and /healthz, so
+# the site can never be saturated by downloads alone. A download
+# that finds every slot taken waits a short while for one to free
+# up, then answers an honest 503 instead of queueing silently
+# until the visitor gives up.
+# ---------------------------------------------------------------------------
+
+_HEAVY_DOWNLOAD_LIMIT = 3
+_HEAVY_SLOT_WAIT = 20  # seconds a download may queue for a slot
+_heavy_download_slots = threading.BoundedSemaphore(_HEAVY_DOWNLOAD_LIMIT)
+
 _WEBPAGE_ERROR_HINTS = (
     "webpage", "403", "forbidden", "http error", "unable to download",
     "sign in to confirm", "not a bot", "blocked", "captcha",
@@ -5039,7 +5065,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-08.12"
+APP_VERSION = "2026-11-08.13"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -6594,6 +6620,35 @@ def _open_media_stream(media_url, headers):
 
 @app.route("/download")
 def download():
+    """The download gate (see _HEAVY_DOWNLOAD_LIMIT above): take
+    one of the few download slots, run the real handler, and hold
+    the slot until the response is fully sent — a streaming or
+    send_file response keeps working long after this function
+    returns, so the slot is released from the response's
+    on-close hook, the same pattern the merged download already
+    uses for its temp-dir cleanup."""
+    if not _heavy_download_slots.acquire(timeout=_HEAVY_SLOT_WAIT):
+        return Response(
+            "QGrab is busy with other downloads right now. "
+            "Please try again in a minute.",
+            status=503, headers={"Retry-After": "60"})
+    try:
+        resp = _download_impl()
+    except Exception:
+        _heavy_download_slots.release()
+        raise
+
+    @resp.call_on_close
+    def _release_heavy_slot():
+        try:
+            _heavy_download_slots.release()
+        except ValueError:
+            pass
+
+    return resp
+
+
+def _download_impl():
     url = clean_url(request.args.get("url", ""))
     format_id = request.args.get("format_id", "")
     if not url or not format_id:

@@ -25,18 +25,13 @@ WORKDIR /app
 # gunicorn is the production server (not in requirements.txt, which is
 # kept as the app's own dependency list).
 COPY requirements.txt ./
-RUN pip install -r requirements.txt "gunicorn==23.0.0" "pillow"
+RUN pip install -r requirements.txt "gunicorn==23.0.0"
 
 # The application itself.
 COPY app.py ./
 COPY i18n.py ./
 COPY templates ./templates
 COPY static ./static
-
-# The repo ships the logo as base64 text (the upload route is text-only);
-# generate the real logo + PNG icons from it now, before the server runs.
-COPY make_icons.py ./
-RUN python make_icons.py
 
 # Run unprivileged. Merged downloads are written to the system temp dir
 # (/tmp) by app.py and deleted after each response, so nothing else
@@ -54,4 +49,14 @@ USER appuser
 #   --timeout 600: a "merged" download runs yt-dlp + ffmpeg *inside* the
 #     request on free-tier CPU; the default 30 s worker timeout would
 #     kill it mid-merge.
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --worker-class gthread --threads 8 --timeout 600 --graceful-timeout 30 --access-logfile - app:app"]
+#   --worker-tmp-dir /dev/shm (2026-11-08.13): gunicorn's worker
+#     heartbeat files live on tmpfs, so a slow/container filesystem
+#     can never make a healthy worker look dead (a classic silent
+#     freeze on Docker/PaaS setups).
+#   --max-requests + jitter (2026-11-08.13): the single worker is
+#     gracefully recycled after ~250 requests, so any slow build-up
+#     of stuck state is cleared regularly instead of accumulating
+#     until the process jams — the pattern behind the three silent
+#     freezes of 2026-11-08 (the app-level half of that fix, the
+#     download-slot gate, lives in app.py).
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --worker-class gthread --threads 8 --timeout 600 --graceful-timeout 30 --worker-tmp-dir /dev/shm --max-requests 250 --max-requests-jitter 50 --access-logfile - app:app"]
