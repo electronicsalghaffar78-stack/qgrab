@@ -6,7 +6,9 @@
    auto-hide), while this script's toast hides itself — the
    site's established .sp-toast behaviour. #}
 <script>
-/* --- "Update App" button (footer + standalone header twin) ---
+/* --- "Update App" button (footer only — the owner's order
+   2026-11-08.11 removed the header twin; the bottom copy is
+   the one and only Update App button) ---
    The installed PWA's on-demand refresh, the owner's model: a
    user who presses Update gets today's version immediately; a
    user who never presses is never disturbed. The press fetches
@@ -29,13 +31,6 @@
    simply hides itself after a few seconds. */
 (function () {
   var footBtn = document.getElementById('appUpdateBtn');
-  var topBtn = document.getElementById('appUpdateBtnTop');
-  function isStandalone() {
-    return (window.matchMedia &&
-            window.matchMedia('(display-mode: standalone)').matches) ||
-           window.navigator.standalone === true;
-  }
-  if (topBtn && isStandalone()) topBtn.hidden = false;
 
   var toastTimer = null;
   function toastEl() {
@@ -70,7 +65,6 @@
 
   var buttons = [];
   if (footBtn) buttons.push(footBtn);
-  if (topBtn) buttons.push(topBtn);
   if (!buttons.length) return;
   var busy = false;
   function setBusy(on) {

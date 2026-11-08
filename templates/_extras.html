@@ -9,27 +9,19 @@
   .spec .sv small{font-size:.8rem}
   @media (max-width:560px){ .spec .sl{min-width:82px} .spec{padding:12px 14px} }
 
-  /* Header layout (2026-11-08.7 — the owner's placement):
-     brand group LEFT (logo + "QGrab" + the ⭐ Plans pill beside
-     the name), the "🔄 Update App" button in the CENTER slot,
-     and the day/night toggle + three-dot menu together as ONE
-     cluster in the RIGHT corner. .nav itself is defined per
-     page (a wrapping flex row, gap >= 16px); the three slots
-     are shared by every page with the full header, so they live
-     here. The center slot is empty in a normal browser (the
-     Update button renders only in standalone mode) and the row
-     still balances: brand left, controls right. */
+  /* Header layout (2026-11-08.11 — the owner's order): brand
+     group LEFT (logo + "QGrab" + the ⭐ Plans pill beside the
+     name) and the day/night toggle + three-dot menu together
+     as ONE cluster in the RIGHT corner. NO center slot and NO
+     "Update App" button in the header at all — Update App
+     lives only at the BOTTOM of the page (the footer copy).
+     .nav itself is defined per page (a wrapping flex row,
+     gap >= 16px, justify-content:space-between); the slots
+     are shared by every page with the full header, so they
+     live here. */
   .brand-side{display:flex;align-items:center;gap:14px;min-width:0;flex:none}
-  .nav-center{flex:1 1 auto;display:flex;align-items:center;
-    justify-content:center;min-width:0}
   .nav-right{display:flex;align-items:center;gap:10px;flex:none}
   .nav-right .hmenu{margin-left:0;margin-right:0}
-  @media (max-width:560px){
-    /* On a phone the center slot drops to its OWN row and
-       centers there — the Update button never squeezes the
-       brand or the right cluster, and nothing can overlap. */
-    .nav-center{order:3;flex-basis:100%}
-  }
 
   /* header controls: day/night toggle + three-dot menu (header round) */
   .hnav{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
