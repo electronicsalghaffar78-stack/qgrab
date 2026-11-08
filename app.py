@@ -5039,7 +5039,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-08.7"
+APP_VERSION = "2026-11-08.8"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -5357,6 +5357,213 @@ def api_ai_tools_quota():
 
 
 # ---------------------------------------------------------------------------
+# AI thumbnail IMAGE: POST /api/ai-tools/thumbnail-image
+#
+# The Thumbnail Idea Generator's companion endpoint: from the
+# same topic it creates ONE real thumbnail image (the concepts
+# endpoint above returns text ideas only, and the owner asked
+# for the actual picture). Same shared AI daily cap as the text
+# tools — a slot is reserved on POST and refunded on failure.
+#
+# Generation chain, each attempt bounded by
+# AI_THUMB_IMAGE_TIMEOUT:
+#   1. Gemini's image model (AI_THUMB_IMAGE_MODEL) through the
+#      existing key rotation — a dedicated call, NOT
+#      _gemini_call: that helper forces a JSON text response,
+#      while an image comes back as inlineData parts. Written
+#      to the documented generateContent shape
+#      (generationConfig.responseModalities includes "IMAGE").
+#   2. The Pollinations free image API as fallback (no key).
+# The image prompt asks for a vivid 16:9 scene with NO text in
+# the picture — AI-rendered lettering comes out garbled; the
+# concepts carry the text suggestions and the visitor adds
+# their own text with any editor. The prompt is always English,
+# whatever language the topic is typed in. Payload guard:
+# anything over ~2.5 MB is rejected, so the JSON answer stays
+# a sane size for a phone browser.
+# ---------------------------------------------------------------------------
+
+AI_THUMB_IMAGE_MODEL = "gemini-2.5-flash-image"
+AI_THUMB_IMAGE_TIMEOUT = 30        # seconds, per attempt
+AI_THUMB_IMAGE_MAX_BYTES = 2_500_000   # ~2.5 MB payload guard
+AI_THUMB_IMAGE_UA = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/124.0 Safari/537.36",
+}
+
+
+def _ai_thumbnail_prompt(topic):
+    """The image prompt for a topic: a vivid 16:9 YouTube
+    thumbnail scene, always in English, with an explicit
+    no-text instruction (the concepts carry the words)."""
+    return (
+        "A bold, vivid YouTube video thumbnail image about: "
+        + topic + ". "
+        "Wide 16:9 composition, like a dramatic movie still. "
+        "One clear main subject shown large — a person or "
+        "animal with a strong, expressive face when the topic "
+        "fits one. Bright saturated colours, high contrast, "
+        "clean uncluttered background, sharp focus, "
+        "professional thumbnail photography style. "
+        "IMPORTANT: the image must contain absolutely NO text "
+        "— no words, no letters, no numbers, no captions, no "
+        "logos and no watermarks anywhere in the image.")
+
+
+def _gemini_thumbnail_image(prompt):
+    """One image from Gemini's image model, trying each
+    configured key in rotation order. Returns (mime, bytes);
+    raises _GeminiUnavailable when every key failed or no
+    usable image came back. Each attempt is bounded by
+    AI_THUMB_IMAGE_TIMEOUT."""
+    payload = {
+        "contents": [{
+            "role": "user",
+            "parts": [{"text": prompt}],
+        }],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    last_error = None
+    for api_key in _gemini_api_keys():
+        req = urllib.request.Request(
+            GEMINI_API_URL.format(model=AI_THUMB_IMAGE_MODEL),
+            data=body, method="POST",
+            headers={"Content-Type": "application/json",
+                     "x-goog-api-key": api_key})
+        try:
+            with urllib.request.urlopen(
+                    req, timeout=AI_THUMB_IMAGE_TIMEOUT) as resp:
+                data = json.loads(
+                    resp.read().decode("utf-8", "replace"))
+        except Exception as e:  # HTTP error / timeout — next key
+            last_error = type(e).__name__
+            app.logger.warning(
+                "thumbnail image: gemini attempt failed: %s",
+                last_error)
+            continue
+        try:
+            parts = data["candidates"][0]["content"]["parts"]
+        except (KeyError, IndexError, TypeError):
+            parts = []
+        found = False
+        for part in parts if isinstance(parts, list) else []:
+            if not isinstance(part, dict):
+                continue
+            inline = part.get("inlineData") or part.get("inline_data")
+            if not isinstance(inline, dict):
+                continue
+            b64 = inline.get("data")
+            if not isinstance(b64, str) or not b64:
+                continue
+            found = True
+            # Cheap size guard before decoding: base64 runs
+            # ~4/3 of the raw size.
+            if len(b64) > AI_THUMB_IMAGE_MAX_BYTES * 4 // 3 + 1024:
+                last_error = "image too large"
+                continue
+            try:
+                raw = base64.b64decode(b64)
+            except Exception:
+                last_error = "undecodable image data"
+                continue
+            if not raw or len(raw) > AI_THUMB_IMAGE_MAX_BYTES:
+                last_error = "image too large"
+                continue
+            mime = inline.get("mimeType") or inline.get("mime_type") \
+                or "image/png"
+            if not str(mime).startswith("image/"):
+                mime = "image/png"
+            return str(mime), raw
+        if not found:
+            last_error = "no image in response"
+        app.logger.warning(
+            "thumbnail image: gemini returned no usable image (%s)",
+            last_error)
+    raise _GeminiUnavailable(str(last_error))
+
+
+def _pollinations_thumbnail_image(prompt):
+    """Fallback image from the free Pollinations API (no key).
+    Returns (mime, bytes); raises on any failure — a non-image
+    content type, an empty body or an oversized one included."""
+    url = ("https://image.pollinations.ai/prompt/"
+           + quote(prompt, safe="")
+           + "?width=1280&height=720&nologo=true")
+    req = urllib.request.Request(url, headers=AI_THUMB_IMAGE_UA)
+    with urllib.request.urlopen(
+            req, timeout=AI_THUMB_IMAGE_TIMEOUT) as resp:
+        ctype = ""
+        headers = getattr(resp, "headers", None)
+        if headers is not None:
+            ctype = headers.get("Content-Type") or ""
+        mime = ctype.split(";")[0].strip().lower()
+        if not mime.startswith("image/"):
+            raise _GeminiUnavailable(
+                f"pollinations answered {mime or 'no content type'}")
+        raw = resp.read(AI_THUMB_IMAGE_MAX_BYTES + 1)
+    if not raw or len(raw) > AI_THUMB_IMAGE_MAX_BYTES:
+        raise _GeminiUnavailable("pollinations image unusable")
+    return mime, raw
+
+
+@app.route("/api/ai-tools/thumbnail-image", methods=["POST"])
+def api_ai_tools_thumbnail_image():
+    """One REAL thumbnail image for a topic (synchronous).
+    Called ONLY from the homepage AI Tools section when the
+    Thumbnail Idea Generator is selected — in parallel with the
+    concepts generation, never automatically. Body:
+    {"input": <topic, 1..300 chars>}. Answers:
+      200 {"ok", "image": "data:<mime>;base64,...", "left",
+           "max"}
+      400 {"error": "invalid_request"} — bad input
+      429 {"error": "daily_limit"}     — the shared day is full
+      502 {"error": "ai_unavailable"}  — both generators failed
+      503 {"error": "not_configured"}  — no Gemini key configured
+    The slot comes from the SAME shared AI daily cap as the
+    text tools: reserved before generating, refunded on any
+    failure."""
+    data = request.get_json(silent=True) or {}
+    topic = data.get("input")
+    if not isinstance(topic, str) \
+            or not topic.strip() \
+            or len(topic.strip()) > AI_INPUT_LIMIT:
+        return jsonify({"error": "invalid_request"}), 400
+    topic = topic.strip()
+    if not _gemini_api_keys():
+        return jsonify({"error": "not_configured"}), 503
+    if not _ai_quota_reserve():
+        return jsonify({"error": "daily_limit"}), 429
+    prompt = _ai_thumbnail_prompt(topic)
+    image = None
+    try:
+        image = _gemini_thumbnail_image(prompt)
+    except Exception as e:
+        app.logger.warning(
+            "thumbnail image: gemini chain failed: %s", e)
+    if image is None:
+        try:
+            image = _pollinations_thumbnail_image(prompt)
+        except Exception as e:
+            app.logger.warning(
+                "thumbnail image: pollinations failed: %s", e)
+    if image is None:
+        _ai_quota_settle(False)
+        return jsonify({"error": "ai_unavailable"}), 502
+    mime, raw = image
+    _ai_quota_settle(True)
+    snap = _ai_quota_snapshot()
+    return jsonify({
+        "ok": True,
+        "image": "data:%s;base64,%s" % (
+            mime, base64.b64encode(raw).decode("ascii")),
+        "left": snap["left"], "max": snap["max"]})
+
+
+# ---------------------------------------------------------------------------
 # Support Assistant: POST /api/assistant (chat) + POST
 # /api/support (Talk to Support form) + GET /api/support/inbox
 #
@@ -5461,7 +5668,10 @@ ASSISTANT_SYSTEM_PROMPT = (
     "same language you type the topic in. Keyword Suggestions "
     "are AI ideas only, not real search-volume data. The "
     "Thumbnail Idea Generator makes concepts (text, colours, "
-    "layout), not images.\n"
+    "layout) AND creates one real thumbnail image from the "
+    "topic, shown under the ideas with a Download Thumbnail "
+    "button; the image itself carries no text — you add your "
+    "own text with any editor.\n"
     "- Video to Script + Prompt: a tool on the homepage (the "
     "\"Video → Script + Prompt\" section) and on its own page. "
     "Paste a YouTube or TikTok link and it writes the video's "

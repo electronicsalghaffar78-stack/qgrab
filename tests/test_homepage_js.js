@@ -21,6 +21,11 @@
      - ai tools: the quota note renders from /api/ai-tools/quota
        and a generation renders one row per item and updates
        the left count from /api/ai-tools/generate
+     - ai thumbnail image: with the Thumbnail tool selected, a
+       generation ALSO fires /api/ai-tools/thumbnail-image in
+       parallel; on success the real image renders under the
+       concepts with a Download Thumbnail anchor, and on
+       failure one honest line appears while the concepts stay
      - update app: a stored version equal to /api/version's
        toasts "already latest" without reloading; an older one
        records the new version, sets the just-updated flag and
@@ -216,6 +221,7 @@ function jsonResp(status, obj) {
   return { ok: status >= 200 && status < 300, status, json: async () => obj, text: async () => JSON.stringify(obj) };
 }
 let spPolls = 0;
+let thumbImgMode = 'ok';
 async function fetchStub(url) {
   const u = String(url);
   if (u.includes('/api/info')) return jsonResp(200, {
@@ -240,6 +246,10 @@ async function fetchStub(url) {
   });
   if (u.includes('/api/ai-tools/quota')) return jsonResp(200, { left: 10, max: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 });
   if (u.includes('/api/ai-tools/generate')) return jsonResp(200, { ok: true, tool: 'titles', items: ['Title One', 'Title Two'], left: 9, max: 10 });
+  if (u.includes('/api/ai-tools/thumbnail-image')) {
+    if (thumbImgMode === 'fail') return jsonResp(502, { error: 'ai_unavailable' });
+    return jsonResp(200, { ok: true, image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', left: 8, max: 10 });
+  }
   if (u.includes('/api/search')) {
     const pu = new URL(u, 'http://stub');
     const plat = pu.searchParams.get('platform') || 'youtube';
@@ -313,8 +323,22 @@ const stabEls = ['youtube', 'facebook', 'tiktok', 'instagram'].map((p) => {
   if (p === 'youtube') b.classList.add('active');
   return b;
 });
+/* AI tool buttons: same treatment — the stub DOM has no real
+   .ai-tool buttons, so hand them to the AI Tools UI through
+   querySelectorAll. */
+const aiToolEls = ['titles', 'tags', 'hashtags', 'channel_names',
+  'keywords', 'thumbnail_ideas'].map((t) => {
+  const b = new El('button');
+  b.dataset.tool = t;
+  if (t === 'titles') b.classList.add('active');
+  return b;
+});
 const realQSA = document.querySelectorAll;
-document.querySelectorAll = (sel) => (sel === '.stab' ? stabEls.slice() : realQSA(sel));
+document.querySelectorAll = (sel) => {
+  if (sel === '.stab') return stabEls.slice();
+  if (sel === '.ai-tool') return aiToolEls.slice();
+  return realQSA(sel);
+};
 windowObj.location.origin = 'https://qgrab.onrender.com';
 
 const results = [];
@@ -449,6 +473,46 @@ function check(name, fn) {
     assert.ok(document.getElementById('aiLeft').textContent.includes('9'));
     assert.strictEqual(document.getElementById('aiActions').style.display, '');
   });
+
+  /* ai thumbnail image: the Thumbnail tool ALSO creates one
+     real image, in parallel with the concepts */
+  const aiThumbBox = document.getElementById('aiThumbBox');
+  aiToolEls.find((b) => b.dataset.tool === 'thumbnail_ideas').dispatch('click');
+  check('thumbnail tool note promises a real image too', () => {
+    assert.ok(document.getElementById('aiNote').textContent
+      .includes('one real thumbnail image'),
+      document.getElementById('aiNote').textContent);
+    assert.strictEqual(aiThumbBox.style.display, 'none');
+  });
+  document.getElementById('aiInput').value = 'cat';
+  document.getElementById('aiForm').dispatch('submit');
+  await flush();
+  check('thumbnail image renders under the concepts + download anchor', () => {
+    assert.strictEqual(aiThumbBox.style.display, '');
+    const nodes = walk(aiThumbBox);
+    const img = nodes.find((n) => n.tagName === 'IMG');
+    assert.ok(img, 'an <img> rendered');
+    assert.ok(img.src.indexOf('data:image/png;base64,') === 0, img.src.slice(0, 30));
+    const dl = nodes.find((n) => n.tagName === 'A');
+    assert.ok(dl, 'a download anchor rendered');
+    assert.strictEqual(dl.textContent, 'Download Thumbnail');
+    assert.strictEqual(dl.href, img.src);
+    assert.strictEqual(dl.getAttribute('download'), 'qgrab-thumbnail.png');
+    /* the concepts flow above it is untouched */
+    assert.strictEqual(document.getElementById('aiResults').children.length, 2);
+  });
+  thumbImgMode = 'fail';
+  document.getElementById('aiForm').dispatch('submit');
+  await flush();
+  check('thumbnail image failure shows one honest line, concepts intact', () => {
+    const notes = walk(aiThumbBox).filter((n) => n.tagName === 'P');
+    assert.strictEqual(notes.length, 1);
+    assert.ok(notes[0].textContent.includes(
+      'The image could not be created right now'), notes[0].textContent);
+    assert.ok(!walk(aiThumbBox).some((n) => n.tagName === 'IMG'));
+    assert.strictEqual(document.getElementById('aiResults').children.length, 2);
+  });
+  thumbImgMode = 'ok';
 
   /* update app: stored version == server version -> toast, no reload */
   let reloads = 0;

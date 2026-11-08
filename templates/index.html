@@ -255,6 +255,11 @@
   .ai-row{display:flex;gap:10px;align-items:flex-start;background:var(--bg2);
        border:1px solid var(--line);border-radius:10px;padding:9px 12px}
   .ai-row span{flex:1;white-space:pre-wrap;word-break:break-word;font-size:.92rem;line-height:1.5}
+  .ai-thumb{margin-top:14px}
+  .ai-thumb img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;
+       border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
+  .ai-thumb-note{color:var(--muted);font-size:.9rem;margin:2px 0 0}
+  .ai-thumb-dl{margin-top:10px;text-decoration:none;font-weight:700;cursor:pointer}
 
   /* plans */
   .plans-sec{padding-top:34px}
@@ -1330,6 +1335,7 @@ form.addEventListener('submit', async (e) => {
   const aiLeft = document.getElementById('aiLeft');
   const aiActions = document.getElementById('aiActions');
   const aiCopyAll = document.getElementById('aiCopyAll');
+  const aiThumbBox = document.getElementById('aiThumbBox');
   if (!aiForm || !aiInput || !aiResults) return;
 
   const AI_META = {
@@ -1350,7 +1356,7 @@ form.addEventListener('submit', async (e) => {
       note: 'AI-generated ideas — suggestions only, not real search-volume data.'},
     thumbnail_ideas: {
       ph: 'e.g. i survived 24 hours in a haunted house',
-      note: 'AI-generated concepts — big text, colors and layout ideas. This tool creates concepts, not images.'},
+      note: 'AI-generated concepts — big text, colors and layout ideas. You also get one real thumbnail image below the ideas — add your text with any editor.'},
   };
   let aiTool = 'titles';
   let aiItems = [];
@@ -1374,6 +1380,55 @@ form.addEventListener('submit', async (e) => {
     document.querySelectorAll('.ai-tool').forEach((b) => {
       b.classList.toggle('active', b.dataset.tool === tool);
     });
+    aiThumbReset();
+  }
+
+  /* The Thumbnail tool's real image: fetched in parallel with
+     the concepts, rendered under them with a download button.
+     A failure only replaces this box's content with one honest
+     line — the concepts flow above is never touched. */
+  function aiThumbReset(){
+    if (!aiThumbBox) return;
+    aiThumbBox.innerHTML = '';
+    aiThumbBox.style.display = 'none';
+  }
+  async function aiThumbLoad(input){
+    if (!aiThumbBox) return;
+    aiThumbBox.innerHTML = '';
+    aiThumbBox.style.display = '';
+    const note = document.createElement('p');
+    note.className = 'ai-thumb-note';
+    note.textContent = 'Creating your thumbnail image…';
+    aiThumbBox.appendChild(note);
+    try {
+      const r = await fetch('/api/ai-tools/thumbnail-image', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({input: input}),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok || !data.image) throw new Error('no image');
+      aiThumbBox.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = data.image;
+      img.alt = 'AI thumbnail image';
+      aiThumbBox.appendChild(img);
+      const dl = document.createElement('a');
+      dl.className = 'tk-act ai-thumb-dl';
+      dl.textContent = 'Download Thumbnail';
+      dl.href = data.image;
+      dl.setAttribute('download',
+        data.image.indexOf('data:image/png') === 0
+          ? 'qgrab-thumbnail.png' : 'qgrab-thumbnail.jpg');
+      aiThumbBox.appendChild(dl);
+      if (typeof data.left === 'number') aiSetLeft(data.left);
+    } catch (err) {
+      aiThumbBox.innerHTML = '';
+      const fail = document.createElement('p');
+      fail.className = 'ai-thumb-note';
+      fail.textContent = 'The image could not be created right now — the ideas above still work.';
+      aiThumbBox.appendChild(fail);
+    }
   }
   document.querySelectorAll('.ai-tool').forEach((b) => {
     b.addEventListener('click', () => aiSelect(b.dataset.tool));
@@ -1455,6 +1510,10 @@ form.addEventListener('submit', async (e) => {
     if (!input) { aiShowMsg(AI_ERRORS.invalid_request, true); return; }
     aiBtn.disabled = true;
     aiShowMsg('Please wait', false);
+    /* Thumbnail tool: the real image generates in parallel —
+       it never blocks or breaks the concepts flow. */
+    aiThumbReset();
+    if (aiTool === 'thumbnail_ideas') aiThumbLoad(input);
     try {
       const r = await fetch('/api/ai-tools/generate', {
         method: 'POST',

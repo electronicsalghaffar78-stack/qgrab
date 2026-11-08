@@ -119,7 +119,9 @@ def test_knowledge_base_facts_present():
             "Video Toolkit",
             "10 uses per day",
             "not real search-volume data",
-            "concepts (text, colours, layout), not images",
+            "concepts (text, colours, layout) AND creates one "
+            "real thumbnail image",
+            "Download Thumbnail",
             "about 2-3 minutes",
             "Basic is free",
             "CANNOT be bought yet",
