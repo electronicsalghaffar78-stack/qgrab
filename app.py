@@ -5039,7 +5039,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-08.9"
+APP_VERSION = "2026-11-08.10"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -5738,7 +5738,9 @@ ASSISTANT_SYSTEM_PROMPT = (
     "during the 3-day free trial; after the trial ends, "
     "payment is charged automatically — $10 for the first "
     "month, then $20 per month; cancel before the trial ends "
-    "and you pay nothing.\n"
+    "and you pay nothing; cancel after paying and you get a "
+    "full refund — the refund will reach you within 3 "
+    "days.\n"
     "- Update App: the \"Update App\" button in the page "
     "footer makes the installed QGrab app fetch the latest "
     "version right away; if the app is already latest it "

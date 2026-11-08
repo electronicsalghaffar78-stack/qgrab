@@ -200,6 +200,24 @@ for frag in ("Basic", "Free", "All tools included",
     check(f"#plans shows {frag!r}", frag in sec)
 
 # ------------------------------------------------------------------
+# Billing-clarity note — 2026-11-08.10: the owner ordered the
+# refund-timing clause added to the note's LAST bullet ("the
+# refund will reach you within 3 days"). Only the note changes;
+# the Premium card's checkbox bullets above stay untouched.
+# ------------------------------------------------------------------
+check("billing note heading renders",
+      "How Premium billing works" in sec)
+check("billing note keeps the cancel-before-trial line",
+      "Cancel before the trial ends and you pay nothing." in sec)
+check("billing note's last bullet carries the refund timing",
+      "Cancel after paying and you get a full refund — the "
+      "refund will reach you within 3 days." in sec)
+check("billing note says 'within 3 days'", "within 3 days" in sec)
+check("old billing bullet (no refund timing) is gone",
+      "Cancel after paying and you get a full refund.</li>"
+      not in sec)
+
+# ------------------------------------------------------------------
 # Announcement-only: no forms, buttons disabled
 # ------------------------------------------------------------------
 low = sec.lower()

@@ -130,6 +130,7 @@ def test_knowledge_base_facts_present():
             "3-day free trial",
             "cancel anytime",
             "full refund if you cancel",
+            "refund will reach you within 3 days",
             "Update App",
             "30 languages",
             "rate QGrab with stars",
