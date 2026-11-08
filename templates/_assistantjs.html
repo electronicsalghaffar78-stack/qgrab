@@ -29,6 +29,8 @@
   var supSend = document.getElementById('asstSupSend');
   var supStatus = document.getElementById('asstSupStatus');
   var backBtn = document.getElementById('asstBackBtn');
+  var verEl = document.getElementById('asstVer');
+  var verFetched = false;
 
   var history = [];   /* [{role: 'user'|'assistant', text}] */
   var open = false;
@@ -51,6 +53,22 @@
     panel.style.display = on ? 'flex' : 'none';
     btn.setAttribute('aria-expanded', on ? 'true' : 'false');
     if (on && input && input.focus) input.focus();
+    if (on && !verFetched) {
+      /* Stamp the panel with the build the SERVER is running
+         (the label's static text is the fallback): a screenshot
+         of the panel then proves which release a phone holds. */
+      verFetched = true;
+      try {
+        fetch('/api/version', { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (verEl && d && d.version) {
+              verEl.textContent = 'QGrab Assistant · v' + d.version;
+            }
+          })
+          .catch(function () { /* keep the static label */ });
+      } catch (e) { /* keep the static label */ }
+    }
   }
   btn.addEventListener('click', function () { setOpen(!open); });
   if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
@@ -73,12 +91,17 @@
   function addMsg(role, text) {
     var div = document.createElement('div');
     div.className = 'asst-msg ' + (role === 'user' ? 'me' : 'bot');
-    /* Per-bubble direction: on an RTL-language page a plain
-       bubble inherits rtl and an English message can render
-       reversed ("i olleH"). dir="auto" + the plaintext bidi
-       isolation in the .asst-msg CSS lets every message use
-       the direction of its own text. */
+    /* Per-bubble direction, INLINE since 2026-11-08.7 (it was
+       stylesheet-only before, and the owner still saw reversed
+       text — "Hello" as "llo eH"): dir="auto" lets the bubble
+       take the direction of its own text, and the inline
+       unicode-bidi:plaintext + text-align:start isolate it
+       from the page's direction entirely. Inline styles cannot
+       be defeated by any stylesheet rule, and the messages
+       container itself carries inline direction:ltr. */
     div.setAttribute('dir', 'auto');
+    div.style.unicodeBidi = 'plaintext';
+    div.style.textAlign = 'start';
     div.textContent = text;
     msgs.appendChild(div);
     msgs.scrollTop = msgs.scrollHeight;

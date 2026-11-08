@@ -3062,6 +3062,220 @@ def api_search():
 
 
 # ---------------------------------------------------------------------------
+# Lazy search thumbnails: GET /api/thumb
+#
+# Search results for facebook / tiktok / instagram come from
+# web-search engines (Serper first) and carry NO thumbnail, so
+# their cards render a grey platform placeholder. This endpoint
+# resolves ONE result's thumbnail lazily, after the results are
+# already on screen — /api/search itself is untouched and stays
+# exactly as fast as it was; the cards swap the placeholder for
+# the real image when (and only when) a thumbnail arrives.
+#
+#   tiktok    -> the tikwm resolver's cover for the video (the
+#                same public API the downloader already uses)
+#   facebook  -> the video page's og:image (measured working);
+#                graph.facebook.com/<video-id>/picture only as
+#                a last ditch for id-carrying URLs — Meta
+#                currently answers it 400 without a token
+#   instagram -> the /embed/captioned/ page's og:image (then its
+#                display_url / embedded media <img>), else the
+#                post page's own og:image
+#
+# Every strategy is best-effort with a short timeout: any failure
+# answers {"ok": false} and the card keeps its placeholder.
+# Answers — hits AND misses — are cached in memory for 24 h, so
+# a result is resolved at most once a day. The page URL must
+# belong to the named platform: this resolves thumbnails for
+# our own search results, it is not a general fetcher.
+# ---------------------------------------------------------------------------
+
+THUMB_PLATFORMS = ("facebook", "tiktok", "instagram")
+_THUMB_CACHE_TTL = 86400  # seconds — 24 h, per the design
+_THUMB_TIMEOUT = 4  # seconds per fetch attempt
+_thumb_cache = {}       # "platform|url" -> (thumb or "", expiry)
+_thumb_cache_lock = threading.Lock()
+
+
+def _thumb_cache_get(key):
+    with _thumb_cache_lock:
+        hit = _thumb_cache.get(key)
+    if hit and hit[1] > time.time():
+        return hit[0]
+    return None
+
+
+def _thumb_cache_put(key, thumb):
+    with _thumb_cache_lock:
+        if len(_thumb_cache) > 512:
+            now = time.time()
+            for old in [k for k, (_t, exp) in _thumb_cache.items()
+                        if exp <= now]:
+                _thumb_cache.pop(old, None)
+        _thumb_cache[key] = (thumb, time.time() + _THUMB_CACHE_TTL)
+
+
+def _thumb_cache_clear():
+    """Drop every cached thumbnail (tests / maintenance)."""
+    with _thumb_cache_lock:
+        _thumb_cache.clear()
+
+
+def _thumb_host_ok(platform, url):
+    """The page URL must really belong to the named platform."""
+    host = (urlparse(url or "").hostname or "").lower()
+    if platform == "facebook":
+        return (host == "fb.watch" or host == "facebook.com"
+                or host.endswith(".facebook.com"))
+    if platform == "tiktok":
+        return host == "tiktok.com" or host.endswith(".tiktok.com")
+    if platform == "instagram":
+        return (host == "instagram.com"
+                or host.endswith(".instagram.com"))
+    return False
+
+
+_OG_IMAGE_RES = (
+    re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+'
+               r'content=["\']([^"\']+)["\']', re.I),
+    re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+'
+               r'property=["\']og:image["\']', re.I),
+)
+
+
+def _extract_og_image(html_text):
+    """A page's og:image URL (HTML-unescaped), or ""."""
+    for rx in _OG_IMAGE_RES:
+        m = rx.search(html_text or "")
+        if m:
+            return _html_lib.unescape(m.group(1)).strip()
+    return ""
+
+
+def _thumb_tiktok(url):
+    """tikwm resolver cover for this video (the same public API
+    as the downloader's TikTok fallback)."""
+    api_url = (TIKWM_API_URL + "?url=" + quote(url, safe="")
+               + "&hd=1")
+    data = _http_get_json(api_url, timeout=_THUMB_TIMEOUT)
+    if isinstance(data, dict) and data.get("code") == 0:
+        payload = data.get("data") or {}
+        return (payload.get("cover") or payload.get("origin_cover")
+                or "")
+    return ""
+
+
+def _fb_video_id(url):
+    """A numeric Facebook video id from the URL, when it carries
+    one: /<page>/videos/<slug>/<id>/ (the shape real search
+    results actually have), /videos/<id>/, /reel/<id>/,
+    ?v=<id>, story_fbid, fbid."""
+    parsed = urlparse(url or "")
+    m = re.search(r"/(?:videos|reel|watch)/(?:[^/]+/)?(\d{5,})"
+                  r"(?:/|$)", parsed.path or "")
+    if m:
+        return m.group(1)
+    qs = parse_qs(parsed.query or "")
+    for key in ("v", "story_fbid", "fbid"):
+        for value in qs.get(key) or []:
+            if value.isdigit() and len(value) >= 5:
+                return value
+    return ""
+
+
+def _thumb_facebook(url):
+    # og:image FIRST — measured live on 2026-11-08 against real
+    # search-result URLs: the video page's og:image resolves
+    # fine from this egress (a real fbcdn thumbnail), while
+    # graph.facebook.com/<id>/picture answered HTTP 400 for
+    # every sampled real id (Meta now wants a token there).
+    try:
+        thumb = _extract_og_image(
+            _http_get_text(url, timeout=_THUMB_TIMEOUT))
+    except Exception:
+        thumb = ""
+    if thumb:
+        return thumb
+    # Last ditch for id-carrying URLs whose page gave nothing
+    # (e.g. login-walled): the graph picture URL. If Meta
+    # refuses it too, the card's <img> errors and the visitor
+    # simply keeps the placeholder.
+    vid = _fb_video_id(url)
+    if vid:
+        return f"https://graph.facebook.com/{vid}/picture"
+    return ""
+
+
+_IG_CODE_RE = re.compile(r"/(?:p|reel|reels)/([A-Za-z0-9_-]{5,})")
+
+
+def _thumb_instagram(url):
+    m = _IG_CODE_RE.search(url or "")
+    if m:
+        kind = "reel" if "/reel" in url else "p"
+        embed_url = (f"https://www.instagram.com/{kind}/"
+                     f"{m.group(1)}/embed/captioned/")
+        try:
+            html_text = _http_get_text(embed_url,
+                                       timeout=_THUMB_TIMEOUT)
+        except Exception:
+            html_text = ""
+        thumb = _extract_og_image(html_text)
+        if thumb:
+            return thumb
+        # The embed page also carries the media as JSON / an <img>.
+        dm = re.search(r'"display_url"\s*:\s*"([^"]+)"', html_text)
+        if dm:
+            return dm.group(1).replace("\\/", "/")
+        im = re.search(
+            r'<img[^>]+class="[^"]*EmbeddedMediaImage[^"]*"'
+            r'[^>]+src="([^"]+)"', html_text)
+        if im:
+            return _html_lib.unescape(im.group(1))
+    # Last resort: the post page's own og:image (often login-
+    # walled from datacenter IPs — a miss keeps the placeholder).
+    return _extract_og_image(
+        _http_get_text(url, timeout=_THUMB_TIMEOUT))
+
+
+_THUMB_RESOLVERS = {
+    "facebook": _thumb_facebook,
+    "tiktok": _thumb_tiktok,
+    "instagram": _thumb_instagram,
+}
+
+
+@app.route("/api/thumb", methods=["GET"])
+def api_thumb():
+    """Resolve one search result's thumbnail, lazily. Always
+    answers JSON — {"ok": true, "thumb": url} or {"ok": false};
+    a miss is a normal outcome (the card keeps its placeholder),
+    never an error page, and the endpoint never hangs: every
+    fetch behind it carries the short _THUMB_TIMEOUT."""
+    platform = (request.args.get("platform") or "").strip().lower()
+    url = (request.args.get("url") or "").strip()
+    if platform not in THUMB_PLATFORMS or not url \
+            or len(url) > 2000 or not _thumb_host_ok(platform, url):
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
+    key = platform + "|" + url
+    cached = _thumb_cache_get(key)
+    if cached is not None:
+        if cached:
+            return jsonify({"ok": True, "thumb": cached})
+        return jsonify({"ok": False})
+    try:
+        thumb = _THUMB_RESOLVERS[platform](url) or ""
+    except Exception as e:
+        app.logger.info("thumb resolve failed for %s %s: %s",
+                        platform, url, e)
+        thumb = ""
+    _thumb_cache_put(key, thumb)
+    if thumb:
+        return jsonify({"ok": True, "thumb": thumb})
+    return jsonify({"ok": False})
+
+
+# ---------------------------------------------------------------------------
 # Video Toolkit: /api/video-details
 #
 # The Toolkit section (homepage) pastes a video page URL and shows
@@ -4825,7 +5039,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-08.6"
+APP_VERSION = "2026-11-08.7"
 
 
 @app.route("/api/version", methods=["GET"])

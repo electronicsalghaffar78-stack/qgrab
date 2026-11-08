@@ -174,7 +174,12 @@
          display:flex;flex-direction:column;box-shadow:0 8px 22px var(--sh-soft)}
   .scard .sthumb{width:100%;aspect-ratio:16/9;object-fit:cover;background:#000;display:block}
   .scard .sph{width:100%;aspect-ratio:16/9;background:var(--bg2);color:var(--faint);
-       display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem;letter-spacing:.5px}
+       display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem;letter-spacing:.5px;
+       position:relative;overflow:hidden}
+  /* a lazily resolved thumbnail (via /api/thumb) fills the
+     placeholder box exactly; if the image itself fails, it is
+     removed and the platform-name placeholder shows again */
+  .scard .sph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
   .scard .sbody{padding:11px 12px;display:flex;flex-direction:column;gap:5px;flex:1}
   .scard .stitle{font-size:.92rem;font-weight:700;line-height:1.35;
        display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -395,9 +400,14 @@
       <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
       <a class="plans-link" href="#plans">⭐ Plans</a>
     </div>
+    <div class="nav-center">
+      {% include "_updatebtn.html" %}
+    </div>
     <nav class="hnav">
       {% include "_installbtn.html" %}
-      {% include "_langmenu.html" %}
+      <div class="nav-right">
+        {% include "_langmenu.html" %}
+      </div>
     </nav>
   </div>
 </header>
@@ -959,7 +969,45 @@ form.addEventListener('submit', async (e) => {
     else grabForm.dispatchEvent(new Event('submit', {cancelable:true}));
   }
 
+  /* Lazy thumbnails for the engine-fed platforms (Facebook,
+     TikTok, Instagram): their search results carry no thumbnail,
+     so the card starts with the platform placeholder and asks
+     /api/thumb for the real image once the card is on (or near)
+     the screen. The search itself is untouched — results render
+     exactly as fast as before and images fill in progressively.
+     A miss or a broken image simply keeps the placeholder. */
+  function lazyThumb(ph, platform, pageUrl){
+    let done = false;
+    const swap = () => {
+      if (done) return;
+      done = true;
+      fetch('/api/thumb?platform=' + encodeURIComponent(platform) +
+            '&url=' + encodeURIComponent(pageUrl))
+        .then((r) => r.json())
+        .then((d) => {
+          if (!d || !d.ok || !d.thumb) return;
+          const img = document.createElement('img');
+          img.alt = '';
+          img.src = d.thumb;
+          img.addEventListener('error', () => img.remove());
+          ph.appendChild(img);
+        })
+        .catch(() => { /* a failed lookup keeps the placeholder */ });
+    };
+    if (typeof IntersectionObserver !== 'undefined') {
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) { io.disconnect(); swap(); }
+        }
+      }, { rootMargin: '240px' });
+      io.observe(ph);
+    } else {
+      swap();
+    }
+  }
+
   function renderResults(items){
+    const platform = sPlatform;
     sGrid.innerHTML = '';
     for (const item of items) {
       const card = document.createElement('div');
@@ -975,8 +1023,11 @@ form.addEventListener('submit', async (e) => {
       } else {
         const ph = document.createElement('div');
         ph.className = 'sph';
-        ph.textContent = PLAT_NAMES[sPlatform];
+        ph.textContent = PLAT_NAMES[platform];
         card.appendChild(ph);
+        if (platform !== 'youtube' && item.webpage_url) {
+          lazyThumb(ph, platform, item.webpage_url);
+        }
       }
       const body = document.createElement('div');
       body.className = 'sbody';

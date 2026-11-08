@@ -126,10 +126,17 @@
 
 <header>
   <div class="wrap nav">
-    <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
+    <div class="brand-side">
+      <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
+    </div>
+    <div class="nav-center">
+      {% include "_updatebtn.html" %}
+    </div>
     <nav class="hnav">
       {% include "_installbtn.html" %}
-      {% include "_langmenu.html" %}
+      <div class="nav-right">
+        {% include "_langmenu.html" %}
+      </div>
     </nav>
   </div>
 </header>

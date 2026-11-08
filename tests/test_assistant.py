@@ -478,8 +478,32 @@ def test_widget_markup_on_main_pages():
                        "Ask me anything about QGrab",
                        'id="asstSupportBtn"', "Talk to Support",
                        'id="asstSupportForm"', "/api/assistant",
-                       "/api/support"):
+                       "/api/support", 'id="asstVer"',
+                       "QGrab Assistant · v"):
             assert marker in html, (path, marker)
+
+
+def test_support_button_lives_in_panel_header():
+    """2026-11-08.7 (owner's placement): "Talk to Support" is
+    a compact pill in the panel HEADER — beside the title,
+    before the close button — not a big button at the bottom
+    of the chat view. Exactly one such button exists."""
+    import re
+    client = qgrab.app.test_client()
+    html = client.get("/").get_data(as_text=True)
+    assert html.count('id="asstSupportBtn"') == 1
+    head_end = html.find('id="asstChatView"')
+    btn_i = html.find('id="asstSupportBtn"')
+    close_i = html.find('id="asstClose"')
+    title_i = html.find("asst-title")
+    assert title_i != -1 and title_i < btn_i < head_end, \
+        "support pill must sit in the header, before the chat view"
+    assert btn_i < close_i < head_end, \
+        "order in the header: title, support pill, close"
+    m = re.search(r"\.asst-support-btn\{([^}]*)\}", html)
+    assert m and "border-radius:999px" in m.group(1), m
+    m = re.search(r"\.asst-head-actions\{([^}]*)\}", html)
+    assert m and "display:flex" in m.group(1), m
 
 
 def test_widget_portrait_chat_layout():
@@ -507,6 +531,63 @@ def test_widget_portrait_chat_layout():
     assert m and "flex:1" in m.group(1), m
     m = re.search(r"\.asst-panel\{([^}]*)\}", html)
     assert m and "flex-direction:column" in m.group(1), m
+
+
+def test_widget_composer_inline_hardening():
+    """2026-11-08.7: the .4 portrait fix (stylesheet flex rules)
+    never took effect on the owner's phone. Root cause: the
+    pages' global mobile rule @media (max-width:560px)
+    .btn{width:100%} — written for the hero grab buttons — also
+    matches the composer's Send button; .asst-form .btn set
+    flex:none but never width, so on phones Send took 100% as
+    its flex base and the flex:1 input was crushed to a sliver,
+    while every desktop/stub check stayed green. The critical
+    layout is now INLINE on the elements, where no stylesheet
+    can defeat it, and the bubbles + version label follow the
+    same belt-and-braces pattern."""
+    import re
+    client = qgrab.app.test_client()
+    html = client.get("/").get_data(as_text=True)
+    # The composer form is a flex row, inline.
+    m = re.search(r'<form class="asst-form" id="asstForm" '
+                  r'style="([^"]*)"', html)
+    assert m, "composer form inline style missing"
+    assert "display:flex" in m.group(1) and "gap:8px" in m.group(1), \
+        m.group(1)
+    # The input: wide, visible, dir=auto — all inline.
+    m = re.search(r'<input id="asstInput"[^>]*>', html)
+    assert m, "composer input missing"
+    tag = m.group(0)
+    assert 'dir="auto"' in tag, tag
+    for frag in ("flex:1 1 auto", "min-width:0", "width:auto",
+                 "min-height:44px", "font-size:16px",
+                 "color:var(--text)", "background:var(--bg2)"):
+        assert frag in tag, (frag, tag)
+    # The Send button: SMALL — flex:none + width:auto, inline,
+    # so the global .btn{width:100%} mobile rule cannot balloon
+    # it ever again.
+    m = re.search(r'<button class="btn asst-send" id="asstSend"'
+                  r'[^>]*>', html)
+    assert m, "send button missing"
+    tag = m.group(0)
+    for frag in ("flex:0 0 auto", "width:auto", "padding:0 14px"):
+        assert frag in tag, (frag, tag)
+    # Stylesheet second layer: .asst-form .btn now sets width too.
+    m = re.search(r"\.asst-form \.btn\{([^}]*)\}", html)
+    assert m and "width:auto" in m.group(1), m
+    # The messages column is an LTR island, inline.
+    assert '<div class="asst-msgs" id="asstMsgs" ' \
+           'style="direction:ltr">' in html
+    # Bubbles: dir="auto" (pinned in the layout test above) AND
+    # inline bidi isolation set from JS.
+    assert "div.style.unicodeBidi = 'plaintext'" in html
+    assert "div.style.textAlign = 'start'" in html
+    # Version label: static fallback text + a live /api/version
+    # refresh wired into the panel-open path.
+    assert "QGrab Assistant · v" + qgrab.APP_VERSION in html
+    assert "'QGrab Assistant · v' + d.version" in html
+    m = re.search(r"\.asst-ver\{([^}]*)\}", html)
+    assert m and "font-size:.72rem" in m.group(1), m
 
 
 if __name__ == "__main__":

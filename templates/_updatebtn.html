@@ -1,0 +1,9 @@
+{# "Update App" header button — lives in the header's CENTER
+   slot (.nav-center, see the page headers). Hidden in a normal
+   browser; _appupdatejs.html unhides it when the app runs
+   standalone (exactly when the Install button hides itself),
+   so an installed user can pull the latest version from the
+   top of the page. The footer carries the always-visible copy.
+   Kept in its own partial since the 2026-11-08.7 header
+   layout: brand left, Update App center, theme + menu right. #}
+<button type="button" class="install-btn" id="appUpdateBtnTop" hidden><span>🔄 Update App</span></button>

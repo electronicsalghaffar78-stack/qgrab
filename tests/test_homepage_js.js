@@ -264,6 +264,13 @@ async function fetchStub(url) {
     ] });
     return jsonResp(200, { ok: true, results: [] });
   }
+  if (u.includes('/api/thumb')) {
+    const tu = new URL(u, 'http://stub');
+    const tp = tu.searchParams.get('platform') || '';
+    if (tp === 'facebook') return jsonResp(200, { ok: true, thumb: 'https://img.example/fb-thumb.jpg' });
+    if (tp === 'tiktok') return jsonResp(200, { ok: true, thumb: 'https://img.example/tt-thumb.jpg' });
+    return jsonResp(200, { ok: false });
+  }
   if (u.includes('/api/assistant')) return jsonResp(200, { ok: true, answer: 'Use the downloader box at the top of the page.', goto: 'download', support: false, left: 29, max: 30 });
   if (u.includes('/api/support')) return jsonResp(200, { ok: true, message: 'Thank you! Your message has been received. We will look into it and reply to your email within 24–48 hours. If it is a problem with the site, we aim to fix it within 24–48 hours — please try again after that.' });
   if (u.includes('/api/version')) return jsonResp(200, { version: '2026-11-08.1' });
@@ -504,6 +511,13 @@ function check(name, fn) {
     assert.strictEqual(sGrid.children.length, 1);
     assert.deepStrictEqual(cardTitles(), ['FB one dogs']);
   });
+  await flush();
+  check('Facebook card lazily swaps in its real thumbnail', () => {
+    const imgs = walk(sGrid).filter((n) => n.tagName === 'IMG');
+    assert.strictEqual(imgs.length, 1);
+    assert.strictEqual(imgs[0].src, 'https://img.example/fb-thumb.jpg');
+    assert.strictEqual(imgs[0].parent.className, 'sph');
+  });
   watchBtns()[0].dispatch('click');
   check('Facebook Watch keeps the official plugin embed untouched', () => {
     assert.strictEqual(frameEl.src,
@@ -563,6 +577,13 @@ function check(name, fn) {
     assert.strictEqual(sGrid.children.length, 1);
     assert.deepStrictEqual(cardTitles(), ['TT one dance']);
   });
+  await flush();
+  check('TikTok card lazily swaps in its real thumbnail', () => {
+    const imgs = walk(sGrid).filter((n) => n.tagName === 'IMG');
+    assert.strictEqual(imgs.length, 1);
+    assert.strictEqual(imgs[0].src, 'https://img.example/tt-thumb.jpg');
+    assert.strictEqual(imgs[0].parent.className, 'sph');
+  });
   watchBtns()[0].dispatch('click');
   check('TikTok Watch loads the embed/v2 src', () => {
     assert.strictEqual(frameEl.src, 'https://www.tiktok.com/embed/v2/7300000000000000001');
@@ -612,6 +633,11 @@ function check(name, fn) {
     assert.strictEqual(asstPanel.style.display, 'flex');
     assert.strictEqual(document.getElementById('asstBtn').getAttribute('aria-expanded'), 'true');
   });
+  await flush();
+  check('assistant version label shows the served build', () => {
+    assert.strictEqual(document.getElementById('asstVer').textContent,
+      'QGrab Assistant · v2026-11-08.1');
+  });
   document.getElementById('asstInput').value = 'How do I download a video?';
   document.getElementById('asstForm').dispatch('submit');
   await flush();
@@ -625,6 +651,12 @@ function check(name, fn) {
   check('assistant bubbles carry dir=auto (text never reversed)', () => {
     assert.strictEqual(asstMsgs.children[0].getAttribute('dir'), 'auto');
     assert.strictEqual(asstMsgs.children[1].getAttribute('dir'), 'auto');
+  });
+  check('assistant bubbles carry INLINE bidi isolation', () => {
+    assert.strictEqual(asstMsgs.children[0].style.unicodeBidi, 'plaintext');
+    assert.strictEqual(asstMsgs.children[0].style.textAlign, 'start');
+    assert.strictEqual(asstMsgs.children[1].style.unicodeBidi, 'plaintext');
+    assert.strictEqual(asstMsgs.children[1].style.textAlign, 'start');
   });
   const gotoBtn = asstMsgs.children[1].children.find((c) => c.tagName === 'BUTTON');
   check('assistant goto button appears under the answer', () => {

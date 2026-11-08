@@ -90,6 +90,62 @@ check("Plans pill can never be squeezed (flex:none)",
       bool(pill_m) and "flex:none" in pill_m.group(1))
 
 # ------------------------------------------------------------------
+# Header layout (2026-11-08.7 — the owner's exact placement):
+# brand group LEFT (logo + Plans pill), the "Update App" button
+# in a CENTER slot of its own, and the day/night toggle + the
+# three-dot menu together as one cluster in the RIGHT corner.
+# ------------------------------------------------------------------
+_brand_i = hdr.find('class="brand-side"')
+_center_i = hdr.find('class="nav-center"')
+_hnav_i = hdr.find('class="hnav"')
+_right_i = hdr.find('class="nav-right"')
+_update_i = hdr.find('id="appUpdateBtnTop"')
+_theme_i = hdr.find('class="theme-toggle"')
+_menu_i = hdr.find('id="hmenuBtn"')
+check("header has the three slots: brand, center, controls",
+      -1 not in (_brand_i, _center_i, _hnav_i), hdr[:200])
+check("brand group comes first (left)",
+      _brand_i != -1 and _brand_i < _center_i and _brand_i < _hnav_i)
+check("Update App button lives in the CENTER slot",
+      _center_i != -1 and _center_i < _update_i < _hnav_i,
+      f"center {_center_i}, update {_update_i}, hnav {_hnav_i}")
+check("right-corner cluster exists inside the controls group",
+      _hnav_i != -1 and _hnav_i < _right_i)
+check("theme toggle + three-dot menu sit together in the "
+      "right-corner cluster",
+      _right_i != -1 and _right_i < _theme_i and _right_i < _menu_i,
+      f"right {_right_i}, theme {_theme_i}, menu {_menu_i}")
+check("the Install button stays outside the right cluster "
+      "(it swaps with the centered Update App by mode)",
+      -1 != hdr.find('id="installBtn"') < _right_i)
+center_m = re.search(r"\.nav-center\{([^}]*)\}", html)
+check(".nav-center centers its content",
+      bool(center_m) and "justify-content:center"
+      in center_m.group(1), center_m.group(1) if center_m else "")
+right_m = re.search(r"\.nav-right\{([^}]*)\}", html)
+check(".nav-right is a flex cluster with a gap",
+      bool(right_m) and "display:flex" in right_m.group(1)
+      and "gap:" in right_m.group(1),
+      right_m.group(1) if right_m else "")
+_navc_rule_i = html.find(".nav-center{order:3;flex-basis:100%}")
+check("on phones the center slot takes its own centered row",
+      _navc_rule_i != -1
+      and "@media (max-width:560px)" in html[:_navc_rule_i])
+# The same three-slot structure carries to the other pages
+# with the full header (platform + script-prompt pages).
+for path in ("/youtube-video-downloader", "/video-to-script-prompt"):
+    phtml = client.get(path).get_data(as_text=True)
+    phdr_m = re.search(r"<header>([\s\S]*?)</header>", phtml)
+    phdr = phdr_m.group(1) if phdr_m else ""
+    check(f"{path}: header carries center slot + right cluster",
+          'class="nav-center"' in phdr
+          and 'id="appUpdateBtnTop"' in phdr
+          and 'class="nav-right"' in phdr
+          and phdr.find('class="nav-center"')
+          < phdr.find('id="appUpdateBtnTop"')
+          < phdr.find('class="nav-right"'))
+
+# ------------------------------------------------------------------
 # #plans section + cards
 # ------------------------------------------------------------------
 sec_m = re.search(r'<section id="plans"[^>]*>([\s\S]*?)</section>', html)
