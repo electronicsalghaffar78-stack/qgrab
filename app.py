@@ -3399,20 +3399,41 @@ def dmca():
     return render_template("dmca.html")
 
 
-@app.route("/telegram-proxies")
-def telegram_proxies():
-    """Telegram Proxies page (2026-11-16 round 3). The list is
-    baked from data/proxies.json — REAL MTProto proxies fetched
-    from public lists at build time (see data/PROXIES-SOURCE-
-    NOTE.md); nothing is invented and nothing is fetched live,
-    so the page can never serve a made-up server or secret."""
-    proxies, updated = [], ""
-    try:
-        path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "data", "proxies.json")
-        with open(path, encoding="utf-8") as fh:
-            raw = json.load(fh)
+# Candidate files for the Telegram proxy list, in priority order.
+# (1) data/proxies.json — the runtime data folder; a refreshed
+# list dropped in there always wins. (2) bundled_data/proxies.json
+# and (3) static/bundled/proxies.json — exact copies of the same
+# snapshot shipped WITH the code (release 2026-11-16.21). The
+# fallbacks exist because data/ is git-ignored runtime state and
+# the production Dockerfile creates an empty /app/data without
+# copying data/ into the image: with only (1), the live page
+# served an empty list even though the snapshot was on GitHub.
+# static/ is copied into the image unconditionally, and the
+# Dockerfile now also copies bundled_data/, so at least one
+# fallback always reaches production.
+_PROXY_LIST_FILES = (
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 "data", "proxies.json"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 "bundled_data", "proxies.json"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 "static", "bundled", "proxies.json"),
+)
+
+
+def _load_proxy_list():
+    """Return (proxies, updated) from the first candidate file
+    that yields at least one valid entry; ([], "") if none does.
+    Entries are validated exactly as the round-3 route did —
+    nothing is invented and nothing is fetched live, so the page
+    can never serve a made-up server or secret."""
+    for path in _PROXY_LIST_FILES:
+        proxies, updated = [], ""
+        try:
+            with open(path, encoding="utf-8") as fh:
+                raw = json.load(fh)
+        except (OSError, ValueError):
+            continue
         if isinstance(raw, dict):
             updated = str(raw.get("updated") or "")
             for p in raw.get("proxies") or []:
@@ -3430,8 +3451,21 @@ def telegram_proxies():
                     "server": server, "port": port, "secret": secret,
                     "link": "https://t.me/proxy?server=%s&port=%d"
                             "&secret=%s" % (server, port, secret)})
-    except (OSError, ValueError):
-        proxies, updated = [], ""
+        if proxies:
+            return proxies, updated
+    return [], ""
+
+
+@app.route("/telegram-proxies")
+def telegram_proxies():
+    """Telegram Proxies page (2026-11-16 round 3). The list is
+    baked from proxies.json — REAL MTProto proxies fetched from
+    public lists at build time (see PROXIES-SOURCE-NOTE.md);
+    nothing is invented and nothing is fetched live, so the page
+    can never serve a made-up server or secret. Loading goes
+    through _load_proxy_list(): runtime data first, then the
+    copies bundled with the code (2026-11-16.21 fix)."""
+    proxies, updated = _load_proxy_list()
     faq = [
         ("How do I use a Telegram proxy from this page?",
          "Tap “Connect in Telegram” next to any proxy in the list. "
@@ -5633,7 +5667,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-16.20"
+APP_VERSION = "2026-11-16.21"
 
 
 @app.route("/api/version", methods=["GET"])
