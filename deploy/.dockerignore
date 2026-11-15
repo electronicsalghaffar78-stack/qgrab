@@ -1,0 +1,12 @@
+# Docker reads .dockerignore from the BUILD CONTEXT root, so a copy of
+# this file must sit in downloader-site/ itself (one is already there).
+# It keeps the local venv, generated logo art and preview files out of
+# the image.
+.venv
+__pycache__
+*.pyc
+.git
+logo-ideas
+QGrab-Preview.html
+deploy
+README.md
