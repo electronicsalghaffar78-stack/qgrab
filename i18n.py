@@ -177,6 +177,10 @@ EN = {
     "hfaq4_a": "Private, age-restricted or region-locked videos may not work, and some platforms change their systems from time to time. Check that the link opens in your browser, then try again.",
     "hfaq5_q": "Does it work on phones?",
     "hfaq5_a": "Yes — QGrab is built mobile-first and works in the browser on Android and iPhone, as well as on tablets and computers.",
+    "hfaq6_q": "How do I download a video without a watermark?",
+    "hfaq6_a": "Paste the video link into the box at the top of this page, press Download and pick a quality. QGrab saves the original video file and never adds a watermark of its own — TikTok videos, for example, download completely clean, with no TikTok watermark. If a creator has burned a watermark into the video itself, it is part of the picture and no downloader can remove it.",
+    "hfaq7_q": "Does QGrab work on iPhone?",
+    "hfaq7_a": "Yes. QGrab works in Safari on iPhone and iPad — there is nothing to install. You can also add it to your Home Screen (Share → Add to Home Screen) so it opens like an app. It works the same way on Android phones, tablets and computers.",
     # install app box (list items are HTML)
     "install_h2": "Install The QGrab App",
     "install_p": "QGrab works as an app too — install it on your phone for one-tap access from your home screen, or use it right here in any PC browser. No app store needed.",
@@ -314,9 +318,10 @@ TRANSLATIONS = {"en": EN}
 # sections; the view appends the shared personal-use section last.
 PLATFORM_TRANSLATIONS = {}
 
-HOME_FAQ_KEYS = [("hfaq1_q", "hfaq1_a"), ("hfaq2_q", "hfaq2_a"),
-                 ("hfaq3_q", "hfaq3_a"), ("hfaq4_q", "hfaq4_a"),
-                 ("hfaq5_q", "hfaq5_a")]
+HOME_FAQ_KEYS = [("hfaq1_q", "hfaq1_a"), ("hfaq6_q", "hfaq6_a"),
+                 ("hfaq2_q", "hfaq2_a"), ("hfaq3_q", "hfaq3_a"),
+                 ("hfaq4_q", "hfaq4_a"), ("hfaq5_q", "hfaq5_a"),
+                 ("hfaq7_q", "hfaq7_a")]
 
 
 def is_valid(code):
