@@ -1,0 +1,146 @@
+{# Download History (2026-11-16, round 2) — every download a
+   visitor starts on QGrab is recorded in THIS browser's
+   localStorage (QGrab has no accounts; Dahot's "My Downloads"
+   is account-based, ours lives on the visitor's own device).
+   The list
+   survives reloads, is capped at 100 items, and each item can
+   re-run its download ("Download Again"): directly through
+   /download when the exact format is known, otherwise by
+   re-running the page's info lookup via window.qgrabHistoryRerun
+   (registered by the homepage / platform page scripts).
+   Recording is hooked by the pages' own format-click handlers;
+   this file owns storage + rendering only. #}
+<script>
+/* --- Download History: storage + rendering --- */
+(function () {
+  var KEY = 'qgrab_dl_history_v1';
+  var MAX = 100;
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      var arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  function save(arr) {
+    try { localStorage.setItem(KEY, JSON.stringify(arr.slice(0, MAX))); }
+    catch (e) { /* private mode / full storage: history just won't persist */ }
+  }
+
+  function record(item) {
+    if (!item || !item.url) return;
+    var arr = load();
+    arr.unshift({
+      url: String(item.url),
+      title: String(item.title || ''),
+      thumb: String(item.thumb || ''),
+      platform: String(item.platform || 'other'),
+      format: String(item.format || ''),
+      format_id: String(item.format_id || ''),
+      ts: Date.now()
+    });
+    save(arr);
+    render();
+    if (window.qgrabUsageRefresh) window.qgrabUsageRefresh();
+  }
+
+  function clear() {
+    save([]); render();
+    if (window.qgStat) window.qgStat('history_clear');
+  }
+
+  function fmtDate(ts) {
+    try {
+      var d = new Date(ts);
+      return d.toLocaleDateString() + ' ' +
+        d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return ''; }
+  }
+
+  function render() {
+    var list = document.getElementById('histList');
+    if (!list) return;
+    var arr = load();
+    list.innerHTML = '';
+    var empty = document.getElementById('histEmpty');
+    if (empty) empty.style.display = arr.length ? 'none' : '';
+    var clearBtn = document.getElementById('histClear');
+    if (clearBtn) clearBtn.style.display = arr.length ? '' : 'none';
+    arr.forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'hist-item';
+      if (it.thumb && it.thumb.indexOf('data:') !== 0) {
+        var img = document.createElement('img');
+        img.className = 'hist-thumb';
+        img.alt = '';
+        img.loading = 'lazy';
+        img.src = it.thumb;
+        img.addEventListener('error', function () { img.remove(); });
+        row.appendChild(img);
+      } else {
+        var ph = document.createElement('div');
+        ph.className = 'hist-ph';
+        ph.textContent = (it.platform || 'QGrab').toUpperCase();
+        row.appendChild(ph);
+      }
+      var body = document.createElement('div');
+      body.className = 'hist-body';
+      var t = document.createElement('div');
+      t.className = 'hist-title';
+      t.textContent = it.title || it.url;
+      var meta = document.createElement('div');
+      meta.className = 'hist-meta';
+      var bits = [];
+      if (it.platform) bits.push(it.platform);
+      if (it.format) bits.push(it.format);
+      bits.push(fmtDate(it.ts));
+      meta.textContent = bits.join(' · ');
+      body.append(t, meta);
+      row.appendChild(body);
+      var again = document.createElement('a');
+      again.className = 'hist-again';
+      again.textContent = 'Download Again';
+      again.addEventListener('click', function () {
+        if (window.qgStat) window.qgStat('history_download_again');
+      });
+      if (it.format_id) {
+        again.href = '/download?url=' + encodeURIComponent(it.url) +
+          '&format_id=' + encodeURIComponent(it.format_id);
+      } else {
+        again.href = '#download-history';
+        again.addEventListener('click', function (e) {
+          e.preventDefault();
+          if (window.qgrabHistoryRerun) window.qgrabHistoryRerun(it.url);
+        });
+      }
+      row.appendChild(again);
+      list.appendChild(row);
+    });
+  }
+
+  window.QGHistory = {
+    record: record,
+    clear: clear,
+    list: load,
+    render: render,
+    todayCount: function () {
+      var now = new Date();
+      return load().filter(function (it) {
+        var d = new Date(it.ts);
+        return d.getFullYear() === now.getFullYear() &&
+          d.getMonth() === now.getMonth() &&
+          d.getDate() === now.getDate();
+      }).length;
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', function () {
+    render();
+    var clearBtn = document.getElementById('histClear');
+    if (clearBtn) clearBtn.addEventListener('click', function () {
+      clear();
+    });
+  });
+})();
+</script>

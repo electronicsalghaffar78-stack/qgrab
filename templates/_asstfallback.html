@@ -1,0 +1,99 @@
+{# Built-in assistant answers (2026-11-16, round 2) — Dahot's
+   assistant never fully breaks: when its AI errors, the site
+   answers from built-in keyword Q&A. Ported to QGrab as a
+   pure function the chat script calls ONLY when the AI path
+   fails (AI unavailable / not configured / network error).
+   Answers state only facts from the same
+   knowledge base the AI uses; matching is keyword-based over
+   the visitor's lowercased message (English + Roman Urdu
+   terms). Returns {answer, goto} or null. #}
+<script>
+/* --- Assistant built-in keyword fallback --- */
+window.qgrabAssistantFallback = function (text) {
+  var q = ' ' + String(text || '').toLowerCase() + ' ';
+  function has() {
+    for (var i = 0; i < arguments.length; i++) {
+      if (q.indexOf(arguments[i]) !== -1) return true;
+    }
+    return false;
+  }
+  if (has('jazzcash', 'easypaisa', 'easy paisa', 'pay', 'payment',
+            'receipt', 'transaction', 'paisay', 'paise')) {
+    return { goto: null,
+      answer: 'QGrab is completely free — there is nothing ' +
+        'to pay, ever. QGrab never takes payments; if anyone ' +
+        'asks you to pay for QGrab, it is not from us.' };
+  }
+  if (has('referral', 'invite', 'friend')) {
+    return { goto: null,
+      answer: 'QGrab is completely free for everyone now, so ' +
+        'there is no referral program anymore — just send your ' +
+        'friends the QGrab link and everything works for them ' +
+        'free, with no sign-up.' };
+  }
+  if (has('premium', 'price', 'cost', 'plan', 'qeemat', 'trial')) {
+    return { goto: null,
+      answer: 'QGrab is 100% free — every download and every ' +
+        'tool is free for everyone, with generous daily limits ' +
+        'and no accounts. There is nothing to buy.' };
+  }
+  if (has('history', 'my downloads', 'download again',
+            'dobara download')) {
+    return {
+      answer: 'Your Download History is saved in this browser ' +
+        'on this device. Open the Download History section to ' +
+        'see everything you downloaded here, and press ' +
+        'Download Again on any item to download it once more.',
+      goto: 'download-history'
+    };
+  }
+  if (has('script', 'prompt')) {
+    return {
+      answer: 'The Video to Script + Prompt tool is on the ' +
+        'homepage: paste a YouTube or TikTok link and it writes ' +
+        'the video\'s script, or AI prompts to recreate it. ' +
+        'Script and Prompts are free with no daily limit — ' +
+        'and starting a download now starts it automatically ' +
+        'for that video too.',
+      goto: 'script-prompt'
+    };
+  }
+  if (has('eye care', 'eyecare', 'theme', 'dark mode', 'night mode')) {
+    return {
+      answer: 'Tap the round theme button at the top of the ' +
+        'page — it cycles Day → Night → Eye Care. Eye Care is ' +
+        'a warm, soft theme that is easy on the eyes.',
+      goto: null
+    };
+  }
+  if (has('search', 'find a video', 'watch')) {
+    return {
+      answer: 'Use the Search Videos section on the homepage: ' +
+        'pick YouTube, Facebook, TikTok or Instagram, type a ' +
+        'video, movie or reel name, and each result has Watch ' +
+        'and Download buttons.',
+      goto: 'search-videos'
+    };
+  }
+  if (has('download', 'kaise download', 'kesay download', 'save video')) {
+    return {
+      answer: 'Paste the video link into the downloader box at ' +
+        'the top of the homepage and press Download. When the ' +
+        'formats appear, press the Download button on the one ' +
+        'you want. Only public videos work — private or ' +
+        'login-only videos cannot be downloaded.',
+      goto: 'download'
+    };
+  }
+  if (has('support', 'insaan', 'human', 'email kar')) {
+    return {
+      answer: 'Tap "Talk to Support" at the top of this panel ' +
+        'and send your email with the problem. A real person ' +
+        'reads every message and replies to your email within ' +
+        '24–48 hours.',
+      goto: null
+    };
+  }
+  return null;
+};
+</script>

@@ -1,0 +1,102 @@
+<script>
+/* QGrab round 3 (2026-11-16): scroll-reveal animations, the
+   animated AI-Tools reveal on the nav "Tools" click, and the
+   ?url= prefill the PC extension hands off with.
+   Everything is defensive: no IntersectionObserver (or reduced
+   motion) simply leaves the page exactly as it was — the .rv
+   class is only ever added by this script, never in the HTML,
+   so nothing can get stuck invisible. */
+(function () {
+  var reduced = false;
+  try {
+    reduced = !!(window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (e) {}
+
+  /* --- scroll-triggered reveals --- */
+  try {
+    var targets = document.querySelectorAll(
+      'section, .grab, .usage-card');
+    if (targets.length && 'IntersectionObserver' in window && !reduced) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) {
+            en.target.classList.add('inview');
+            io.unobserve(en.target);
+          }
+        });
+      }, { threshold: 0.06, rootMargin: '0px 0px -4% 0px' });
+      targets.forEach(function (el, i) {
+        el.classList.add('rv');
+        el.style.transitionDelay = (i % 3) * 70 + 'ms';
+        io.observe(el);
+      });
+    }
+  } catch (e) {}
+
+  /* --- Tools nav: staggered animated reveal of the AI tools --- */
+  function popTools() {
+    var cards = document.querySelectorAll('.ai-grid .ai-tool');
+    if (!cards.length) return;
+    cards.forEach(function (c, i) {
+      c.classList.remove('tool-pop');
+      c.style.animationDelay = (i * 90) + 'ms';
+    });
+    /* force reflow so re-clicking replays the animation */
+    void document.body.offsetWidth;
+    cards.forEach(function (c) { c.classList.add('tool-pop'); });
+  }
+  window.qgrabPopTools = popTools;
+  try {
+    var link = document.querySelector('.js-tools');
+    if (link) {
+      link.addEventListener('click', function () {
+        var sec = document.getElementById('ai-tools');
+        if (sec) {
+          setTimeout(function () {
+            sec.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth',
+                                 block: 'start' });
+            popTools();
+          }, 350);
+        }
+      });
+    }
+    if (location.hash === '#ai-tools') setTimeout(popTools, 400);
+  } catch (e) {}
+
+  /* --- usage-stat wiring for UI-only actions (round 3) --- */
+  try {
+    document.querySelectorAll(
+      'a[href="#download-history"], a[href="/#download-history"]'
+    ).forEach(function (a) {
+      a.addEventListener('click', function () {
+        if (window.qgStat) window.qgStat('history_view');
+      });
+    });
+    var ext = document.getElementById('extDownload');
+    if (ext) ext.addEventListener('click', function () {
+      if (window.qgStat) window.qgStat('extension_download');
+    });
+    var ios = document.querySelector('.ios-card');
+    if (ios) ios.addEventListener('click', function () {
+      if (window.qgStat) window.qgStat('ios_card_click');
+    });
+    var inst = document.getElementById('installBtn');
+    if (inst) inst.addEventListener('click', function () {
+      if (window.qgStat) window.qgStat('app_install_click');
+    });
+  } catch (e) {}
+
+  /* --- ?url= prefill (PC extension "Open in QGrab" handoff) --- */
+  try {
+    var q = new URLSearchParams(location.search).get('url');
+    var input = document.getElementById('urlInput');
+    var form = document.getElementById('grabForm');
+    if (q && input && form) {
+      input.value = q;
+      if (form.requestSubmit) form.requestSubmit();
+      else form.dispatchEvent(new Event('submit', { cancelable: true }));
+    }
+  } catch (e) {}
+})();
+</script>

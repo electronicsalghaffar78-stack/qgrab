@@ -31,6 +31,44 @@
   var backBtn = document.getElementById('asstBackBtn');
   var verEl = document.getElementById('asstVer');
   var verFetched = false;
+  var attachBtn = document.getElementById('asstAttach');
+  var fileInput = document.getElementById('asstFile');
+  var pendingImage = null;  /* {mime, data} — one photo, Dahot-style */
+
+  /* Photo attach (2026-11-16): the visitor may send ONE photo
+     with a question (a payment receipt, a screenshot of a
+     problem). Client cap 4 MB keeps the base64 body under the
+     server's cap; the server re-validates mime + size. */
+  if (attachBtn && fileInput) {
+    attachBtn.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () {
+      var f = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if (!f) return;
+      if (['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+            .indexOf(f.type) === -1) {
+        status.textContent = 'Please choose a JPG, PNG, WebP or GIF photo.';
+        return;
+      }
+      if (f.size > 4 * 1024 * 1024) {
+        status.textContent = 'That photo is too large — please send one under 4 MB.';
+        return;
+      }
+      var rd = new FileReader();
+      rd.onload = function () {
+        var parts = String(rd.result || '').split(',');
+        if (parts.length < 2) return;
+        pendingImage = { mime: f.type, data: parts.slice(1).join(',') };
+        attachBtn.classList.add('on');
+        status.textContent = 'Photo attached — press Send.';
+      };
+      rd.readAsDataURL(f);
+    });
+  }
+  function clearPendingImage() {
+    pendingImage = null;
+    if (attachBtn) attachBtn.classList.remove('on');
+  }
 
   var history = [];   /* [{role: 'user'|'assistant', text}] */
   var open = false;
@@ -38,8 +76,7 @@
 
   var ERRORS = {
     invalid_request: 'Please type a question first.',
-    daily_limit: 'I have answered a lot of questions today — please try again tomorrow, or tap Talk to Support.',
-    ai_unavailable: 'Sorry, I could not answer just now. Please try again in a moment.',
+    ai_unavailable: 'The AI is busy right now — please try again in a few minutes.',
     not_configured: 'The assistant is not available right now. Please try Talk to Support.',
   };
   var SUP_ERRORS = {
@@ -129,25 +166,45 @@
     e.preventDefault();
     if (busy) return;
     var text = (input.value || '').trim();
-    if (!text) { status.textContent = ERRORS.invalid_request; return; }
-    addMsg('user', text);
+    if (!text && !pendingImage) {
+      status.textContent = ERRORS.invalid_request; return;
+    }
+    var sentImage = pendingImage;
+    addMsg('user', sentImage ? ('\uD83D\uDCF7 ' + (text || 'Photo')) : text);
     input.value = '';
     busy = true;
     if (sendBtn) sendBtn.disabled = true;
     status.textContent = 'Please wait';
     try {
+      var payload = { message: text, history: history.slice(-6) };
+      if (sentImage) payload.image = sentImage;
       var r = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          history: history.slice(-6),
-        }),
+        body: JSON.stringify(payload),
       });
       var data = await r.json().catch(function () { return {}; });
       if (!r.ok || !data.ok) {
+        /* Built-in answers (Dahot's never-fully-breaks rule,
+           ported 2026-11-16): when the AI itself is down, the
+           site's own keyword answers take over. (Round 3: there
+           is no daily cap anymore, so nothing is held back.) */
+        if (window.qgrabAssistantFallback) {
+          var fb = window.qgrabAssistantFallback(text);
+          if (fb) {
+            clearPendingImage();
+            status.textContent = '';
+            var fel = addMsg('assistant', fb.answer);
+            history.push({ role: 'user', text: text });
+            history.push({ role: 'assistant', text: fb.answer });
+            if (history.length > 12) history = history.slice(-12);
+            if (fb.goto) addGoto(fb.goto, fel);
+            return;
+          }
+        }
         throw new Error(ERRORS[data.error] || ERRORS.ai_unavailable);
       }
+      clearPendingImage();
       status.textContent = '';
       var el = addMsg('assistant', data.answer || '');
       history.push({ role: 'user', text: text });
@@ -158,7 +215,24 @@
         supportBtn.classList.add('asst-attn');
       }
     } catch (err) {
-      status.textContent = err.message || ERRORS.ai_unavailable;
+      /* A network-level failure lands here (no response at
+         all): the built-in answers get the same chance as on
+         an HTTP error. */
+      var fb2 = null;
+      if (window.qgrabAssistantFallback) {
+        try { fb2 = window.qgrabAssistantFallback(text); } catch (e2) {}
+      }
+      if (fb2) {
+        clearPendingImage();
+        status.textContent = '';
+        var fel2 = addMsg('assistant', fb2.answer);
+        history.push({ role: 'user', text: text });
+        history.push({ role: 'assistant', text: fb2.answer });
+        if (history.length > 12) history = history.slice(-12);
+        if (fb2.goto) addGoto(fb2.goto, fel2);
+      } else {
+        status.textContent = err.message || ERRORS.ai_unavailable;
+      }
     } finally {
       busy = false;
       if (sendBtn) sendBtn.disabled = false;

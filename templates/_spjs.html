@@ -56,7 +56,6 @@
     if (code === 'audio_too_big') return I18N.sp_err_audiobig;
     if (code === 'no_speech') return I18N.sp_err_nospeech;
     if (code === 'rate_limited') return I18N.sp_err_rate;
-    if (code === 'daily_limit') return I18N.sp_err_daily_limit;
     if (code === 'fetch_failed') return I18N.sp_err_fetch_failed;
     if (code === 'ai_unavailable') return I18N.sp_err_ai;
     if (code === 'not_configured') return I18N.sp_err_setup;
@@ -86,38 +85,21 @@
       spPrompts.appendChild(wrap);
     });
   }
-  /* --- Daily counters (the owner's TAAFT-style counter) ---
-     Two small lines in the box: how many script / prompt
-     generations are left today, counted DOWN from the daily cap
-     by the server — real, enforced numbers, not decoration —
-     plus the refresh time, rendered in the VISITOR's own local
-     time from the server's resets_at epoch. This fetch is
-     read-only (it can never start a generation): it runs on
-     page load and again whenever a generation finishes, done
-     or error, so the numbers on screen track the server. */
+  /* --- Usage line (round 3: counters removed) ---
+     Until round 2 this fetched the server's daily counters
+     and counted DOWN from a cap. The owner removed every
+     daily limit in round 3, so the lines simply say the tool
+     is unlimited; the function name is kept because the job
+     flow still calls it after each generation. */
   function spRefreshQuota(){
-    fetch('/api/script-prompt/quota').then(function(r){
-      return r.json();
-    }).then(function(d){
-      if (!d) return;
-      if (spLeftScript && typeof d.script_left === 'number' &&
-          I18N.sp_left_script) {
-        spLeftScript.textContent = I18N.sp_left_script.replace(
-          '{n}', String(d.script_left));
-      }
-      if (spLeftPrompts && typeof d.prompts_left === 'number' &&
-          I18N.sp_left_prompts) {
-        spLeftPrompts.textContent = I18N.sp_left_prompts.replace(
-          '{n}', String(d.prompts_left));
-      }
-      if (spRefreshAt && d.resets_at && I18N.sp_refresh_at) {
-        const when = new Date(d.resets_at * 1000);
-        const timeStr = when.toLocaleTimeString([], {
-          hour: 'numeric', minute: '2-digit'});
-        spRefreshAt.textContent = I18N.sp_refresh_at.replace(
-          '{time}', timeStr);
-      }
-    }).catch(function(){});
+    /* Round 3 (2026-11-16): the daily counters were removed
+       by the owner's order — the tool is free with NO daily
+       limit. The quota lines now say exactly that, once. */
+    if (spLeftScript) spLeftScript.textContent =
+      'Scripts: free & unlimited — no daily limit';
+    if (spLeftPrompts) spLeftPrompts.textContent =
+      'Prompts: free & unlimited — no daily limit';
+    if (spRefreshAt) spRefreshAt.textContent = '';
   }
   spRefreshQuota();
   /* --- Background jobs + polling (v3) ---
@@ -130,7 +112,7 @@
      (owner's order) — and the result is rendered the instant a
      poll sees it; nothing waits for or is gated by any timer. */
   const SP_JOB_KEY = 'sp_job';
-  const SP_POLL_MS = 3000;
+  const SP_POLL_MS = 1500;  /* 2026-11-16 speed pass: was 3000 — halving the poll gap removes up to 3 s of dead wait at the end of every generation */
   const SP_MAX_WAIT_MS = 12 * 60 * 1000;
 
   function spStoreJob(job){
@@ -253,7 +235,8 @@
       }
       const r = await fetch('/api/script-prompt', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json',
+                  'X-QGrab-Token': window.qgrabToken ? qgrabToken() : ''},
         body: JSON.stringify(body)
       });
       const data = await r.json().catch(function(){ return {}; });
@@ -280,6 +263,49 @@
       spRefreshQuota();
     }
   }
+  /* Auto Script+Prompt on download (2026-11-16, the owner's
+     Dahot-inspired order): when a visitor actually starts a
+     download, the script generation for that same video starts
+     in parallel through the ORDINARY endpoint — same daily cap,
+     same rate limit, nothing bypassed — and the finished script
+     is rendered into the tool section below, with a note in the
+     download result area. Once per video per session; a busy
+     tool, a full daily cap or any error stays silent (the
+     standalone section keeps working exactly as before). */
+  window.qgrabAutoScriptPrompt = function (url) {
+    if (!url || spBusy) return;
+    var key = 'sp_auto_' + url;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch (e) {}
+    var note = document.getElementById('spAutoNote');
+    if (note) {
+      note.textContent = 'Script + Prompts: generating the script for this video below…';
+      note.style.display = 'block';
+    }
+    (async function () {
+      try {
+        const r = await fetch('/api/script-prompt', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json',
+                    'X-QGrab-Token': window.qgrabToken ? qgrabToken() : ''},
+          body: JSON.stringify({url: url, mode: 'script'})
+        });
+        const data = await r.json().catch(function () { return {}; });
+        if (r.status === 202 && data.job_id) {
+          const finalData = await spPollJob(data.job_id, Date.now());
+          spRenderResult(finalData, 'script');
+          spRefreshQuota();
+          if (note) note.textContent = 'Script + Prompts: the script for this video is ready in the section below.';
+        } else if (note) {
+          note.style.display = 'none';
+        }
+      } catch (e) {
+        if (note) note.style.display = 'none';
+      }
+    })();
+  };
   /* Resume a job that was still running when this page went
      away (reload, connection drop, tab restore): if a stored job
      younger than the 12-minute cap exists, re-enter the busy UI

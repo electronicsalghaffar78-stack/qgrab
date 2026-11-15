@@ -1,0 +1,110 @@
+<script>
+/* QGrab round 3 (2026-11-16): usage-stat pings + email
+   subscribe (forms, footer + section) + the 3rd-download
+   subscribe popup. qgStat is fire-and-forget by design: it
+   must never slow or break the feature it counts. */
+window.qgStat = function (name) {
+  try {
+    fetch('/api/event', {
+      method: 'POST', keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name })
+    }).catch(function () {});
+  } catch (e) {}
+};
+
+(function () {
+  /* --- subscribe forms (footer + homepage section) --- */
+  function wireForm(form) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var input = form.querySelector('input[type="email"]');
+      var msg = form.querySelector('.js-sub-msg');
+      var email = (input.value || '').trim();
+      if (!email) return;
+      fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email,
+                               source: form.getAttribute('data-source') || 'site' })
+      }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+          if (res.ok && res.d && res.d.subscribed) {
+            try { localStorage.setItem('qgrab_subscribed', '1'); } catch (e2) {}
+            if (msg) msg.textContent = 'Subscribed! One update email a day — unsubscribe anytime.';
+            input.value = '';
+          } else if (res.ok && res.d && res.d.already) {
+            try { localStorage.setItem('qgrab_subscribed', '1'); } catch (e2) {}
+            if (msg) msg.textContent = 'You are already subscribed — thank you!';
+          } else if (msg) {
+            msg.textContent = 'Please enter a valid email address.';
+          }
+        })
+        .catch(function () {
+          if (msg) msg.textContent = 'Could not subscribe just now — please try again.';
+        });
+    });
+  }
+  document.querySelectorAll('.js-sub-form').forEach(wireForm);
+
+  /* --- the 3rd-download popup ---
+     Decision (pure, tested): show when this browser has 3+
+     downloads in its history, is not subscribed, and either
+     never dismissed the popup or dismissed it 7+ days ago.
+     Subscribed -> never again. */
+  var SEVEN_DAYS = 7 * 24 * 3600 * 1000;
+  window.qgrabSubShouldShow = function (now) {
+    try {
+      if (localStorage.getItem('qgrab_subscribed')) return false;
+      var dismissed = parseInt(
+        localStorage.getItem('qgrab_sub_dismissed') || '0', 10);
+      if (dismissed && (now - dismissed) < SEVEN_DAYS) return false;
+      if (!window.QGHistory) return false;
+      return window.QGHistory.list().length >= 3;
+    } catch (e) { return false; }
+  };
+
+  var shownThisPage = false;
+  window.qgrabSubMaybeShow = function () {
+    if (shownThisPage) return;
+    if (!window.qgrabSubShouldShow(Date.now())) return;
+    shownThisPage = true;
+    var overlay = document.createElement('div');
+    overlay.className = 'sub-pop-overlay';
+    overlay.innerHTML =
+      '<div class="sub-pop" role="dialog" aria-label="Subscribe to QGrab updates">' +
+      '<div class="sub-pop-title">📬 Get daily updates</div>' +
+      '<p>New tools &amp; features on QGrab — by email.</p>' +
+      '<form class="js-sub-form sub-pop-form" data-source="popup">' +
+      '<input type="email" required placeholder="Your email address" aria-label="Email address">' +
+      '<button class="btn" type="submit">Subscribe</button>' +
+      '<div class="js-sub-msg sub-pop-msg" role="status"></div>' +
+      '</form>' +
+      '<p class="sub-pop-note">One email a day with QGrab updates. Unsubscribe anytime.</p>' +
+      '<button type="button" class="sub-pop-no">Not now</button>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    wireForm(overlay.querySelector('.js-sub-form'));
+    overlay.querySelector('.js-sub-form').addEventListener('submit', function () {
+      setTimeout(function () {
+        try {
+          if (localStorage.getItem('qgrab_subscribed')) overlay.remove();
+        } catch (e) {}
+      }, 600);
+    });
+    overlay.querySelector('.sub-pop-no').addEventListener('click', function () {
+      try { localStorage.setItem('qgrab_sub_dismissed', String(Date.now())); } catch (e) {}
+      overlay.remove();
+    });
+  };
+
+  /* Hook: every recorded download re-checks the trigger. */
+  if (window.QGHistory && window.QGHistory.record) {
+    var origRecord = window.QGHistory.record;
+    window.QGHistory.record = function (item) {
+      origRecord(item);
+      window.qgrabSubMaybeShow();
+    };
+  }
+})();
+</script>

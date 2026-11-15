@@ -1,0 +1,103 @@
+<script>
+/* QGrab round 3 (2026-11-16): Invite / Share. navigator.share
+   where available; otherwise QGrab's own popup with WhatsApp,
+   Telegram, Facebook, X and Email intents, Copy Link, and a
+   Download / Install App option. Every step is counted in the
+   usage stats (fire-and-forget via qgStat). */
+(function () {
+  var SHARE_TEXT = 'Download videos from YouTube, TikTok, Instagram & more — free, no limits: QGrab';
+  function shareUrl() {
+    try { return location.origin + '/'; }
+    catch (e) { return 'https://qgrab.onrender.com/'; }
+  }
+  /* Pure link builder (unit-tested). */
+  window.qgrabShareLinks = function (url, text) {
+    var t = encodeURIComponent(text + ' ' + url);
+    var u = encodeURIComponent(url);
+    return {
+      whatsapp: 'https://wa.me/?text=' + t,
+      telegram: 'https://t.me/share/url?url=' + u +
+                '&text=' + encodeURIComponent(text),
+      facebook: 'https://www.facebook.com/sharer/sharer.php?u=' + u,
+      x: 'https://twitter.com/intent/tweet?text=' +
+         encodeURIComponent(text) + '&url=' + u,
+      email: 'mailto:?subject=' +
+             encodeURIComponent('Try QGrab — free video downloader') +
+             '&body=' + t
+    };
+  };
+
+  function stat(name) { if (window.qgStat) window.qgStat(name); }
+
+  function openPopup() {
+    var url = shareUrl();
+    var links = window.qgrabShareLinks(url, SHARE_TEXT);
+    var overlay = document.createElement('div');
+    overlay.className = 'sub-pop-overlay';
+    overlay.innerHTML =
+      '<div class="sub-pop" role="dialog" aria-label="Share QGrab">' +
+      '<div class="sub-pop-title">📣 Share QGrab</div>' +
+      '<p>Invite your friends — everything on QGrab is free, with no limits.</p>' +
+      '<div class="share-opts">' +
+      '<a class="share-opt" data-ch="whatsapp" target="_blank" rel="noopener" href="' + links.whatsapp + '">🟢 WhatsApp</a>' +
+      '<a class="share-opt" data-ch="telegram" target="_blank" rel="noopener" href="' + links.telegram + '">✈️ Telegram</a>' +
+      '<a class="share-opt" data-ch="facebook" target="_blank" rel="noopener" href="' + links.facebook + '">🔵 Facebook</a>' +
+      '<a class="share-opt" data-ch="x" target="_blank" rel="noopener" href="' + links.x + '">⚫ X (Twitter)</a>' +
+      '<a class="share-opt" data-ch="email" href="' + links.email + '">✉️ Email</a>' +
+      '<button type="button" class="share-opt" data-ch="copy">🔗 Copy Link</button>' +
+      '<button type="button" class="share-opt" data-ch="install">⬇️ Download / Install App</button>' +
+      '</div>' +
+      '<button type="button" class="sub-pop-no">Close</button>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.querySelectorAll('.share-opt').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var ch = el.getAttribute('data-ch');
+        if (ch === 'copy') {
+          stat('share_copy');
+          function done() { el.textContent = '🔗 Copied ✓'; }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(done, done);
+          } else { done(); }
+        } else if (ch === 'install') {
+          stat('invite_install_click');
+          overlay.remove();
+          var btn = document.getElementById('installBtn');
+          if (btn && btn.style.display !== 'none') { btn.click(); return; }
+          var sec = document.getElementById('install');
+          if (sec) sec.scrollIntoView({ behavior: 'smooth' });
+          else location.href = '/#install';
+        } else {
+          stat('share_' + ch);
+        }
+      });
+    });
+    overlay.querySelector('.sub-pop-no').addEventListener('click', function () {
+      overlay.remove();
+    });
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) overlay.remove();
+    });
+  }
+
+  window.qgrabInvite = function () {
+    stat('invite_click');
+    var url = shareUrl();
+    if (navigator.share) {
+      navigator.share({ title: 'QGrab', text: SHARE_TEXT, url: url })
+        .then(function () { stat('share_native'); })
+        .catch(function () { /* visitor dismissed — no fallback nag */ });
+      return;
+    }
+    openPopup();
+  };
+  window.qgrabSharePopup = openPopup;
+
+  document.querySelectorAll('.js-invite').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      window.qgrabInvite();
+    });
+  });
+})();
+</script>

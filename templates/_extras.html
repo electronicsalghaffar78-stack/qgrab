@@ -10,8 +10,8 @@
   @media (max-width:560px){ .spec .sl{min-width:82px} .spec{padding:12px 14px} }
 
   /* Header layout (2026-11-08.11 — the owner's order): brand
-     group LEFT (logo + "QGrab" + the ⭐ Plans pill beside the
-     name) and the day/night toggle + three-dot menu together
+     group LEFT (logo + "QGrab" wordmark) and the day/night
+     toggle + three-dot menu together
      as ONE cluster in the RIGHT corner. NO center slot and NO
      "Update App" button in the header at all — Update App
      lives only at the BOTTOM of the page (the footer copy).
@@ -31,8 +31,12 @@
   .theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
   .theme-toggle svg{width:19px;height:19px;display:block}
   .theme-toggle .ic-moon{display:none}
+  .theme-toggle .ic-eye{display:none}
   html[data-theme="light"] .theme-toggle .ic-moon{display:block}
   html[data-theme="light"] .theme-toggle .ic-sun{display:none}
+  html[data-theme="eyecare"] .theme-toggle .ic-eye{display:block}
+  html[data-theme="eyecare"] .theme-toggle .ic-sun{display:none}
+  html[data-theme="eyecare"] .theme-toggle .ic-moon{display:none}
   .hmenu{position:relative;display:inline-block;margin-left:10px}
   .hmenu-btn{display:inline-flex;align-items:center;justify-content:center;
     width:36px;height:36px;border-radius:999px;flex:none;padding:0;cursor:pointer;
@@ -309,3 +313,181 @@
      orange tool icons) adapt to the day theme */
   html[data-theme="light"] svg[fill="#FFFFFF"]{fill:#14181f}
   html[data-theme="light"] svg[stroke="#ff8a5c"]{stroke:var(--accent2)}
+
+  /* ===== Round 2 (2026-11-16): Dahot-shaped header/hero,
+     Download History, usage counters, Q-orb assistant =====
+     .logo .brand-text{display:flex;flex-direction:column;
+       line-height:1.12;min-width:0}
+     .tagline{font-size:.62rem;font-weight:600;color:var(--muted);
+       letter-spacing:.02em;white-space:nowrap}
+     .hnav .nav-link{font-weight:700;color:var(--muted);
+       padding:7px 9px;border-radius:8px;white-space:nowrap}
+     .hnav .nav-link:hover{color:var(--text);background:var(--bg2)}
+     .hnav .nav-link.on{color:var(--accent)}
+     @media (max-width:560px){ .tagline{white-space:normal} }
+     .grab-title{font-weight:800;font-size:1.02rem;text-align:left;
+       margin-bottom:12px}
+     [dir="rtl"] .grab-title{text-align:right}
+     .works-line{color:var(--muted);font-size:.88rem;margin-top:10px;
+       text-align:left}
+     [dir="rtl"] .works-line{text-align:right}
+     .pchip-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+     .pchip{border:1px solid var(--line);background:var(--bg2);
+       border-radius:999px;padding:4px 11px;font-size:.8rem;
+       font-weight:600;color:var(--text)}
+     a.pchip{text-decoration:none}
+     a.pchip:hover{border-color:var(--accent);color:var(--accent)}
+     .pchip.beta{border-style:dashed;opacity:.78}
+     .works-note{color:var(--muted);font-size:.8rem;margin-top:8px;
+       text-align:left}
+     [dir="rtl"] .works-note{text-align:right}
+     .tchip-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+     .tchip{border:1px solid var(--line);border-radius:999px;
+       padding:4px 11px;font-size:.8rem;color:var(--muted)}
+     .tchip b{color:var(--ok);font-weight:800}
+     .plan-pill{display:inline-block;margin-top:12px;border-radius:999px;
+       padding:5px 13px;font-size:.85rem;font-weight:700;
+       background:var(--bg2);border:1px solid var(--accent);
+       color:var(--accent)}
+     .usage-card{max-width:760px;margin:18px auto 0;background:var(--card);
+       border:1px solid var(--line);border-radius:16px;
+       padding:18px 20px;box-shadow:0 10px 26px var(--sh-soft);
+       text-align:left}
+     [dir="rtl"] .usage-card{text-align:right}
+     .usage-card h3{margin:0 0 12px;font-size:1rem;text-align:center}
+     .usage-row{display:flex;justify-content:space-between;gap:12px;
+       font-size:.9rem;margin-top:10px}
+     .usage-row .uv{color:var(--muted);font-weight:700}
+     .usage-bar{height:8px;background:var(--bg2);border-radius:99px;
+       overflow:hidden;margin-top:5px}
+     .usage-fill{height:100%;background:var(--accent);width:0;
+       transition:width .4s ease}
+     .usage-note{color:var(--muted);font-size:.8rem;margin-top:12px;
+       text-align:center}
+     .hist-list{display:flex;flex-direction:column;gap:9px;
+       max-width:760px;margin:0 auto;text-align:left}
+     [dir="rtl"] .hist-list{text-align:right}
+     .hist-item{display:flex;gap:12px;align-items:center;
+       background:var(--card);border:1px solid var(--line);
+       border-radius:13px;padding:10px 12px}
+     .hist-thumb{width:96px;height:54px;object-fit:cover;flex:none;
+       border-radius:8px;background:var(--bg2)}
+     .hist-ph{width:96px;height:54px;flex:none;border-radius:8px;
+       background:var(--bg2);display:flex;align-items:center;
+       justify-content:center;color:var(--muted);font-weight:800;
+       font-size:.8rem;text-align:center;padding:4px}
+     .hist-body{flex:1;min-width:0}
+     .hist-title{font-weight:700;font-size:.92rem;white-space:nowrap;
+       overflow:hidden;text-overflow:ellipsis}
+     .hist-meta{color:var(--muted);font-size:.8rem;margin-top:2px}
+     .hist-again{flex:none;background:var(--accent);color:#fff;
+       font-weight:700;font-size:.85rem;padding:8px 13px;
+       border-radius:8px;white-space:nowrap}
+     .hist-empty{color:var(--muted);text-align:center;
+       max-width:760px;margin:0 auto}
+     .hist-clear{display:block;margin:14px auto 0;background:none;
+       border:1.5px solid var(--line);color:var(--muted);
+       border-radius:999px;padding:7px 16px;font-weight:700;
+       cursor:pointer;font-family:inherit}
+     .hist-clear:hover{border-color:var(--err-line);color:var(--text)}
+     /* QGrab's OWN animated assistant avatar (2026-11-16): a
+        rounded "Q" orb with blinking eyes, a smile and an
+        orbiting ring — pure SVG + CSS, deliberately NOTHING
+        like Dahot's ghost. */
+     .asst-orb{width:30px;height:30px;flex:none;display:block;
+       animation:qorbFloat 3.2s ease-in-out infinite}
+     .asst-orb .qorb-ring{transform-box:view-box;
+       transform-origin:center;
+       animation:qorbSpin 9s linear infinite}
+     .asst-orb .qorb-eye{transform-box:fill-box;
+       transform-origin:center;animation:qorbBlink 4.6s infinite}
+     @keyframes qorbFloat{0%,100%{transform:translateY(0)}
+       50%{transform:translateY(-3px)}}
+     @keyframes qorbSpin{to{transform:rotate(360deg)}}
+     @keyframes qorbBlink{0%,92%,100%{transform:scaleY(1)}
+       95%{transform:scaleY(.12)}}
+     .asst-orb-sm{width:20px;height:20px;vertical-align:-4px;
+       margin-right:6px}
+     @media (prefers-reduced-motion:reduce){
+       .asst-orb,.asst-orb .qorb-ring,.asst-orb .qorb-eye{
+         animation:none}}
+     .asst-attach{flex:0 0 auto;width:auto;min-height:44px;
+       padding:0 11px;background:var(--bg2);color:var(--text);
+       border:1.5px solid var(--line);border-radius:10px;
+       cursor:pointer;font-size:1.05rem}
+     .asst-attach.on{border-color:var(--accent);color:var(--accent)}
+
+/* === Round 3 (2026-11-16): scroll reveals, Tools animation,
+   iPhone card, Telegram Proxies list ===
+   .rv elements start slightly lowered and transparent; the
+   IntersectionObserver in _animjs.html adds .inview as they
+   approach the viewport. If JS/IO is unavailable the elements
+   simply stay visible (the .rv class is only ever ADDED by
+   JS, never present in the HTML), and prefers-reduced-motion
+   disables the whole effect. */
+.rv{opacity:0;transform:translateY(26px);
+    transition:opacity .65s ease,transform .65s cubic-bezier(.2,.7,.3,1)}
+.rv.inview{opacity:1;transform:none}
+@keyframes qgToolL{from{opacity:0;transform:translateX(-46px) scale(.96)}
+                   to{opacity:1;transform:none}}
+@keyframes qgToolR{from{opacity:0;transform:translateX(46px) scale(.96)}
+                   to{opacity:1;transform:none}}
+@keyframes qgToolU{from{opacity:0;transform:translateY(38px) scale(.96)}
+                   to{opacity:1;transform:none}}
+.ai-tool.tool-pop{animation:qgToolU .55s cubic-bezier(.2,.7,.3,1) both}
+.ai-grid .ai-tool:nth-child(odd).tool-pop{animation-name:qgToolL}
+.ai-grid .ai-tool:nth-child(even).tool-pop{animation-name:qgToolR}
+.ai-grid .ai-tool:nth-child(3n).tool-pop{animation-name:qgToolU}
+.ios-card{margin:18px auto 0;max-width:520px;text-align:left;
+  background:var(--card);border:1px solid var(--line);
+  border-radius:14px;padding:14px 18px}
+.ios-card h3{font-size:1rem;font-weight:800;margin-bottom:6px}
+.ios-card p{margin:6px auto 0}
+.pc-box .btn{margin-top:16px;display:inline-block}
+.px-list{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.px-item{display:flex;align-items:center;gap:12px;background:var(--card);
+  border:1px solid var(--line);border-radius:12px;padding:11px 14px}
+.px-addr{font-weight:700;font-size:.95rem;word-break:break-all}
+.px-meta{color:var(--muted);font-size:.8rem}
+.px-connect{margin-left:auto;flex:none;background:linear-gradient(90deg,var(--accent),var(--accent2));
+  color:#fff;font-weight:800;border-radius:10px;padding:9px 14px;
+  font-size:.88rem;text-decoration:none}
+.px-connect:active{transform:scale(.97)}
+@media (prefers-reduced-motion: reduce){
+  .rv{opacity:1;transform:none;transition:none}
+  .ai-tool.tool-pop{animation:none}
+}
+
+/* === Round 3: subscribe forms + popup === */
+.sub-form{margin-top:14px;text-align:left}
+.sub-form-center{max-width:520px;margin-left:auto;margin-right:auto}
+.sub-label{font-weight:800;font-size:.92rem;display:block;margin-bottom:8px}
+.sub-row{display:flex;gap:8px}
+.sub-row input{flex:1;min-width:0;background:var(--bg2);border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;color:var(--text);font-size:.95rem}
+.sub-row .btn{flex:none}
+.sub-msg{color:var(--ok);font-size:.85rem;font-weight:700;margin-top:7px;min-height:1em}
+.sub-note{color:var(--muted);font-size:.8rem;margin-top:6px}
+.sub-pop-overlay{position:fixed;inset:0;background:rgba(6,8,12,.62);
+  display:flex;align-items:center;justify-content:center;z-index:1200;padding:18px}
+.sub-pop{background:var(--card);border:1px solid var(--line);border-radius:18px;
+  max-width:400px;width:100%;padding:22px;text-align:center;
+  box-shadow:0 18px 50px var(--sh-strong);
+  animation:qgToolU .45s cubic-bezier(.2,.7,.3,1) both}
+.sub-pop-title{font-size:1.25rem;font-weight:800}
+.sub-pop p{color:var(--muted);margin:8px 0 0}
+.sub-pop-form{margin-top:14px;text-align:left}
+.sub-pop-msg{color:var(--ok);font-size:.85rem;font-weight:700;margin-top:7px}
+.sub-pop-note{font-size:.8rem}
+.sub-pop-no{margin-top:12px;background:none;border:none;color:var(--muted);
+  font-size:.9rem;font-weight:700;cursor:pointer;text-decoration:underline}
+
+/* === Round 3: invite popup (low-rating reason chips were
+   removed by the owner's correction 2026-11-16 — ratings are
+   stars-only, visitors are never asked why) === */
+.share-opts{display:flex;flex-direction:column;gap:9px;margin-top:14px;text-align:left}
+.share-opt{display:flex;align-items:center;gap:10px;background:var(--bg2);
+  border:1px solid var(--line);border-radius:12px;padding:11px 14px;
+  color:var(--text);font-weight:700;text-decoration:none;cursor:pointer;
+  font-size:.95rem;width:100%}
+.share-opt:active{transform:scale(.98)}

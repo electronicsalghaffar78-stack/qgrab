@@ -1,7 +1,7 @@
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1013">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
 <script>
-/* QGrab day/night theme — decided before the page CSS is applied, so
+/* QGrab day/night/eye-care theme — decided before the page CSS is applied, so
    the first paint is already in the right mode (no flash):
    1. the visitor's saved choice (localStorage "qgrab_theme"), else
    2. the device's own setting — a phone in light mode gets the light
@@ -13,14 +13,20 @@
   var saved = null;
   try { saved = localStorage.getItem('qgrab_theme'); } catch (e) {}
   var mq = window.matchMedia('(prefers-color-scheme: light)');
+  /* Eye Care added 2026-11-16: a third saved mode, 'eyecare'
+     (warm low-blue palette, see the html[data-theme="eyecare"]
+     CSS blocks). Saved 'light'/'dark' choices behave exactly
+     as before; the toggle now cycles light -> dark -> eyecare. */
+  var MODES = ['light', 'dark', 'eyecare'];
   function resolve() {
-    if (saved === 'light' || saved === 'dark') return saved;
+    if (MODES.indexOf(saved) !== -1) return saved;
     return mq.matches ? 'light' : 'dark';
   }
   function apply() {
     var th = resolve();
     root.setAttribute('data-theme', th);
-    var color = th === 'light' ? '#ffffff' : '#0e1013';
+    var color = th === 'light' ? '#ffffff'
+      : th === 'eyecare' ? '#f7ead1' : '#0e1013';
     var metas = document.querySelectorAll('meta[name="theme-color"]');
     for (var i = 0; i < metas.length; i++) {
       metas[i].removeAttribute('media');
@@ -30,11 +36,13 @@
   apply();
   if (mq.addEventListener) {
     mq.addEventListener('change', function () {
-      if (saved !== 'light' && saved !== 'dark') apply();
+      if (MODES.indexOf(saved) === -1) apply();
     });
   }
   window.qgrabToggleTheme = function () {
-    saved = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    var cur = root.getAttribute('data-theme');
+    var i = MODES.indexOf(cur);
+    saved = MODES[(i + 1) % MODES.length];
     try { localStorage.setItem('qgrab_theme', saved); } catch (e) {}
     apply();
   };
@@ -55,4 +63,30 @@ window.qgEvent = function (name, params) {
     if (typeof gtag === 'function') gtag('event', name, params || {});
   } catch (e) {}
 };
+</script>
+<script>
+/* QGrab visitor token (2026-11-16). A random per-browser ID —
+   not a login and not an account; it simply gives this browser
+   a stable identity on this device. Round 3 (owner's order):
+   paid Premium, the welcome trial and referrals were removed —
+   QGrab is fully free — so the old ?ref= capture and the
+   welcome-claim call that used to live here are gone. */
+(function () {
+  function token() {
+    try {
+      var t = localStorage.getItem('qgrab_token');
+      if (t) return t;
+      var buf = new Uint8Array(16);
+      (window.crypto || {}).getRandomValues
+        ? crypto.getRandomValues(buf)
+        : buf.forEach(function (v, i) { buf[i] = Math.floor(Math.random() * 256); });
+      t = Array.prototype.map.call(buf, function (b) {
+        return ('0' + b.toString(16)).slice(-2);
+      }).join('');
+      localStorage.setItem('qgrab_token', t);
+      return t;
+    } catch (e) { return ''; }
+  }
+  window.qgrabToken = token;
+})();
 </script>

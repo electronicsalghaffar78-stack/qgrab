@@ -13,6 +13,14 @@
       {% endif %}
     </div>
 
+    {% if ratings.count and ratings.distribution %}
+    <div class="rate-dist" id="rateDist" aria-label="Rating breakdown">
+      {% for n in [5, 4, 3, 2, 1] %}
+      <div class="rd-row"><span>{{ n }}★</span><span class="rd-bar"><span class="rd-fill" style="display:block;width:{{ (ratings.distribution[n|string] / ratings.count * 100)|round(1) }}%"></span></span><span>{{ ratings.distribution[n|string] }}</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     {% if already_rated %}
     <p class="rate-msg">{{ t.rate_already }}</p>
     {% else %}
@@ -47,6 +55,55 @@
   </div>
 </section>
 
+<div class="rate-box report-box" id="reportBox">
+      <h3 class="rate-reviews-h">Report a problem</h3>
+      <p class="rate-msg">Broken download, wrong content or a bug — tell us and the owner will check it.</p>
+      <form id="reportForm">
+        <select id="reportCategory" aria-label="Problem type">
+          <option value="broken_download">A download is broken</option>
+          <option value="wrong_content">Wrong or bad content</option>
+          <option value="bug">A bug on the site</option>
+          <option value="other">Something else</option>
+        </select>
+        <label class="rate-label" for="reportText">What exactly is not working?</label>
+        <textarea id="reportText" rows="4" maxlength="1000" placeholder="Describe it here — what did you try, and what happened? Paste the video link if a download failed."></textarea>
+        <button class="btn" type="submit">Send report</button>
+        <p class="rate-msg" id="reportMsg" style="display:none"></p>
+      </form>
+    </div>
+
+<script>
+(function () {
+  var form = document.getElementById('reportForm');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var msg = document.getElementById('reportMsg');
+    var text = document.getElementById('reportText').value.trim();
+    function show(t) { msg.textContent = t; msg.style.display = 'block'; }
+    if (text.length < 3) { show('Please write a few words about the problem.'); return; }
+    fetch('/api/report', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        category: document.getElementById('reportCategory').value,
+        message: text,
+        page: location.pathname
+      })
+    }).then(function (r) { return r.json().then(function (d) { return {r: r, d: d}; }); })
+      .then(function (x) {
+        if (x.r.ok && x.d.ok) {
+          show('Report received — thank you. The owner will check it.');
+          form.reset();
+        } else if (x.d.error === 'rate_limited') {
+          show('Too many reports from this connection today — please try again tomorrow.');
+        } else {
+          show('The report could not be sent. Please try again.');
+        }
+      }).catch(function () { show('The report could not be sent. Please try again.'); });
+  });
+})();
+</script>
 <script>
 const RATE = {{ rate_js | tojson }};
 (function(){
@@ -66,6 +123,9 @@ const RATE = {{ rate_js | tojson }};
     if (!b) return;
     chosen = +b.dataset.v;
     paint();
+    /* Owner's correction (2026-11-16): ratings are stars-only.
+       Visitors are NEVER asked for a reason — no chips, no
+       extra field, for any star count. */
   });
   function setSummary(avg, count){
     const fill = document.getElementById('starsFill');
@@ -86,11 +146,12 @@ const RATE = {{ rate_js | tojson }};
     if (!chosen) { showMsg(RATE.err_stars); return; }
     const name = document.getElementById('rateName').value.trim();
     const text = document.getElementById('rateText').value.trim();
+    const payload = {stars: chosen, name, text};
     try {
       const r = await fetch('/api/rate', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({stars: chosen, name, text})
+        body: JSON.stringify(payload)
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || RATE.err_save);
