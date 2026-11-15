@@ -39,3 +39,28 @@ becomes "AI Assistant".
 Full master suites after both changes: 20/20 Python PASS,
 3/3 Node PASS (the retired sheet JS suite removed by design).
 APP_VERSION → 2026-11-08.12.
+
+## Deploy (2026-11-08)
+- Push: commit e32571f492283315b487c46b771a29ce31c481c8 (12 paths;
+  snapshot sync record #22). The 3 deleted files (templates/
+  _installbtn.html, templates/_installjs.html, tests/
+  test_install_sheet_js.js) were removed via GitHub web UI
+  afterwards — the push tool cannot delete.
+- Manual Deploy dep-dbnvbnrl550s738aevtg (09:09:03 PKT, 34s) →
+  live 09:09:37 PKT, clean gunicorn start.
+- Archer's independent live verification (curl): /api/version →
+  2026-11-08.12; homepage 200, 168,590 bytes; header slice: no
+  installBtn, no install-btn class, theme toggle + hmenuBtn +
+  nav-right present; page has exactly ONE id="installBtn" (the
+  #install section), no installBackdrop; ">AI Assistant<"
+  present; footer appUpdateBtn present, appUpdateBtnTop absent. ✔
+- **SECOND silent freeze, same day (~10:53 PKT):** the instance
+  froze again ~1.5h after the 09:09 redeploy — own curl checks
+  timed out 30s/30s/45s with 0 bytes on /healthz, /api/version
+  and homepage. Fixed by a second redeploy
+  dep-dbo0u295efls73cj8g80 (10:56:25 PKT, 31.7s, commit
+  a805525 — the .12 cleanup commit, same code), live 10:56:57.
+  Archer re-verified: /healthz 200 ~0.9s, /api/version .12,
+  homepage 200 ~0.8s. Support inbox re-checked after the
+  restart: count 0, no new messages. Free-instance freezes
+  are recurring; only a redeploy restarts the instance.

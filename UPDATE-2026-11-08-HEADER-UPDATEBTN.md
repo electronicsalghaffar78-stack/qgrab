@@ -29,3 +29,22 @@ page (the footer copy, which already existed, is untouched).
 Prepared while the live service was down/hanging (Render diagnosis in
 parallel). The redeploy of this release doubles as the service restart.
 Supersedes the 2026-11-08.7 center-slot placement.
+
+## Outage + deploy (2026-11-08)
+- The free instance froze silently at 08:00:57 PKT: app logs stop dead
+  (Render's own /healthz checks, every ~5s, simply cease), zero bytes to
+  any request, dashboard still showed "Live", no crash/error/shutdown
+  line, limits untouched (36.75/750 instance hours, 289 MB / 5 GB
+  bandwidth). Confirmed down from two independent paths (curl from the
+  sandbox + browser fetch — both timed out at 60s with 0 bytes).
+- Push: commit 12b282bc2e4099aaf201405f12011f686b6146c2 (11 paths;
+  snapshot sync record #21). The deleted templates/_updatebtn.html
+  could not be deleted by the push tool — removed via GitHub web UI
+  afterwards (nothing referenced it; the app never loads it).
+- Manual Deploy dep-dbnv6em417fc73ergk20, 08:57:46 PKT, 40.3s,
+  "Deploy succeeded | Live"; new instance clean gunicorn start,
+  live 08:58:27 PKT.
+- Independent live verification by Archer (curl): /healthz 200
+  {"ok":true} ~1.0s; /api/version → 2026-11-08.11; homepage 200,
+  175,187 bytes, TTFB ~1.0s; served HTML: appUpdateBtnTop ×0,
+  nav-center ×0, footer id="appUpdateBtn" ×1. ✔
