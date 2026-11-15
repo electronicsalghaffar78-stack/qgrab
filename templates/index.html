@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QGrab — Free Video Downloader | Download YouTube, TikTok, Facebook &amp; Instagram Videos</title>
-<meta name="description" content="Download videos free with QGrab — the free video downloader for YouTube, TikTok, Facebook &amp; Instagram. HD quality, no sign-up, TikTok with no watermark.">
-<meta name="keywords" content="video downloader, free video downloader, download youtube videos, youtube video downloader, tiktok video downloader, tiktok no watermark, facebook video downloader, instagram video downloader, download reels, video to script, video script generator, video scripting, youtube video to script, tiktok video to script, video to prompt, ai video prompt generator, video prompt maker, qgrab">
+<title>QGrab — Free Online Video Downloader | Download Videos Without Watermark</title>
+<meta name="description" content="Download videos free online with QGrab — the video downloader for YouTube, TikTok, Facebook &amp; Instagram in HD. No sign-up, nothing to install — TikTok downloads without a watermark.">
+<meta name="keywords" content="video downloader, free video downloader, online video downloader, video downloader online, download video online, video download without watermark, download video without watermark, download youtube videos, youtube video downloader, tiktok video downloader, download tiktok video without watermark, tiktok no watermark, facebook video downloader, instagram video downloader, download reels, video to script, video script generator, video scripting, youtube video to script, tiktok video to script, video to prompt, ai video prompt generator, video prompt maker, qgrab">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://qgrab.onrender.com/">
 <meta name="google-site-verification" content="kH1rWChK-PjNo5tanuASqjSkvJPeXhVSSsg5yOjAYw0" />
@@ -13,13 +13,13 @@
 {% endfor %}
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="QGrab">
-<meta property="og:title" content="QGrab — Free Video Downloader | Download YouTube, TikTok, Facebook &amp; Instagram Videos">
-<meta property="og:description" content="Download videos free with QGrab — the free video downloader for YouTube, TikTok, Facebook &amp; Instagram. HD quality, no sign-up, TikTok with no watermark.">
+<meta property="og:title" content="QGrab — Free Online Video Downloader | Download Videos Without Watermark">
+<meta property="og:description" content="Download videos free online with QGrab — the video downloader for YouTube, TikTok, Facebook &amp; Instagram in HD. No sign-up, nothing to install — TikTok downloads without a watermark.">
 <meta property="og:url" content="https://qgrab.onrender.com/">
 <meta property="og:image" content="https://qgrab.onrender.com/static/icons/icon-512.png">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="QGrab — Free Video Downloader | Download YouTube, TikTok, Facebook &amp; Instagram Videos">
-<meta name="twitter:description" content="Download videos free with QGrab — the free video downloader for YouTube, TikTok, Facebook &amp; Instagram. HD quality, no sign-up, TikTok with no watermark.">
+<meta name="twitter:title" content="QGrab — Free Online Video Downloader | Download Videos Without Watermark">
+<meta name="twitter:description" content="Download videos free online with QGrab — the video downloader for YouTube, TikTok, Facebook &amp; Instagram in HD. No sign-up, nothing to install — TikTok downloads without a watermark.">
 <meta name="twitter:image" content="https://qgrab.onrender.com/static/icons/icon-512.png">
 <script type="application/ld+json">
 {
@@ -29,10 +29,11 @@
   "url": "https://qgrab.onrender.com/",
   "applicationCategory": "MultimediaApplication",
   "operatingSystem": "Web",
-  "description": "QGrab is a free online video downloader for YouTube, TikTok, Instagram, Facebook and 1000+ sites. No sign-up, nothing to install, TikTok downloads without a watermark.",
+  "description": "QGrab is a free online video downloader for YouTube, TikTok, Instagram, Facebook and 1000+ sites. Download videos online with no sign-up and nothing to install — and no watermark on supported platforms like TikTok.",
   "featureList": [
-    "Free video downloader for YouTube, TikTok, Facebook and Instagram",
-    "TikTok downloads without a watermark",
+    "Free online video downloader for YouTube, TikTok, Facebook and Instagram",
+    "Download TikTok videos without a watermark",
+    "Pinterest, X (Twitter), Reddit, Vimeo, Twitch, SoundCloud, Dailymotion and Telegram downloaders",
     "MP3 audio, subtitles and transcript downloads",
     "Video to Script Converter",
     "AI Video Prompt Generator"
@@ -70,6 +71,17 @@
     --sheen1:rgba(15,23,42,.04); --sheen2:rgba(15,23,42,.015);
     --sh-soft:rgba(16,24,40,.08); --sh-strong:rgba(16,24,40,.16);
     --faint:#8b95a7; --faint2:#a6aebc; --ad-line:#c9d2df;
+    color-scheme:light;
+  }
+  html[data-theme="eyecare"]{
+    --bg:#f7ead1; --bg2:#f1dfc0; --card:#fdf6e9; --line:#e3d0ab;
+    --text:#3d2f1d; --muted:#7a6748; --accent:#c2410c; --accent2:#b45309;
+    --ok:#1c7d4d;
+    --header-bg:rgba(247,234,209,.92); --err-bg:#fbe9e7; --err-line:#eec5bd;
+    --err-text:#8c2b1d; --star:#d97706; --star-off:#e7d7b8;
+    --sheen1:rgba(120,72,20,.05); --sheen2:rgba(120,72,20,.02);
+    --sh-soft:rgba(101,67,20,.12); --sh-strong:rgba(101,67,20,.22);
+    --faint:#a68d64; --faint2:#bfa87e; --ad-line:#dcc493;
     color-scheme:light;
   }
 
@@ -267,6 +279,25 @@
   .plans-billing h3{font-size:1rem;font-weight:800;margin-bottom:8px}
   .plans-billing ul{margin:0;padding-left:18px}
   .plans-billing li{margin:5px 0;line-height:1.45}
+  .plan-price-pkr{font-weight:700;color:var(--star);margin:2px 0 6px}
+  .plan-price-pkr small{color:var(--muted);font-weight:600}
+  .plan-status{color:var(--muted);font-size:.9rem;min-height:1.2em}
+  .pay-steps{margin:0;padding-left:18px}
+  .pay-steps>li{margin:10px 0;line-height:1.5}
+  .pay-row{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  .pay-row label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+  .pay-row input[type="text"]{flex:1;min-width:220px;background:var(--bg);border:1.5px solid var(--line);border-radius:10px;color:var(--text);padding:10px 12px;font-size:.92rem}
+  .pay-account{font-weight:800;font-size:1.05rem;margin:6px 0;word-break:break-all}
+  .pay-form{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .pay-form input{flex:1;min-width:200px;background:var(--bg);border:1.5px solid var(--line);border-radius:10px;color:var(--text);padding:11px 12px;font-size:.95rem}
+  .pay-note{color:var(--muted);font-size:.88rem;line-height:1.5}
+  .sp-auto-note{color:var(--muted);font-size:.9rem;margin-top:10px}
+  .rate-dist{margin:10px 0;text-align:left}
+  .rate-dist .rd-row{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted);margin:3px 0}
+  .rate-dist .rd-bar{flex:1;height:8px;background:var(--bg2);border-radius:99px;overflow:hidden}
+  .rate-dist .rd-fill{height:100%;background:var(--star)}
+  .report-box{margin-top:18px;text-align:left}
+  .report-box select,.report-box textarea{width:100%;background:var(--bg);border:1.5px solid var(--line);border-radius:10px;color:var(--text);padding:11px 12px;font-size:.95rem;margin:6px 0;font-family:inherit}
   .plans-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:760px;margin:14px auto 0}
   @media (max-width:640px){ .plans-grid{grid-template-columns:1fr} }
   .plan-card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;
@@ -348,7 +379,9 @@
   .gcard p{color:var(--muted);font-size:.93rem}
   .platforms{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
   .plat{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
-        padding:9px 15px;border-radius:999px;font-weight:600;font-size:.95rem}
+        padding:9px 15px;border-radius:999px;font-weight:600;font-size:.95rem;color:var(--text)}
+  a.plat{text-decoration:none}
+  a.plat:hover{border-color:var(--accent)}
   .picon{width:20px;height:20px;flex:none;display:block}
 
   /* steps */
@@ -402,10 +435,15 @@
 <header>
   <div class="wrap nav">
     <div class="brand-side">
-      <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
-      <a class="plans-link" href="#plans">⭐ Plans</a>
+      <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="brand-text"><span class="wm">Q<span>Grab</span></span><span class="tagline">All Platform Video Download in One Place</span></span></a>
     </div>
-    <nav class="hnav">
+    <nav class="hnav" aria-label="Main">
+      <a class="nav-link on" href="/">Home</a>
+      <a class="nav-link js-tools" href="#tools">Tools</a>
+      <a class="nav-link" href="#download-history">Download History</a>
+      <a class="nav-link" href="#faq">FAQ</a>
+      <a class="nav-link" href="/telegram-proxies">Telegram Proxies</a>
+      <a class="nav-link js-invite" href="#invite">Invite</a>
       <div class="nav-right">
         {% include "_langmenu.html" %}
       </div>
@@ -414,15 +452,25 @@
 </header>
 
 <div class="wrap">
-  <h1 class="hero-h">Download Videos From Every Platform Easy &amp; Fast</h1>
+  <h1 class="hero-h">Free Video Downloader &amp; Social Media Tools — QGrab</h1>
 
   <div class="grab" id="download">
+      <div class="grab-title">Online Video Downloader — YouTube, TikTok, Instagram, Facebook</div>
       <form class="grab-row" id="grabForm">
         <input id="urlInput" type="url" inputmode="url" autocomplete="off"
                placeholder="{{ t.ph_home }}" required>
         <button class="btn" id="goBtn" type="submit">{{ t.btn_download }}</button>
       </form>
       <div class="hint">{{ t.hint_home }}</div>
+      <p class="works-line">Works with YouTube, TikTok, Instagram, Facebook, X (Twitter), Pinterest, SoundCloud, Twitch, Telegram, VK and many more websites.</p>
+      <div class="pchip-row" aria-label="Supported platforms">
+        <a class="pchip" href="/youtube-video-downloader">YouTube</a><a class="pchip" href="/tiktok-video-downloader">TikTok</a><a class="pchip" href="/instagram-video-downloader">Instagram</a><a class="pchip" href="/facebook-video-downloader">Facebook</a><a class="pchip" href="/twitter-video-downloader">X (Twitter)</a><a class="pchip" href="/pinterest-video-downloader">Pinterest</a><a class="pchip" href="/soundcloud-downloader">SoundCloud</a><a class="pchip" href="/twitch-video-downloader">Twitch</a><a class="pchip" href="/telegram-video-downloader">Telegram</a><span class="pchip">VK</span><a class="pchip beta" href="/reddit-video-downloader">Reddit *</a><a class="pchip beta" href="/vimeo-video-downloader">Vimeo *</a><a class="pchip beta" href="/dailymotion-video-downloader">Dailymotion *</a>
+      </div>
+      <p class="works-note">* Reddit, Vimeo and Dailymotion are new and still being improved — some links may fail.</p>
+      <div class="tchip-row" aria-label="Why QGrab">
+        <span class="tchip"><b>✓</b> Secure processing</span><span class="tchip"><b>✓</b> Files are never stored on our servers</span><span class="tchip"><b>✓</b> Works on all devices</span><span class="tchip"><b>✓</b> Direct from the source platform</span>
+      </div>
+      <span class="plan-pill" id="heroPlanPill">100% Free · No account needed</span>
       <div class="spinner" id="spinner"></div>
       <div id="error"></div>
 
@@ -436,8 +484,47 @@
         </div>
         <div class="formats" id="rFormats"></div>
         <div id="dlStatus" role="status"></div>
+        <p id="spAutoNote" class="sp-auto-note" style="display:none"></p>
       </div>
     </div>
+
+  <div class="usage-card" id="usage">
+    <h3>Today's free usage</h3>
+    <div class="usage-row"><span>Tool uses</span><span class="uv" id="usageToolsVal">–</span></div>
+    <div class="usage-row"><span>Downloads</span><span class="uv" id="usageDlVal">–</span></div>
+    <p class="usage-note">Everything on QGrab is free with no daily limits — these are just today's counts. Downloads are counted on this device; QGrab needs no account.</p>
+  </div>
+
+  <section id="invite">
+    <div class="install">
+      <h2>📣 Invite friends to QGrab</h2>
+      <p>Know someone who downloads videos? Share QGrab with them — every download and tool is free, with no limits and no sign-up.</p>
+      <p style="margin-top:14px"><button class="btn js-invite" type="button">Invite / Share QGrab</button></p>
+    </div>
+  </section>
+
+  <section id="subscribe">
+    <div class="install">
+      <h2>📬 QGrab updates, by email</h2>
+      <p>Subscribe and get one email a day with new tools, features and updates from QGrab — the way Fiverr keeps its subscribers posted. No account, just your email.</p>
+      <form class="js-sub-form sub-form sub-form-center" data-source="section">
+        <div class="sub-row">
+          <input type="email" required placeholder="Your email address" aria-label="Email address">
+          <button class="btn" type="submit">Subscribe</button>
+        </div>
+        <div class="js-sub-msg sub-msg" role="status"></div>
+        <p class="sub-note">One email a day with QGrab updates. Unsubscribe anytime.</p>
+      </form>
+    </div>
+  </section>
+
+  <section id="download-history">
+    <h2>Download History</h2>
+    <p class="sub">Every video and MP3 you download appears in this list — saved in this browser, on this device.</p>
+    <p class="hist-empty" id="histEmpty">No downloads yet — your downloads will appear here.</p>
+    <div class="hist-list" id="histList"></div>
+    <button type="button" class="hist-clear" id="histClear" style="display:none">Clear History</button>
+  </section>
 
   <section id="search-videos" class="search-sec">
     <h2>Search Videos — Watch & Download</h2>
@@ -494,13 +581,19 @@
     <p class="sub">{{ t.supported_sub }}</p>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="ig-grad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#FFD600"/><stop offset=".35" stop-color="#FF7A00"/><stop offset=".6" stop-color="#FF0069"/><stop offset=".82" stop-color="#D300C5"/><stop offset="1" stop-color="#7638FA"/></linearGradient></defs></svg>
     <div class="platforms">
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#FF0000" aria-hidden="true" focusable="false"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>YouTube</div>
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true" focusable="false"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>TikTok</div>
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="url(#ig-grad)" aria-hidden="true" focusable="false"><path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg>Instagram</div>
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#1877F2" aria-hidden="true" focusable="false"><path d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>Facebook</div>
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true" focusable="false"><path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"/></svg>X (Twitter)</div>
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect width="24" height="24" rx="5.5" fill="#0077FF"/><text x="12" y="15.8" text-anchor="middle" font-size="8.2" font-weight="800" fill="#ffffff" font-family="Arial, sans-serif">VK</text></svg>VK</div>
-      <div class="plat"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="12" fill="#E60023"/><text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff" font-family="Georgia, serif">P</text></svg>Pinterest</div>
+      <a class="plat" href="/youtube-video-downloader"><svg class="picon" viewBox="0 0 24 24" fill="#FF0000" aria-hidden="true" focusable="false"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>YouTube</a>
+      <a class="plat" href="/tiktok-video-downloader"><svg class="picon" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true" focusable="false"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>TikTok</a>
+      <a class="plat" href="/instagram-video-downloader"><svg class="picon" viewBox="0 0 24 24" fill="url(#ig-grad)" aria-hidden="true" focusable="false"><path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg>Instagram</a>
+      <a class="plat" href="/facebook-video-downloader"><svg class="picon" viewBox="0 0 24 24" fill="#1877F2" aria-hidden="true" focusable="false"><path d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>Facebook</a>
+      <a class="plat" href="/twitter-video-downloader"><svg class="picon" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true" focusable="false"><path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"/></svg>X (Twitter)</a>
+      <a class="plat" href="/pinterest-video-downloader"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect width="24" height="24" rx="5.5" fill="#0077FF"/><text x="12" y="15.8" text-anchor="middle" font-size="8.2" font-weight="800" fill="#ffffff" font-family="Arial, sans-serif">VK</text></svg>VK</div>
+      <div class="plat"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="12" fill="#E60023"/><text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff" font-family="Georgia, serif">P</text></svg>Pinterest</a>
+      <a class="plat" href="/reddit-video-downloader"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#FF4500"/><text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff" font-family="Georgia, serif">R</text></svg>Reddit</a>
+      <a class="plat" href="/vimeo-video-downloader"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#17B3E8"/><text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff" font-family="Georgia, serif">V</text></svg>Vimeo</a>
+      <a class="plat" href="/twitch-video-downloader"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5.5" fill="#9146FF"/><text x="12" y="16.5" text-anchor="middle" font-size="9" font-weight="800" fill="#ffffff" font-family="Arial, sans-serif">TW</text></svg>Twitch</a>
+      <a class="plat" href="/soundcloud-downloader"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5.5" fill="#FF5500"/><text x="12" y="16.5" text-anchor="middle" font-size="9" font-weight="800" fill="#ffffff" font-family="Arial, sans-serif">SC</text></svg>SoundCloud</a>
+      <a class="plat" href="/dailymotion-video-downloader"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#0A0A0A"/><text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff" font-family="Georgia, serif">D</text></svg>Dailymotion</a>
+      <a class="plat" href="/telegram-video-downloader"><svg class="picon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#229ED9"/><text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff" font-family="Georgia, serif">T</text></svg>Telegram</a>
       <div class="plat"><svg class="picon" viewBox="0 0 24 24" fill="var(--accent)" aria-hidden="true" focusable="false"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>{{ t.plat_more }}</div>
     </div>
   </section>
@@ -575,13 +668,41 @@
         <li>{{ t.install_li2 | safe }}</li>
         <li>{{ t.install_li3 | safe }}</li>
       </ul>
+      <div class="ios-card">
+        <h3>🍎 iPhone / iOS</h3>
+        <p>QGrab is not on the App Store — on iPhone you add the
+           QGrab web app to your Home Screen instead:</p>
+        <ol class="steps-mini">
+          <li>Open QGrab in <b>Safari</b>.</li>
+          <li>Tap the <b>Share</b> button.</li>
+          <li>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+        </ol>
+        <p>The QGrab icon then sits on your Home Screen and opens
+           like a normal app — free, nothing to buy.</p>
+      </div>
     </div>
   </section>
 
-  {# Plans is the LAST content section (2026-11-08 phone fix:
-     the owner asked for it at the very bottom of the page,
-     right before the footer — it used to sit mid-page). #}
-  {% include "_plans.html" %}
+  <section id="pc">
+    <div class="install pc-box">
+      <h2>QGrab for PC — IDM-style downloader</h2>
+      <p>Prefer downloading from your computer? The free QGrab
+         browser extension for Chrome and Edge puts a small QGrab
+         panel on YouTube and Facebook video pages — pick a
+         quality there and QGrab does the download, the same way
+         IDM's panel works. It is a browser extension, not a
+         separate program, and it is not on the Chrome Web Store
+         yet, so for now it installs manually:</p>
+      <a class="btn" id="extDownload" href="/static/downloads/qgrab-extension.zip" download>⬇ Download the extension (ZIP)</a>
+      <ol class="steps-mini">
+        <li>Unzip the file you downloaded.</li>
+        <li>Open <b>chrome://extensions</b> (in Edge: <b>edge://extensions</b>).</li>
+        <li>Turn on <b>Developer mode</b>.</li>
+        <li>Click <b>Load unpacked</b> and choose the unzipped folder.</li>
+        <li>Open any YouTube or Facebook video — the QGrab panel is on the page.</li>
+      </ol>
+    </div>
+  </section>
 
   {% include "_footer.html" %}
 </div>
@@ -647,6 +768,13 @@ function dlPlatform(a){
     if (host.indexOf('vk.com') !== -1 || host.indexOf('vkvideo') !== -1) return 'vk';
     if (host.indexOf('twitter') !== -1 || host === 'x.com' ||
         host.slice(-6) === '.x.com') return 'twitter';
+    if (host.indexOf('reddit') !== -1) return 'reddit';
+    if (host.indexOf('vimeo') !== -1) return 'vimeo';
+    if (host.indexOf('twitch') !== -1) return 'twitch';
+    if (host.indexOf('soundcloud') !== -1) return 'soundcloud';
+    if (host.indexOf('dailymotion') !== -1 || host === 'dai.ly') return 'dailymotion';
+    if (host.indexOf('threads') !== -1) return 'threads';
+    if (host.indexOf('t.me') !== -1 || host.indexOf('telegram') !== -1) return 'telegram';
   } catch (e) {}
   return 'other';
 }
@@ -657,6 +785,33 @@ document.getElementById('rFormats').addEventListener('click', (e) => {
      navigation proceeds untouched. */
   if (window.qgEvent) {
     window.qgEvent('download_start', {platform: dlPlatform(a)});
+  }
+  /* 2026-11-16: starting a download also starts Script+Prompt
+     generation for the same video, in parallel (see _spjs.html). */
+  try {
+    const raw = new URL(a.href).searchParams.get('url') || '';
+    if (raw && window.qgrabAutoScriptPrompt) {
+      window.qgrabAutoScriptPrompt(raw);
+    }
+  } catch (e) {}
+  /* Download History (2026-11-16 round 2): record the download
+     in this browser's own list (see _historyjs.html). Read the
+     row's label BEFORE the waiting state replaces the anchor. */
+  if (window.QGHistory) {
+    try {
+      const hUrl = new URL(a.href);
+      const row = a.closest('.fmt');
+      const q = row ? row.querySelector('.q') : null;
+      const thumbEl = document.getElementById('rThumb');
+      window.QGHistory.record({
+        url: hUrl.searchParams.get('url') || '',
+        title: (document.getElementById('rTitle') || {}).textContent || '',
+        thumb: (thumbEl && thumbEl.style.display !== 'none') ? thumbEl.src : '',
+        platform: dlPlatform(a),
+        format: q ? q.textContent : '',
+        format_id: hUrl.searchParams.get('format_id') || ''
+      });
+    } catch (e) {}
   }
   const original = a.innerHTML;
   a.dataset.dlBusy = '1';
@@ -795,6 +950,54 @@ form.addEventListener('submit', async (e) => {
     btn.disabled = false; btn.textContent = I18N.download;
   }
 });
+</script>
+<script>
+/* --- Today's free usage (2026-11-16 round 2; round 3:
+   counts only — the owner removed every daily limit, so the
+   card shows how much was used today, never a cap) ---
+   Tool uses come from the server's usage counters (AI Tools +
+   Script/Prompt); Downloads come from this browser's own
+   Download History (no account exists). */
+(function () {
+  function load() {
+    var toolsUsed = 0, got = 0;
+    function done() {
+      got++;
+      if (got < 2) return;
+      var val = document.getElementById('usageToolsVal');
+      if (val) val.textContent = toolsUsed + ' today · Unlimited';
+      var n = window.QGHistory ? window.QGHistory.todayCount() : 0;
+      var dv = document.getElementById('usageDlVal');
+      if (dv) dv.textContent = n + ' today · Unlimited';
+    }
+    fetch('/api/ai-tools/quota').then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && typeof d.used === 'number') toolsUsed += d.used;
+      }).catch(function () {}).then(done);
+    fetch('/api/script-prompt/quota').then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && typeof d.script_used === 'number') {
+          toolsUsed += d.script_used + d.prompts_used;
+        }
+      }).catch(function () {}).then(done);
+  }
+  window.qgrabUsageRefresh = load;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', load);
+  } else { load(); }
+
+  /* Download Again for items without a stored format: re-run
+     the main downloader's lookup for the original link. */
+  window.qgrabHistoryRerun = function (url) {
+    var urlInput = document.getElementById('urlInput');
+    var grabForm = document.getElementById('grabForm');
+    if (!urlInput || !grabForm) return;
+    urlInput.value = url;
+    document.getElementById('download').scrollIntoView({ behavior: 'smooth' });
+    if (grabForm.requestSubmit) grabForm.requestSubmit();
+    else grabForm.dispatchEvent(new Event('submit', { cancelable: true }));
+  };
+})();
 </script>
 <script>
 /* --- Search Videos UI --- */
@@ -1363,10 +1566,8 @@ form.addEventListener('submit', async (e) => {
     aiMsg.style.display = text ? 'block' : 'none';
   }
   function aiSetLeft(n){
-    if (typeof n !== 'number') { aiLeft.textContent = ''; return; }
-    aiLeft.textContent = n > 0
-      ? n + ' free AI generations left today'
-      : 'No free AI generations left today — they refresh daily.';
+    /* Round 3: no daily limit anymore — the line just says so. */
+    aiLeft.textContent = 'Free & unlimited — no daily limit';
   }
   function aiSelect(tool){
     if (!AI_META[tool]) return;
@@ -1417,7 +1618,7 @@ form.addEventListener('submit', async (e) => {
         data.image.indexOf('data:image/png') === 0
           ? 'qgrab-thumbnail.png' : 'qgrab-thumbnail.jpg');
       aiThumbBox.appendChild(dl);
-      if (typeof data.left === 'number') aiSetLeft(data.left);
+      aiSetLeft();
     } catch (err) {
       aiThumbBox.innerHTML = '';
       const fail = document.createElement('p');
@@ -1490,14 +1691,13 @@ form.addEventListener('submit', async (e) => {
 
   fetch('/api/ai-tools/quota')
     .then((r) => r.json())
-    .then((d) => aiSetLeft(d && d.left))
+    .then(() => aiSetLeft())
     .catch(() => {});
 
   const AI_ERRORS = {
     invalid_request: 'Please type a topic first.',
-    daily_limit: 'The free daily limit is reached — please try again tomorrow.',
     not_configured: 'This tool is being set up — please try again later.',
-    ai_unavailable: 'The AI is busy right now — please try again in a moment.',
+    ai_unavailable: 'The AI is busy right now — please try again in a few minutes.',
   };
 
   aiForm.addEventListener('submit', async (e) => {
@@ -1523,7 +1723,7 @@ form.addEventListener('submit', async (e) => {
       }
       aiShowMsg('', false);
       aiRender(data.items || []);
-      if (typeof data.left === 'number') aiSetLeft(data.left);
+      aiSetLeft();
     } catch (err) {
       aiShowMsg(err.message || 'Generation failed. Please try again.', true);
     } finally {
@@ -1534,6 +1734,11 @@ form.addEventListener('submit', async (e) => {
 </script>
 {% include "_spjs.html" %}
 {% include "_appupdatejs.html" %}
+{% include "_asstfallback.html" %}
 {% include "_assistantjs.html" %}
+{% include "_historyjs.html" %}
+{% include "_subscribejs.html" %}
+{% include "_invitejs.html" %}
+{% include "_animjs.html" %}
 </body>
 </html>

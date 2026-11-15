@@ -29,6 +29,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="QGrab">
 <script type="application/ld+json">{{ faq_ld | tojson }}</script>
+<script type="application/ld+json">{{ app_ld | tojson }}</script>
 <style>
   :root{
     --bg:#0e1013; --bg2:#15181e; --card:#1a1e26; --line:#262c38;
@@ -50,6 +51,17 @@
     --sheen1:rgba(15,23,42,.04); --sheen2:rgba(15,23,42,.015);
     --sh-soft:rgba(16,24,40,.08); --sh-strong:rgba(16,24,40,.16);
     --faint:#8b95a7; --faint2:#a6aebc; --ad-line:#c9d2df;
+    color-scheme:light;
+  }
+  html[data-theme="eyecare"]{
+    --bg:#f7ead1; --bg2:#f1dfc0; --card:#fdf6e9; --line:#e3d0ab;
+    --text:#3d2f1d; --muted:#7a6748; --accent:#c2410c; --accent2:#b45309;
+    --ok:#1c7d4d;
+    --header-bg:rgba(247,234,209,.92); --err-bg:#fbe9e7; --err-line:#eec5bd;
+    --err-text:#8c2b1d; --star:#d97706; --star-off:#e7d7b8;
+    --sheen1:rgba(120,72,20,.05); --sheen2:rgba(120,72,20,.02);
+    --sh-soft:rgba(101,67,20,.12); --sh-strong:rgba(101,67,20,.22);
+    --faint:#a68d64; --faint2:#bfa87e; --ad-line:#dcc493;
     color-scheme:light;
   }
 
@@ -182,9 +194,15 @@
 <header>
   <div class="wrap nav">
     <div class="brand-side">
-      <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
+      <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="brand-text"><span class="wm">Q<span>Grab</span></span><span class="tagline">All Platform Video Download in One Place</span></span></a>
     </div>
-    <nav class="hnav">
+    <nav class="hnav" aria-label="Main">
+      <a class="nav-link" href="/">Home</a>
+      <a class="nav-link" href="/#tools">Tools</a>
+      <a class="nav-link" href="/#download-history">Download History</a>
+      <a class="nav-link" href="/#faq">FAQ</a>
+      <a class="nav-link" href="/telegram-proxies">Telegram Proxies</a>
+      <a class="nav-link js-invite" href="#invite">Invite</a>
       <div class="nav-right">
         {% include "_langmenu.html" %}
       </div>
@@ -353,6 +371,34 @@ document.getElementById('rFormats').addEventListener('click', (e) => {
   if (window.qgEvent) {
     window.qgEvent('download_start', {platform: dlPlatform(a)});
   }
+  /* Download History (2026-11-16 round 2): same browser list
+     as the homepage (see _historyjs.html). */
+  if (window.QGHistory) {
+    try {
+      const hUrl = new URL(a.href);
+      const row = a.closest('.fmt');
+      const q = row ? row.querySelector('.q') : null;
+      const thumbEl = document.getElementById('rThumb');
+      window.QGHistory.record({
+        url: hUrl.searchParams.get('url') || '',
+        title: (document.getElementById('rTitle') || {}).textContent || '',
+        thumb: (thumbEl && thumbEl.style.display !== 'none') ? thumbEl.src : '',
+        platform: dlPlatform(a),
+        format: q ? q.textContent : '',
+        format_id: hUrl.searchParams.get('format_id') || ''
+      });
+    } catch (e) {}
+  }
+  /* Download Again re-run hook for this page's own form. */
+  window.qgrabHistoryRerun = function (url) {
+    const urlInput = document.getElementById('urlInput');
+    const grabForm = document.getElementById('grabForm');
+    if (!urlInput || !grabForm) return;
+    urlInput.value = url;
+    document.getElementById('download').scrollIntoView({behavior:'smooth'});
+    if (grabForm.requestSubmit) grabForm.requestSubmit();
+    else grabForm.dispatchEvent(new Event('submit', {cancelable:true}));
+  };
   const original = a.innerHTML;
   a.dataset.dlBusy = '1';
   a.classList.add('dl-wait');
@@ -494,6 +540,11 @@ form.addEventListener('submit', async (e) => {
 </script>
 {% endif %}
 {% include "_appupdatejs.html" %}
+{% include "_asstfallback.html" %}
 {% include "_assistantjs.html" %}
+{% include "_historyjs.html" %}
+{% include "_subscribejs.html" %}
+{% include "_invitejs.html" %}
+{% include "_animjs.html" %}
 </body>
 </html>

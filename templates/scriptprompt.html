@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Video to Script + AI Video Prompt Generator — Free | QGrab</title>
+<title>Video to Script + AI Video Prompt Generator — Free — QGrab</title>
 <meta name="description" content="Paste a video link and get its full script — from subtitles or the audio itself — plus scene-by-scene AI video prompts. Free video to script + prompt generator, no sign-up.">
 <meta name="keywords" content="video to script, video script generator, video scripting, get script from a video, youtube video to script, tiktok video to script, video to prompt, ai video prompt generator, video prompt maker, make prompts from a video, ai video prompts, transcript to script, youtube script, qgrab">
 <meta name="robots" content="index, follow">
@@ -12,14 +12,26 @@
 {% endfor %}
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="QGrab">
-<meta property="og:title" content="Video to Script + AI Video Prompt Generator — Free | QGrab">
+<meta property="og:title" content="Video to Script + AI Video Prompt Generator — Free — QGrab">
 <meta property="og:description" content="Paste a video link and get its full script plus scene-by-scene AI video prompts — free, from subtitles or the video's own audio.">
 <meta property="og:url" content="{{ site_url }}/video-to-script-prompt">
 <meta property="og:image" content="{{ site_url }}/static/icons/icon-512.png">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Video to Script + AI Video Prompt Generator — Free | QGrab">
+<meta name="twitter:title" content="Video to Script + AI Video Prompt Generator — Free — QGrab">
 <meta name="twitter:description" content="Paste a video link and get its full script plus scene-by-scene AI video prompts — free, from subtitles or the video's own audio.">
 <meta name="twitter:image" content="{{ site_url }}/static/icons/icon-512.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Video to Script + AI Video Prompt Generator — QGrab",
+  "url": "{{ site_url }}/video-to-script-prompt",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Web",
+  "description": "Paste a video link and get its full script — from subtitles or the audio itself — plus scene-by-scene AI video prompts. Free, no sign-up.",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 <link rel="manifest" href="/static/manifest.webmanifest">
 {% include "_themehead.html" %}
 <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
@@ -49,6 +61,12 @@
     --sheen1:rgba(15,23,42,.04); --sheen2:rgba(15,23,42,.015);
     --sh-soft:rgba(16,24,40,.08); --sh-strong:rgba(16,24,40,.16);
     --faint:#8b95a7; --faint2:#a6aebc; --ad-line:#c9d2df;
+    color-scheme:light;
+  }
+  html[data-theme="eyecare"]{
+    --bg:#f7ead1; --bg2:#f1dfc0; --card:#fdf6e9; --line:#e3d0ab;
+    --text:#3d2f1d; --muted:#7a6748; --accent:#c2410c; --accent2:#b45309;
+    --header-bg:rgba(247,234,209,.92); --sh-strong:rgba(101,67,20,.22);
     color-scheme:light;
   }
 
@@ -127,9 +145,15 @@
 <header>
   <div class="wrap nav">
     <div class="brand-side">
-      <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="wm">Q<span>Grab</span></span></a>
+      <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="brand-text"><span class="wm">Q<span>Grab</span></span><span class="tagline">All Platform Video Download in One Place</span></span></a>
     </div>
-    <nav class="hnav">
+    <nav class="hnav" aria-label="Main">
+      <a class="nav-link" href="/">Home</a>
+      <a class="nav-link" href="/#tools">Tools</a>
+      <a class="nav-link" href="/#download-history">Download History</a>
+      <a class="nav-link" href="/#faq">FAQ</a>
+      <a class="nav-link" href="/telegram-proxies">Telegram Proxies</a>
+      <a class="nav-link js-invite" href="#invite">Invite</a>
       <div class="nav-right">
         {% include "_langmenu.html" %}
       </div>
@@ -164,6 +188,10 @@ const I18N = {{ js_strings | tojson }};
 </script>
 {% include "_spjs.html" %}
 {% include "_appupdatejs.html" %}
+{% include "_asstfallback.html" %}
 {% include "_assistantjs.html" %}
+{% include "_subscribejs.html" %}
+{% include "_invitejs.html" %}
+{% include "_animjs.html" %}
 </body>
 </html>
