@@ -33,6 +33,10 @@
   var verFetched = false;
   var attachBtn = document.getElementById('asstAttach');
   var fileInput = document.getElementById('asstFile');
+  var chip = document.getElementById('asstChip');
+  var chipImg = document.getElementById('asstChipImg');
+  var chipName = document.getElementById('asstChipName');
+  var chipRemove = document.getElementById('asstChipRemove');
   var pendingImage = null;  /* {mime, data} — one photo, Dahot-style */
 
   /* Photo attach (2026-11-16): the visitor may send ONE photo
@@ -60,6 +64,14 @@
         if (parts.length < 2) return;
         pendingImage = { mime: f.type, data: parts.slice(1).join(',') };
         attachBtn.classList.add('on');
+        /* Preview chip (owner's order, 2026-11-16): the
+           visitor SEES the attached photo above the composer,
+           with a ✕ that takes it back — never a blind send. */
+        if (chip && chipImg) {
+          chipImg.src = String(rd.result || '');
+          if (chipName) chipName.textContent = f.name || 'Photo';
+          chip.hidden = false;
+        }
         status.textContent = 'Photo attached — press Send.';
       };
       rd.readAsDataURL(f);
@@ -68,6 +80,15 @@
   function clearPendingImage() {
     pendingImage = null;
     if (attachBtn) attachBtn.classList.remove('on');
+    if (chip) chip.hidden = true;
+    if (chipImg) chipImg.removeAttribute('src');
+    if (chipName) chipName.textContent = '';
+  }
+  if (chipRemove) {
+    chipRemove.addEventListener('click', function () {
+      clearPendingImage();
+      status.textContent = '';
+    });
   }
 
   var history = [];   /* [{role: 'user'|'assistant', text}] */

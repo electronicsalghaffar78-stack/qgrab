@@ -35,6 +35,12 @@
     <p class="asst-note">Ask me anything about QGrab — downloads, tools, plans.</p>
     <div class="asst-msgs" id="asstMsgs" style="direction:ltr"></div>
     <div class="asst-status" id="asstStatus" role="status"></div>
+    <div class="asst-chip" id="asstChip" hidden>
+      <img class="asst-chip-img" id="asstChipImg" alt="Attached photo preview">
+      <span class="asst-chip-name" id="asstChipName"></span>
+      <button type="button" class="asst-chip-x" id="asstChipRemove"
+              aria-label="Remove attached photo" title="Remove photo">✕</button>
+    </div>
     <form class="asst-form" id="asstForm" style="display:flex;gap:8px;align-items:stretch">
       <input id="asstInput" type="text" maxlength="500" dir="auto"
              style="flex:1 1 auto;min-width:0;width:auto;min-height:44px;font-size:16px;color:var(--text);background:var(--bg2)"
@@ -59,5 +65,5 @@
     <div class="asst-status" id="asstSupStatus" role="status"></div>
     <button type="button" class="asst-back" id="asstBackBtn">← Back to chat</button>
   </form>
-  <div class="asst-ver" id="asstVer">QGrab Assistant · v2026-11-16.19</div>
+  <div class="asst-ver" id="asstVer">QGrab Assistant · v2026-11-16.20</div>
 </div>
