@@ -32,6 +32,11 @@ COPY app.py ./
 COPY i18n.py ./
 COPY templates ./templates
 COPY static ./static
+# Bundled data snapshots that ship with the code (2026-11-16.21):
+# bundled_data/proxies.json is the deploy-proof fallback for the
+# Telegram Proxies page — data/ below stays an empty runtime dir,
+# so without this COPY the image never contains a proxy list.
+COPY bundled_data ./bundled_data
 
 # Run unprivileged. Merged downloads are written to the system temp dir
 # (/tmp) by app.py and deleted after each response, so nothing else

@@ -459,3 +459,45 @@ This pass only makes the pages *eligible* and well-matched — it does not buy r
   `test_assistant_photo_with_text_and_invalid_dropped`.
   Full suite re-run: 28 Python files + 6 JS suites + extension
   17/17 — ALL PASS. APP_VERSION .19 → .20.
+
+---
+
+# Release 2026-11-16.21 — Telegram Proxies page empty on live: deploy-proof fix
+
+- **Symptom:** after .20 went live, /telegram-proxies rendered
+  **0 proxies** ("list is being refreshed") although the round-3
+  snapshot (100 real MTProto proxies, updated 2026-11-16) existed
+  locally and had been pushed to GitHub in the .19 batches.
+- **Root cause (two layers):** the route read ONLY
+  `data/proxies.json`. (1) `data/` is git-ignored runtime state,
+  so the file's presence in the repo was incidental, never
+  guaranteed; (2) decisively, `deploy/Dockerfile` copies only
+  `app.py`, `i18n.py`, `templates/` and `static/` into the image
+  and creates an EMPTY `/app/data` — the proxy list never entered
+  the production image at all, so the open() failed and the
+  route honestly served its empty fallback.
+- **Fix:** the snapshot now ships WITH the code in two places —
+  `bundled_data/proxies.json` (new top-level folder, not
+  git-ignored; the Dockerfile gained `COPY bundled_data
+  ./bundled_data`) and `static/bundled/proxies.json` (static/ is
+  copied into the image unconditionally, so this copy survives
+  even a Dockerfile regression). `_load_proxy_list()` tries, in
+  order: runtime `data/proxies.json` (a future refreshed list
+  still wins), then `bundled_data/`, then `static/bundled/` —
+  first file yielding ≥1 valid entry wins; entry validation is
+  unchanged, and if every candidate is missing the page still
+  serves the honest empty state rather than inventing data.
+  Both bundled copies are byte-identical to the round-3
+  snapshot (100 proxies, "updated": 2026-11-16), and the
+  sourcing note ships alongside as
+  `bundled_data/PROXIES-SOURCE-NOTE.md`.
+- **Tests:** new `tests/test_proxies_fallback.py` (12 checks):
+  bundled copies complete/identical/dated, Dockerfile COPY
+  present, loader order, fallback when the runtime file is
+  missing, honest empty when all are missing, and the route
+  rendering all 100 from the fallback alone. A production
+  simulation (clean repo copy with `data/proxies.json` deleted,
+  i.e. the live image's exact condition) renders 100 proxies.
+  **Full suite: 29 Python files + 6 JS suites + extension
+  17/17 — ALL PASS.** APP_VERSION .20 → .21. Mirrors re-synced,
+  backup ZIP refreshed.
