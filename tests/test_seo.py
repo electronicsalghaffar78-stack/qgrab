@@ -1,4 +1,4 @@
-"""SEO pass tests (2026-11-16, APP_VERSION 2026-11-16.19).
+"""SEO pass tests (2026-11-16, APP_VERSION 2026-11-16.20).
 
 The owner's goal: when anyone searches Google for "video
 download", "video downloader", "video download without

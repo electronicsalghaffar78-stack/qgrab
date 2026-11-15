@@ -429,3 +429,33 @@ This pass only makes the pages *eligible* and well-matched — it does not buy r
 - This release is the one the owner authorized with "jab sab clear ho
   jaye to live kar dena, main check karunga" — rounds 1–3, the item-G
   correction, the SEO pass and this tagline fix go live together.
+
+---
+
+# Release 2026-11-16.20 — Assistant attach-button preview chip (owner's Dahot screenshot)
+
+- The owner screenshotted Dahot's assistant and circled the 📎
+  paperclip: a visitor attaches a SCREENSHOT of their issue and
+  asks about it. QGrab's round-2 port already had the visible
+  📎 button in the composer strip and the full photo/vision
+  flow (photo-only questions included). The one missing piece
+  was visual confirmation of WHAT was attached.
+- **Added: preview chip** above the composer — thumbnail of the
+  attached photo + its file name + a ✕ remove button
+  (`#asstChip` in `_assistant.html`, wiring in
+  `_assistantjs.html`, styles in `_extras.html`). Removing the
+  photo before Send is now possible; the chip clears itself on
+  a successful/fallback send and stays (with the photo) after a
+  hard error so the visitor can retry. Unchanged: 4 MB client
+  cap under the server's base64 cap, whitelisted mimes,
+  silent-drop of invalid photos, site-help scope, and the
+  latest-message language rule for answers about the screenshot.
+- **Tests:** `tests/test_assistant.py` 26 → 29 — new
+  `test_widget_attach_button_and_preview_chip` (button inside
+  the composer form on all three widget pages, accept list,
+  chip markup/CSS/JS wiring), `test_assistant_photo_only_question`
+  (empty message + photo reaches Gemini as an inline part with
+  the explicit no-question line), and
+  `test_assistant_photo_with_text_and_invalid_dropped`.
+  Full suite re-run: 28 Python files + 6 JS suites + extension
+  17/17 — ALL PASS. APP_VERSION .19 → .20.

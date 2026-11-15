@@ -797,6 +797,113 @@ def test_widget_composer_inline_hardening():
     assert m and "font-size:.72rem" in m.group(1), m
 
 
+# ----------------------------------------------------------------
+# Photo attach (owner's Dahot-screenshot order, 2026-11-16):
+# a clearly visible 📎 button IN the composer strip, a preview
+# chip with a remove option, and photo-only questions.
+# ----------------------------------------------------------------
+
+_PNG_B64 = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC"
+            "AAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII=")
+
+
+def test_widget_attach_button_and_preview_chip():
+    """The 📎 attach button sits IN the composer form (the
+    input strip — not hidden in any menu), the hidden file
+    input accepts exactly the four photo types, and the
+    preview-chip markup + show/remove wiring ship on every
+    page that carries the widget."""
+    import re
+    client = qgrab.app.test_client()
+    for path in ("/", "/youtube-video-downloader",
+                 "/video-to-script-prompt"):
+        html = client.get(path).get_data(as_text=True)
+        form_i = html.find('id="asstForm"')
+        form_end = html.find("</form>", form_i)
+        btn_i = html.find('id="asstAttach"')
+        assert form_i != -1 and form_i < btn_i < form_end, \
+            (path, "attach button must live inside the composer form")
+        assert ">📎</button>" in html, (path, "paperclip glyph")
+        assert 'aria-label="Attach a photo"' in html, path
+        assert ('accept="image/jpeg,image/png,image/webp,'
+                'image/gif"') in html, path
+        for marker in ('id="asstChip"', 'id="asstChipImg"',
+                       'id="asstChipName"', 'id="asstChipRemove"',
+                       "chip.hidden = false",
+                       "chipRemove.addEventListener",
+                       "chipImg.removeAttribute('src')"):
+            assert marker in html, (path, marker)
+        m = re.search(r"\.asst-chip\{([^}]*)\}", html)
+        assert m and "display:flex" in m.group(1), (path, m)
+        m = re.search(r"\.asst-chip\[hidden\]\{([^}]*)\}", html)
+        assert m and "display:none" in m.group(1), (path, m)
+
+
+def test_assistant_photo_only_question():
+    """A photo with NO written question is a valid question:
+    Gemini receives the inline image part plus the explicit
+    '[sent a photo with no written question]' line, and the
+    visitor gets the answer."""
+    _reset_asst()
+    client = qgrab.app.test_client()
+
+    def fake(req, timeout=None):
+        return _reply("That screenshot shows a download error.")
+
+    with _patched(fake) as patched:
+        resp = client.post("/api/assistant", json={
+            "message": "",
+            "image": {"mime": "image/png", "data": _PNG_B64}})
+    assert resp.status_code == 200, resp.status_code
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert body["answer"] == "That screenshot shows a download error."
+    payload = json.loads(patched.bodies[0].decode("utf-8"))
+    parts = payload["contents"][0]["parts"]
+    assert "[sent a photo with no written question]" in parts[0]["text"]
+    inline = [p for p in parts if "inline_data" in p]
+    assert len(inline) == 1, parts
+    assert inline[0]["inline_data"]["mime_type"] == "image/png"
+    assert inline[0]["inline_data"]["data"] == _PNG_B64
+
+
+def test_assistant_photo_with_text_and_invalid_dropped():
+    """Photo + text: both reach Gemini. A bad photo (wrong
+    mime) is dropped SILENTLY — the text question still gets
+    its answer, with no image part — and an empty message
+    with only a bad photo is the one invalid case (400)."""
+    _reset_asst()
+    client = qgrab.app.test_client()
+
+    def fake(req, timeout=None):
+        return _reply("Here is the answer.")
+
+    with _patched(fake) as patched:
+        resp = client.post("/api/assistant", json={
+            "message": "What does this error mean?",
+            "image": {"mime": "image/png", "data": _PNG_B64}})
+    assert resp.status_code == 200, resp.status_code
+    payload = json.loads(patched.bodies[-1].decode("utf-8"))
+    parts = payload["contents"][0]["parts"]
+    assert "Visitor (now): What does this error mean?" in parts[0]["text"]
+    assert any("inline_data" in p for p in parts), parts
+
+    with _patched(fake) as patched:
+        resp = client.post("/api/assistant", json={
+            "message": "How do I download a video?",
+            "image": {"mime": "application/pdf", "data": _PNG_B64}})
+    assert resp.status_code == 200, resp.status_code
+    payload = json.loads(patched.bodies[-1].decode("utf-8"))
+    parts = payload["contents"][0]["parts"]
+    assert not any("inline_data" in p for p in parts), parts
+
+    resp = client.post("/api/assistant", json={
+        "message": "",
+        "image": {"mime": "application/pdf", "data": _PNG_B64}})
+    assert resp.status_code == 400, resp.status_code
+    assert resp.get_json()["error"] == "invalid_request"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]
