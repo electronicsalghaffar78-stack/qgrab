@@ -1,0 +1,46 @@
+{
+  "action": {
+    "default_icon": {
+      "128": "icons/icon-128.png",
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    },
+    "default_popup": "popup.html",
+    "default_title": "QGrab Downloader"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "content.js"
+      ],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.facebook.com/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "description": "Adds a QGrab download panel on YouTube and Facebook video pages; downloads are processed by qgrab.onrender.com",
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.facebook.com/*",
+    "https://qgrab.onrender.com/*"
+  ],
+  "icons": {
+    "128": "icons/icon-128.png",
+    "16": "icons/icon-16.png",
+    "192": "icons/icon-192.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png"
+  },
+  "manifest_version": 3,
+  "name": "QGrab Downloader — IDM-style panel",
+  "permissions": [
+    "activeTab"
+  ],
+  "version": "1.0.0"
+}

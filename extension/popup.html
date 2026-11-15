@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>QGrab Downloader</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      margin: 0; padding: 16px; width: 280px; color: #111827; background: #fff;
+    }
+    h1 { font-size: 16px; margin: 0 0 8px; }
+    p { font-size: 13px; line-height: 1.5; margin: 0 0 10px; color: #374151; }
+    button {
+      background: #16a34a; color: #fff; border: none; border-radius: 8px;
+      padding: 9px 14px; font-size: 14px; font-weight: 700; cursor: pointer; width: 100%;
+    }
+    button:hover { background: #15803d; }
+    .note { font-size: 12px; color: #6b7280; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>⬇ QGrab Downloader</h1>
+  <p>
+    On a YouTube or Facebook <strong>video page</strong>, look for the floating
+    <strong>⬇ QGrab</strong> panel at the bottom-right of the page. Click it to
+    see the available formats for that video.
+  </p>
+  <p>
+    Downloads are processed by the QGrab website
+    (<strong>qgrab.onrender.com</strong>) — this extension itself does not
+    download anything directly from YouTube or Facebook.
+  </p>
+  <button id="open-qgrab" type="button">Open QGrab</button>
+  <p class="note">Not on a video page? Use the button above and paste any video link on QGrab.</p>
+  <script src="popup.js"></script>
+</body>
+</html>
