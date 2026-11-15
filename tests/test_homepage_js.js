@@ -460,17 +460,20 @@ function check(name, fn) {
 
   /* ai tools: quota note renders; a generation fills result rows */
   check('AI tools quota note rendered', () => {
-    assert.ok(document.getElementById('aiLeft').textContent.includes('10'),
+    // Round 3: no daily limit — the note states it is unlimited.
+    assert.ok(document.getElementById('aiLeft').textContent
+      .includes('unlimited'),
       document.getElementById('aiLeft').textContent);
   });
   document.getElementById('aiInput').value = 'funny cats';
   document.getElementById('aiForm').dispatch('submit');
   await flush();
-  check('AI generate renders rows + updates left count', () => {
+  check('AI generate renders rows + note stays unlimited', () => {
     const rows = document.getElementById('aiResults').children;
     assert.strictEqual(rows.length, 2);
     assert.strictEqual(rows[0].children[0].textContent, 'Title One');
-    assert.ok(document.getElementById('aiLeft').textContent.includes('9'));
+    assert.ok(document.getElementById('aiLeft').textContent
+      .includes('unlimited'));
     assert.strictEqual(document.getElementById('aiActions').style.display, '');
   });
 
@@ -748,10 +751,12 @@ function check(name, fn) {
     assert.strictEqual(document.getElementById('asstSupMsg').value, '');
   });
 
-  check('SP counters rendered from quota endpoint', () => {
-    assert.ok(document.getElementById('spLeftScript').textContent.includes('10'));
-    assert.ok(document.getElementById('spLeftPrompts').textContent.includes('10'));
-    assert.ok(document.getElementById('spRefreshAt').textContent.length > 5);
+  check('SP usage lines state unlimited (round 3)', () => {
+    assert.ok(document.getElementById('spLeftScript').textContent
+      .includes('unlimited'));
+    assert.ok(document.getElementById('spLeftPrompts').textContent
+      .includes('unlimited'));
+    assert.strictEqual(document.getElementById('spRefreshAt').textContent, '');
   });
   document.getElementById('spUrl').value = 'https://www.tiktok.com/@x/video/123';
   document.getElementById('spBtnScript').click();

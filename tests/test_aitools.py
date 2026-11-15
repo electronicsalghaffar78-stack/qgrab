@@ -2,11 +2,10 @@
 /api/ai-tools/quota).
 
 Six Gemini generators (titles, tags, hashtags, channel names,
-keywords, thumbnail ideas) share ONE daily cap of 10 successful
-generations on the America/Los_Angeles quota day — the same
-reserve/settle mechanics as the Script+Prompt counters: a slot
-is reserved before the (synchronous) cascade call and refunded
-on any failure. The Gemini layer is stubbed by replacing
+keywords, thumbnail ideas). ROUND 3 (2026-11-16, owner's
+order): the shared daily cap of 10 was REMOVED — generations
+are only COUNTED now (the counter the homepage usage card
+shows), never blocked. The Gemini layer is stubbed by replacing
 urllib.request.urlopen, exactly like
 tests/test_sp_gemini_cascade.py — no network, no real
 generation.
@@ -17,10 +16,11 @@ Covered:
     cleaning, hashtag normalisation, dedupe + per-tool caps,
   * prompt construction: the tool instruction + the SAME-
     language rule + the visitor's topic reach the request body,
-  * endpoint contract: 200 with cleaned items and a decremented
-    counter, 400 on a bad tool/input (nothing reserved), 429 at
-    the cap (Gemini never called), 502 with a refund when the
-    cascade fails or returns nothing usable, 503 with no key,
+  * endpoint contract: 200 with cleaned items and the usage
+    counter incremented, 400 on a bad tool/input (nothing
+    counted), generation STILL works beyond the old cap of 10
+    (round 3), 502 when the cascade fails or returns nothing
+    usable (nothing counted), 503 with no key,
   * the read-only quota endpoint's shape.
 
 Run:  .venv/bin/python tests/test_aitools.py   (or under pytest)
@@ -86,6 +86,7 @@ class _patched:
 
 
 def _reset_state():
+    qgrab._ai_cache_clear()
     with qgrab._ai_daily_lock:
         qgrab._ai_daily["date"] = None
         qgrab._ai_daily["done"] = 0
@@ -175,8 +176,8 @@ def test_generate_titles_success_and_prompt():
     body = resp.get_json()
     assert body["ok"] is True and body["tool"] == "titles"
     assert body["items"] == titles
-    assert body["left"] == 9 and body["max"] == 10
-    assert _quota(client)["left"] == 9
+    assert body["used"] == 1 and body["unlimited"] is True
+    assert _quota(client)["used"] == 1
     # The request that reached Gemini: tool instruction + the
     # language rule in the system part, the topic in the user part.
     payload = json.loads(patched.bodies[0].decode("utf-8"))
@@ -200,7 +201,7 @@ def test_generate_all_six_tools():
                                json={"tool": tool, "input": "cats"})
             assert resp.status_code == 200, (tool, resp.status_code)
             assert resp.get_json()["tool"] == tool
-    assert _quota(client)["left"] == 10 - len(TOOLS)
+    assert _quota(client)["used"] == len(TOOLS)
 
 
 def test_generate_accepts_roman_urdu_topic_verbatim():
@@ -246,14 +247,16 @@ def test_generate_invalid_requests_reserve_nothing():
             assert resp.status_code == 400, (payload, resp.status_code)
             assert resp.get_json()["error"] == "invalid_request"
     assert calls == [], "Gemini must not be called for a 400"
-    assert _quota(client)["left"] == 10
+    assert _quota(client)["used"] == 0
 
 
-def test_generate_daily_limit_never_calls_gemini():
+def test_generate_beyond_old_cap_still_works():
+    # Round 3: the old cap of 10 no longer blocks anyone — a
+    # day already at (or past) the old cap generates normally.
     _reset_state()
     with qgrab._ai_daily_lock:
         qgrab._ai_daily["date"] = qgrab._sp_quota_now().date()
-        qgrab._ai_daily["done"] = qgrab.AI_TOOLS_DAILY_CAP
+        qgrab._ai_daily["done"] = 10
     client = qgrab.app.test_client()
     calls = []
 
@@ -264,10 +267,9 @@ def test_generate_daily_limit_never_calls_gemini():
     with _patched(fake):
         resp = client.post("/api/ai-tools/generate",
                            json={"tool": "tags", "input": "cats"})
-    assert resp.status_code == 429, resp.status_code
-    assert resp.get_json()["error"] == "daily_limit"
-    assert calls == []
-    assert _quota(client)["left"] == 0
+    assert resp.status_code == 200, resp.status_code
+    assert calls == [1], "Gemini must be called — no cap anymore"
+    assert _quota(client)["used"] == 11
 
 
 def test_generate_cascade_failure_refunds():
@@ -283,7 +285,7 @@ def test_generate_cascade_failure_refunds():
                            json={"tool": "keywords", "input": "cats"})
     assert resp.status_code == 502, resp.status_code
     assert resp.get_json()["error"] == "ai_unavailable"
-    assert _quota(client)["left"] == 10, "failure must refund the slot"
+    assert _quota(client)["used"] == 0, "a failure counts nothing"
 
 
 def test_generate_empty_items_refunds():
@@ -297,7 +299,7 @@ def test_generate_empty_items_refunds():
         resp = client.post("/api/ai-tools/generate",
                            json={"tool": "tags", "input": "cats"})
     assert resp.status_code == 502, resp.status_code
-    assert _quota(client)["left"] == 10
+    assert _quota(client)["used"] == 0
 
 
 def test_generate_not_configured_without_key():
@@ -315,7 +317,7 @@ def test_generate_not_configured_without_key():
                 os.environ[name] = value
     assert resp.status_code == 503, resp.status_code
     assert resp.get_json()["error"] == "not_configured"
-    assert _quota(client)["left"] == 10
+    assert _quota(client)["used"] == 0
 
 
 # ----------------------------------------------------------------
@@ -326,8 +328,8 @@ def test_quota_endpoint_shape_and_reset_time():
     _reset_state()
     client = qgrab.app.test_client()
     body = _quota(client)
-    assert body["left"] == qgrab.AI_TOOLS_DAILY_CAP == 10
-    assert body["max"] == 10
+    assert body["used"] == 0
+    assert body["unlimited"] is True
     resets_at = body["resets_at"]
     now = time.time()
     assert isinstance(resets_at, int)
@@ -336,7 +338,7 @@ def test_quota_endpoint_shape_and_reset_time():
     assert (reset_local.hour, reset_local.minute,
             reset_local.second) == (0, 0, 0), reset_local
     # Reading the quota counted nothing.
-    assert _quota(client)["left"] == 10
+    assert _quota(client)["used"] == 0
 
 
 def test_quota_rollover_on_pacific_date_change():
@@ -347,7 +349,7 @@ def test_quota_rollover_on_pacific_date_change():
             qgrab._sp_quota_now().date() - timedelta(days=1)
         qgrab._ai_daily["done"] = 10
     client = qgrab.app.test_client()
-    assert _quota(client)["left"] == 10, "a new Pacific day refills"
+    assert _quota(client)["used"] == 0, "a new Pacific day resets the count"
 
 
 if __name__ == "__main__":

@@ -5,9 +5,10 @@ owner read path).
 
 The chat answers through the shared Gemini cascade with the
 AI Tools timeout/budget settings, grounded in a compact
-factual knowledge base, under ONE shared daily cap of 30 —
-reserved on POST, refunded on any failure, on the
-America/Los_Angeles quota day. The Gemini layer is stubbed
+factual knowledge base. ROUND 3 (2026-11-16, owner's
+order): the shared daily cap of 30 was REMOVED — questions
+are only counted, never blocked; an upstream Gemini failure
+is a friendly 502 (AI busy). The Gemini layer is stubbed
 by replacing urllib.request.urlopen, exactly like
 tests/test_aitools.py — no network, no real generation.
 
@@ -108,43 +109,72 @@ CONFIRMATION = "Thank you! Your message has been received. We will look into it 
 # ----------------------------------------------------------------
 
 def test_knowledge_base_facts_present():
+    # Updated 2026-11-16 (round 2): the KB states the round-1/
+    # round-2 truth — the wider platform list with the honest
+    # "still being improved" group, Download History, Eye Care
+    # and the Reports form. Updated again the same day
+    # (round 3, owner's order): paid Premium was CANCELLED —
+    # the KB now states QGrab is completely free, with no
+    # Premium, no payments and no referrals; the JazzCash/
+    # Easypaisa prices and trial facts are gone. Round 3 also
+    # added the Telegram Proxies and QGrab-for-PC facts and
+    # the iPhone install route.
     p = qgrab.ASSISTANT_SYSTEM_PROMPT
     for fact in (
             "YouTube, TikTok, Facebook, Instagram, Pinterest, "
-            "X (Twitter) and VK",
-            "Threads, Vimeo, Reddit and Dailymotion are NOT "
+            "X (Twitter), SoundCloud, Twitch, Telegram (public "
+            "posts only) and VK",
+            "Reddit, Vimeo and Dailymotion are new and still "
+            "being improved",
+            "Threads, SnackVideo/Kwai and WhatsApp are NOT "
             "supported",
             "Private or login-only videos cannot be downloaded",
+            "Download History",
+            "Download Again",
             "Search Videos",
             "Video Toolkit",
-            "10 uses per day",
+            "no daily limit",
             "not real search-volume data",
             "concepts (text, colours, layout) AND creates one "
             "real thumbnail image",
             "Download Thumbnail",
-            "about 2-3 minutes",
-            "Basic is free",
-            "CANNOT be bought yet",
-            "$10 for the first month",
-            "then $20/month",
-            "3-day free trial",
-            "cancel anytime",
-            "full refund if you cancel",
-            "refund will reach you within 3 days",
+            "asking for the same video again is instant",
+            "completely FREE for everyone",
+            "no Premium, no paid plan, no payments",
+            "never treat a photo as a payment receipt",
+            "Telegram Proxies",
+            "without a VPN",
+            "QGrab for PC",
+            "Chrome Web Store yet",
+            "Add to Home Screen",
+            "no App Store app",
+            "Eye Care is a warm, soft theme",
+            "Report a problem form",
             "Update App",
             "30 languages",
             "rate QGrab with stars",
             "Talk to Support",
             "reply to your email within 24–48 hours",
             "fix it within 24–48 hours",
-            "SAME language"):
+            "SAME language",
+            "LATEST message",
+            "switch with them immediately",
+            "NO DEEP CONVERSATION",
+            "ONE short polite line",
+            "redirecting them back to site help"):
         assert fact in p, fact
+    for gone in ("JazzCash", "Rs 2,770", "$10 for the first month",
+                 "+1 free Premium day", "3-day free trial of Premium"):
+        assert gone not in p, gone
 
 
 def test_goto_whitelist_is_the_real_section_ids():
+    # Round 3: "plans" is gone with the Plans section (site
+    # fully free); "install" joined for the app/iPhone answers.
     assert set(qgrab.ASSISTANT_GOTO_IDS) == {
         "download", "search-videos", "video-toolkit",
-        "ai-tools", "script-prompt", "plans"}
+        "ai-tools", "script-prompt", "tools",
+        "download-history", "install"}
 
 
 def test_parse_reply_json_and_goto_validation():
@@ -157,8 +187,11 @@ def test_parse_reply_json_and_goto_validation():
         {"answer": "Hi", "goto": "evil-id", "support": True}))
     assert out["goto"] is None and out["support"] is True, out
     out = qgrab._assistant_parse_reply(json.dumps(
-        {"answer": "Hi", "goto": "plans", "support": "yes"}))
-    assert out["goto"] == "plans" and out["support"] is False, out
+        {"answer": "Hi", "goto": "tools", "support": "yes"}))
+    assert out["goto"] == "tools" and out["support"] is False, out
+    out = qgrab._assistant_parse_reply(json.dumps(
+        {"answer": "Hi", "goto": "plans", "support": False}))
+    assert out["goto"] is None, out  # plans section removed (round 3)
 
 
 def test_parse_reply_plain_text_fallback():
@@ -214,7 +247,8 @@ def test_assistant_success_goto_support_and_prompt():
     assert body["answer"] == "Use Search Videos for that."
     assert body["goto"] == "search-videos"
     assert body["support"] is False
-    assert body["left"] == 29 and body["max"] == 30
+    # Round 3: no daily cap, so the reply carries no left/max.
+    assert "left" not in body and "max" not in body
     # What reached Gemini: knowledge base + language rule as
     # the system part; cleaned history + the new question as
     # the user part; the junk turn is gone.
@@ -273,12 +307,16 @@ def test_assistant_invalid_requests_reserve_nothing():
         assert qgrab._asst_daily["reserved"] == 0
 
 
-def test_assistant_cap_refund_and_daily_limit():
+def test_assistant_no_daily_cap():
+    # Round 3 (2026-11-16, owner's order): the 30/day cap was
+    # removed. A failure is a friendly 502 (AI busy), and
+    # questions keep being answered past the old cap — there
+    # is no 429 daily_limit anymore.
     _reset_asst()
     client = qgrab.app.test_client()
     with qgrab._asst_daily_lock:
         qgrab._asst_daily["date"] = qgrab._sp_quota_now().date()
-        qgrab._asst_daily["done"] = qgrab.ASSISTANT_DAILY_CAP - 1
+        qgrab._asst_daily["done"] = 30  # the old cap, already full
 
     def boom(req, timeout=None):
         raise urllib.error.HTTPError(
@@ -296,22 +334,11 @@ def test_assistant_cap_refund_and_daily_limit():
     with _patched(fake):
         resp = client.post("/api/assistant",
                            json={"message": "and now?"})
-    assert resp.status_code == 200, \
-        "the failed question must have refunded its slot"
-    assert resp.get_json()["left"] == 0
-
-    calls = []
-
-    def fake2(req, timeout=None):
-        calls.append(1)
-        return _reply()
-
-    with _patched(fake2):
+    assert resp.status_code == 200, "no cap may block this"
+    with _patched(fake):
         resp = client.post("/api/assistant",
-                           json={"message": "one too many"})
-    assert resp.status_code == 429, resp.status_code
-    assert resp.get_json()["error"] == "daily_limit"
-    assert calls == [], "Gemini must not be called at the cap"
+                           json={"message": "one more?"})
+    assert resp.status_code == 200, resp.status_code
 
 
 def test_assistant_empty_answer_refunds():
@@ -393,10 +420,9 @@ def test_greeting_fastpath_exact_no_transport_cap_counts():
         calls.append(1)
         return _reply("Gemini must not be used for greetings.")
 
-    greetings = ("Hello", "hi", "Hey!", "salam",
-                 "Assalamualaikum", "hello there")
+    greetings = ("Hello", "hi", "Hey!", "hello there")
     with _patched(fake) as patched:
-        for i, msg in enumerate(greetings):
+        for msg in greetings:
             resp = client.post("/api/assistant",
                                json={"message": msg})
             assert resp.status_code == 200, (msg, resp.status_code)
@@ -405,15 +431,104 @@ def test_greeting_fastpath_exact_no_transport_cap_counts():
             assert body["answer"] == GREETING_REPLY, body
             assert body["goto"] is None, body
             assert body["support"] is False, body
-            # The cap counts a greeting exactly like one
-            # answered question: one slot per greeting.
-            assert body["left"] == 30 - (i + 1), body
-            assert body["max"] == 30, body
+            # Round 3: no daily cap — no left/max in the reply.
+            assert "left" not in body and "max" not in body, body
     assert calls == [] and patched.bodies == [], \
         "a greeting must never reach the Gemini transport"
     with qgrab._asst_daily_lock:
         assert qgrab._asst_daily["done"] == len(greetings)
         assert qgrab._asst_daily["reserved"] == 0
+
+
+def test_greeting_replies_in_the_greetings_language():
+    # Round 3 (owner's order): the fast-path greets back in the
+    # language of the greeting — Roman Urdu, Urdu script,
+    # Arabic and Hindi — never a fixed English string, and
+    # never through Gemini.
+    _reset_asst()
+    client = qgrab.app.test_client()
+    calls = []
+
+    def fake(req, timeout=None):
+        calls.append(1)
+        return _reply("Gemini must not be used for greetings.")
+
+    cases = (
+        ("salam", qgrab.ASSISTANT_GREETING_REPLY_ROMAN_URDU),
+        ("Assalamualaikum", qgrab.ASSISTANT_GREETING_REPLY_ROMAN_URDU),
+        ("aoa", qgrab.ASSISTANT_GREETING_REPLY_ROMAN_URDU),
+        ("السلام علیکم", qgrab.ASSISTANT_GREETING_REPLY_URDU),
+        ("السلام عليكم", qgrab.ASSISTANT_GREETING_REPLY_ARABIC),
+        ("مرحبا", qgrab.ASSISTANT_GREETING_REPLY_ARABIC),
+        ("नमस्ते", qgrab.ASSISTANT_GREETING_REPLY_HINDI),
+    )
+    with _patched(fake) as patched:
+        for msg, want in cases:
+            resp = client.post("/api/assistant",
+                               json={"message": msg})
+            assert resp.status_code == 200, (msg, resp.status_code)
+            body = resp.get_json()
+            assert body["answer"] == want, (msg, body)
+            assert body["answer"] != GREETING_REPLY, msg
+    assert calls == [] and patched.bodies == []
+    # The classifier itself, directly:
+    assert qgrab._assistant_greeting_reply("hello") == GREETING_REPLY
+    assert qgrab._assistant_greeting_reply("Salam!") == \
+        qgrab.ASSISTANT_GREETING_REPLY_ROMAN_URDU
+
+
+def test_language_follows_latest_message():
+    # Round 3: with an Urdu conversation behind it, an English
+    # question must reach Gemini with the LATEST-message
+    # language rule in the system part (the model is instructed
+    # to decide from the newest message only).
+    _reset_asst()
+    client = qgrab.app.test_client()
+
+    def fake(req, timeout=None):
+        return _reply("Use the downloader at the top.")
+
+    with _patched(fake) as patched:
+        resp = client.post("/api/assistant", json={
+            "message": "How do I download a video?",
+            "history": [
+                {"role": "user", "text": "مجھے ویڈیو چاہیے"},
+                {"role": "assistant", "text": "آپ کو کون سی ویڈیو چاہیے؟"},
+            ]})
+    assert resp.status_code == 200, resp.status_code
+    payload = json.loads(patched.bodies[0].decode("utf-8"))
+    system = payload["system_instruction"]["parts"][0]["text"]
+    assert "LATEST message" in system, system[:400]
+    assert "switch with them immediately" in system
+    user = payload["contents"][0]["parts"][0]["text"]
+    assert "Visitor (now): How do I download a video?" in user
+
+
+def test_off_topic_scope_is_pinned_in_prompt():
+    # The no-deep-conversation rule lives in the system prompt:
+    # one short redirect line, in the visitor's current
+    # language, and nothing else. (The model's compliance is
+    # Gemini's; what QGrab controls — the instruction — is
+    # pinned here, and a model reply that IS the redirect
+    # passes through the endpoint untouched.)
+    p = qgrab.ASSISTANT_SYSTEM_PROMPT
+    assert "NO DEEP CONVERSATION" in p
+    assert "ONLY ONE short polite line" in p
+    _reset_asst()
+    client = qgrab.app.test_client()
+
+    def fake(req, timeout=None):
+        return _reply("Sorry, I can only help with questions "
+                      "about QGrab — ask me how to download a "
+                      "video or use a tool.")
+
+    with _patched(fake):
+        resp = client.post(
+            "/api/assistant",
+            json={"message": "Tell me a long story about kings"})
+    body = resp.get_json()
+    assert resp.status_code == 200, resp.status_code
+    assert body["answer"].startswith("Sorry, I can only help"), body
 
 
 def test_greeting_with_question_uses_ai_path():
@@ -565,7 +680,7 @@ def test_widget_markup_on_main_pages():
     for path in ("/", "/youtube-video-downloader",
                  "/video-to-script-prompt"):
         html = client.get(path).get_data(as_text=True)
-        for marker in ('id="asstBtn"', "🤖", ">AI Assistant<",
+        for marker in ('id="asstBtn"', "asst-orb", ">AI Assistant<",
                        'id="asstPanel"', "QGrab Assistant",
                        "Ask me anything about QGrab",
                        'id="asstSupportBtn"', "Talk to Support",

@@ -82,11 +82,12 @@ check("guide card link text absent",
 # ------------------------------------------------------------------
 # Kept on purpose
 # ------------------------------------------------------------------
-check("hero H1 intact (contains the guide heading as substring)",
-      "Download Videos From Every Platform Easy" in html)
+check("hero H1 intact (round-2 Dahot-shape title, owner's order)",
+      "Free Video Downloader" in html)
 check("All Tools section still present",
       'id="tools"' in html and EN["tools_h2"] in html)
-check("Plans section still present", 'id="plans"' in html)
+check("Plans section REMOVED (round 3: site fully free)",
+      'id="plans"' not in html)
 check("specs section still present", 'class="specs"' in html)
 for path in ("/youtube-video-downloader", "/tiktok-video-downloader",
              "/instagram-video-downloader",
