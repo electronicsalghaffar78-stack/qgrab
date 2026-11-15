@@ -519,7 +519,7 @@ def test_sp_19min_two_chunks_stitched_in_order():
         seen = []
 
         def fake_call(parts, system, timeout, max_models=None,
-                      slow_max_attempts=None):
+                      slow_max_attempts=None, **kwargs):
             seen.append(system)
             if system == qgrab.SP_AUDIO_CHUNK_INSTRUCTION:
                 text = parts[-1]["text"]

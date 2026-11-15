@@ -128,9 +128,11 @@ def _reset_state():
 
 
 def _left(client):
+    # Round 3: the quota endpoint reports the usage COUNT
+    # ("used"), never a remaining-slots number.
     resp = client.get("/api/ai-tools/quota")
     assert resp.status_code == 200, resp.status_code
-    return resp.get_json()["left"]
+    return resp.get_json()["used"]
 
 
 def _is_gemini(req):
@@ -175,8 +177,8 @@ def test_gemini_success_returns_data_url():
     expect = "data:image/png;base64," + \
         base64.b64encode(TINY_PNG).decode("ascii")
     assert body["image"] == expect, body["image"][:60]
-    assert body["left"] == 9 and body["max"] == 10
-    assert _left(client) == 9
+    assert body["used"] == 1 and body["unlimited"] is True
+    assert _left(client) == 1
     # The request that reached the API: the image model in the
     # URL, the image response modality + the built prompt (with
     # its 16:9 / no-text instructions) in the body.
@@ -212,7 +214,7 @@ def test_gemini_failure_falls_back_to_pollinations():
     expect = "data:image/jpeg;base64," + \
         base64.b64encode(TINY_JPG).decode("ascii")
     assert body["image"] == expect
-    assert body["left"] == 9
+    assert body["used"] == 1
     # Both legs were walked, Gemini first.
     assert "generativelanguage" in patched.urls[0], patched.urls
     assert any("pollinations" in u for u in patched.urls)
@@ -236,7 +238,7 @@ def test_both_failing_refunds_the_slot():
                            json={"input": "cats"})
     assert resp.status_code == 502, resp.status_code
     assert resp.get_json()["error"] == "ai_unavailable"
-    assert _left(client) == 10, "failure must refund the slot"
+    assert _left(client) == 0, "a failure counts nothing"
 
 
 def test_oversized_gemini_image_moves_to_pollinations():
@@ -271,7 +273,7 @@ def test_oversized_pollinations_image_is_502():
         resp = client.post("/api/ai-tools/thumbnail-image",
                            json={"input": "cats"})
     assert resp.status_code == 502, resp.status_code
-    assert _left(client) == 10
+    assert _left(client) == 0
 
 
 def test_gemini_non_image_content_type_rejected():
@@ -288,7 +290,7 @@ def test_gemini_non_image_content_type_rejected():
         resp = client.post("/api/ai-tools/thumbnail-image",
                            json={"input": "cats"})
     assert resp.status_code == 502, resp.status_code
-    assert _left(client) == 10
+    assert _left(client) == 0
 
 
 # ----------------------------------------------------------------
@@ -313,14 +315,16 @@ def test_invalid_requests_reserve_nothing():
                                              resp.status_code)
             assert resp.get_json()["error"] == "invalid_request"
     assert calls == [], "no transport may be called for a 400"
-    assert _left(client) == 10
+    assert _left(client) == 0
 
 
-def test_daily_limit_never_calls_out():
+def test_beyond_old_cap_still_generates():
+    # Round 3: the old shared cap of 10 was removed — a day
+    # already at the old cap still generates, and counts up.
     _reset_state()
     with qgrab._ai_daily_lock:
         qgrab._ai_daily["date"] = qgrab._sp_quota_now().date()
-        qgrab._ai_daily["done"] = qgrab.AI_TOOLS_DAILY_CAP
+        qgrab._ai_daily["done"] = 10
     client = qgrab.app.test_client()
     calls = []
 
@@ -331,10 +335,9 @@ def test_daily_limit_never_calls_out():
     with _patched(fake):
         resp = client.post("/api/ai-tools/thumbnail-image",
                            json={"input": "cats"})
-    assert resp.status_code == 429, resp.status_code
-    assert resp.get_json()["error"] == "daily_limit"
-    assert calls == []
-    assert _left(client) == 0
+    assert resp.status_code == 200, resp.status_code
+    assert calls == [1]
+    assert _left(client) == 11
 
 
 def test_not_configured_without_key():
@@ -352,7 +355,7 @@ def test_not_configured_without_key():
                 os.environ[name] = value
     assert resp.status_code == 503, resp.status_code
     assert resp.get_json()["error"] == "not_configured"
-    assert _left(client) == 10
+    assert _left(client) == 0
 
 
 if __name__ == "__main__":

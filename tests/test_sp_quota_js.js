@@ -1,9 +1,10 @@
-/* DOM-stub tests for the Script+Prompt DAILY COUNTER client
-   (templates/_spjs.html): the two counter lines render from a
-   stubbed GET /api/script-prompt/quota response, the refresh
-   line shows the reset time formatted in local time from the
-   resets_at epoch, the counters refresh after a generation
-   finishes, and a 429 daily_limit POST shows its own message.
+/* DOM-stub tests for the Script+Prompt usage line client
+   (templates/_spjs.html) after ROUND 3 (2026-11-16): the
+   daily counters were removed by the owner's order — the two
+   quota lines now state the tool is free & unlimited (no
+   quota fetch at all), a generation still runs end-to-end,
+   and a 429 rate_limited POST (the burst throttle, the only
+   throttle left) shows its friendly "please wait" message.
    Run:  node tests/test_sp_quota_js.js */
 'use strict';
 const fs = require('fs');
@@ -13,9 +14,6 @@ const assert = require('assert');
 const html = fs.readFileSync(
   path.join(__dirname, '..', 'templates', '_spjs.html'), 'utf8');
 const code = html.match(/<script>([\s\S]*)<\/script>/)[1];
-
-/* A fixed future reset instant (captured before Date is faked). */
-const RESETS_AT = Math.floor(Date.now() / 1000) + 3600;
 
 /* ---------- fake clock + timers (same harness as jobs) ------- */
 let now = 0;
@@ -94,10 +92,6 @@ function buildEnv({ fetchHandler }) {
     sp_err_toolong: 'TOO LONG', sp_err_audiobig: 'AUDIO BIG',
     sp_err_nospeech: 'NO SPEECH', sp_err_rate: 'RATE',
     sp_err_ai: 'AI UNAVAILABLE', sp_err_setup: 'SETUP',
-    sp_err_daily_limit: 'DAILY LIMIT REACHED',
-    sp_left_script: 'Scripts left today: {n}',
-    sp_left_prompts: 'Prompts left today: {n}',
-    sp_refresh_at: 'Counters refresh daily at {time}',
     sp_copied: 'Copied',
   };
   globalThis.setTimeout = fakeSetTimeout;
@@ -114,25 +108,24 @@ function jsonRes(status, body) {
            json: async () => body };
 }
 
-/* ---------- scenario 1: counters render + refresh ------------ */
-async function scenarioCounters() {
-  const quota = {
-    script_left: 10, prompts_left: 9,
-    script_max: 10, prompts_max: 10, resets_at: RESETS_AT,
-  };
+const UNLIMITED_S = 'Scripts: free & unlimited — no daily limit';
+const UNLIMITED_P = 'Prompts: free & unlimited — no daily limit';
+
+/* ---------- scenario 1: unlimited lines + generation --------- */
+async function scenarioUnlimited() {
+  let quotaFetched = false;
   const env = buildEnv({
     fetchHandler: async (url) => {
       if (url === '/api/script-prompt/quota') {
-        return jsonRes(200, Object.assign({}, quota));
+        quotaFetched = true;
+        return jsonRes(200, { script_used: 3, prompts_used: 1,
+                              unlimited: true, resets_at: 0 });
       }
       if (url === '/api/info') return jsonRes(200, {});
       if (url === '/api/script-prompt') {
-        return jsonRes(202, { job_id: 'qjob1',
-                              status: 'running' });
+        return jsonRes(202, { job_id: 'qjob1', status: 'running' });
       }
       if (url.startsWith('/api/script-prompt/status')) {
-        /* The finished job consumed one script slot. */
-        quota.script_left = 9;
         return jsonRes(200, { status: 'done',
           script: 'QUOTA SCRIPT', prompts: [],
           mode: 'script', route: 'captions' });
@@ -142,60 +135,45 @@ async function scenarioCounters() {
   });
   const el = env.registry;
   await flush();
-  /* Counters rendered from the load-time quota fetch. */
-  assert.strictEqual(el.spLeftScript.textContent,
-                     'Scripts left today: 10');
-  assert.strictEqual(el.spLeftPrompts.textContent,
-                     'Prompts left today: 9');
-  /* Refresh line: the template text + a formatted local time. */
-  assert.ok(/^Counters refresh daily at \d{1,2}:\d{2}/.test(
-    el.spRefreshAt.textContent),
-    'refresh line: ' + el.spRefreshAt.textContent);
-  /* Run a script generation; when it finishes the counters are
-     re-fetched and the script line drops by one. */
+  assert.strictEqual(el.spLeftScript.textContent, UNLIMITED_S);
+  assert.strictEqual(el.spLeftPrompts.textContent, UNLIMITED_P);
+  assert.strictEqual(el.spRefreshAt.textContent, '');
+  assert.strictEqual(quotaFetched, false,
+    'round 3: the SP client must not fetch quota counters');
   el.spUrl.value = 'https://youtu.be/abc';
   el.spBtnScript.click();
   await flush();
   assert.strictEqual(el.spScript.value, 'QUOTA SCRIPT');
-  assert.strictEqual(el.spLeftScript.textContent,
-                     'Scripts left today: 9');
-  assert.strictEqual(el.spLeftPrompts.textContent,
-                     'Prompts left today: 9');
-  console.log('PASS counters: render on load, refresh line shows ' +
-              'a local time, counters refresh after generation');
+  assert.strictEqual(el.spLeftScript.textContent, UNLIMITED_S);
+  console.log('PASS unlimited lines shown, generation runs, ' +
+              'no quota fetch');
 }
 
-/* ---------- scenario 2: daily_limit shows its message -------- */
-async function scenarioDailyLimit() {
+/* ---------- scenario 2: rate_limited shows its message ------- */
+async function scenarioRateLimited() {
   const env = buildEnv({
     fetchHandler: async (url) => {
-      if (url === '/api/script-prompt/quota') {
-        return jsonRes(200, { script_left: 0, prompts_left: 2,
-          script_max: 10, prompts_max: 10,
-          resets_at: RESETS_AT });
-      }
       if (url === '/api/info') return jsonRes(200, {});
       if (url === '/api/script-prompt') {
-        return jsonRes(429, { error: 'daily_limit' });
+        return jsonRes(429, { error: 'rate_limited' });
       }
       throw new Error('unexpected fetch ' + url);
     },
   });
   const el = env.registry;
   await flush();
-  assert.strictEqual(el.spLeftScript.textContent,
-                     'Scripts left today: 0');
+  assert.strictEqual(el.spLeftScript.textContent, UNLIMITED_S);
   el.spUrl.value = 'https://youtu.be/abc';
   el.spBtnScript.click();
   await flush();
-  assert.strictEqual(el.spError.textContent, 'DAILY LIMIT REACHED');
+  assert.strictEqual(el.spError.textContent, 'RATE');
   assert.strictEqual(el.spError.style.display, 'block');
   assert.strictEqual(el.spBtnScript.disabled, false);
-  console.log('PASS daily_limit: 429 shows the daily-limit message');
+  console.log('PASS rate_limited: 429 shows the please-wait message');
 }
 
 (async () => {
-  await scenarioCounters();
-  await scenarioDailyLimit();
+  await scenarioUnlimited();
+  await scenarioRateLimited();
   console.log('ALL SP QUOTA JS TESTS PASS');
 })().catch((e) => { console.error(e); process.exit(1); });

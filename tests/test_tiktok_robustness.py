@@ -341,10 +341,10 @@ def test_sp_fetch_failed_job_status_and_refund():
         assert final["http"] == 422, final
         # The daily-counter reservation was refunded in full.
         quota = client.get("/api/script-prompt/quota").get_json()
-        assert quota["script_left"] == \
-            qgrab.SP_DAILY_CAP_SCRIPT, quota
-        assert quota["prompts_left"] == \
-            qgrab.SP_DAILY_CAP_PROMPTS, quota
+        # Round 3: counters only count successes — a failed
+        # job counts nothing.
+        assert quota["script_used"] == 0, quota
+        assert quota["prompts_used"] == 0, quota
 
     _with_sp_stubs(raising_extract, run)
     _reset_sp_state()

@@ -52,6 +52,7 @@ FAKE_PAYLOAD = {
 
 
 def _reset_state():
+    qgrab._sp_cache_clear()
     with qgrab._sp_jobs_lock:
         qgrab._sp_jobs.clear()
     with qgrab._sp_lock:
