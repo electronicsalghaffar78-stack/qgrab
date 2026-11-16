@@ -53,8 +53,11 @@ check("tagline exact", "All Platform Video Download in One Place" in home)
 check("hero title", "Free Video Downloader &amp; Social Media Tools — QGrab" in home
       or "Free Video Downloader & Social Media Tools — QGrab" in home)
 check("card title", "Online Video Downloader — YouTube, TikTok, Instagram, Facebook" in home)
-for label in ("Home", "Tools", "Download History", "FAQ"):
+for label in ("Home", "Download History", "FAQ"):
     check(f"nav has {label}", f">{label}</a>" in home)
+# Release .26 (2026-11-16): the nav "Tools" item is a dropdown
+# toggle button now, not a plain link — see test_round6.py.
+check("nav has Tools", 'id="toolsMenuBtn"' in home and ">Tools" in home)
 check("nav history target", 'href="/download-history"' in home)
 check("works-with line", "Works with YouTube, TikTok, Instagram, Facebook" in home)
 # SEO pass (2026-11-16): the hero chips are real links to the
@@ -101,8 +104,12 @@ for trust in ("Secure processing", "Files are never stored on our servers",
     check(f"trust chip: {trust}", trust in home)
 check("no advertisement placeholder", "ADVERTISEMENT" not in home
       and "Ads appear here" not in home)
-check("usage counters", 'id="usageToolsVal"' in home
-      and 'id="usageDlVal"' in home and "Today's free usage" in home)
+# Release .26 (2026-11-16): the visible "Today's free usage"
+# card was removed on the owner's order; the server-side
+# counters behind it keep counting (see test_round6.py).
+check("usage card removed", 'id="usageToolsVal"' not in home
+      and 'id="usageDlVal"' not in home
+      and "Today's free usage" not in home)
 # Release .25 (2026-11-16): the history section left the
 # homepage — it is its own page now (/download-history). The
 # homepage still ships the history JS (downloads are recorded

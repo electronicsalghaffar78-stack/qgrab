@@ -65,7 +65,9 @@ check("animjs included", "qgrabPopTools" in home
       and "IntersectionObserver" in home)
 check("reveal CSS shipped", ".rv{" in home and "qgToolL" in home
       and "prefers-reduced-motion" in home)
-check("tools nav hook", 'class="nav-link js-tools"' in home)
+# Release .26 (2026-11-16): the .js-tools link became the
+# Tools dropdown toggle — see test_round6.py.
+check("tools nav hook", 'id="toolsMenuBtn"' in home)
 
 # --- proxies page --------------------------------------------------------------
 data_path = os.path.join(os.path.dirname(__file__), "..", "data",

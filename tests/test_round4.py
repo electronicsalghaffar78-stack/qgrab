@@ -67,7 +67,9 @@ check("pchip-row flex css live",
 check("tagline css live", ".tagline{display:block" in home)
 check("brand-text column css live",
       ".logo .brand-text{display:flex;flex-direction:column" in home)
-check("usage-row css live", ".usage-row{display:flex" in home)
+# (was "usage-row css live" until release .26 removed the
+# usage card and its CSS with it — same guard, surviving rule)
+check("tchip-row css live", ".tchip-row{display:flex" in home)
 check("wrap centered", ".wrap{max-width:860px;margin:0 auto" in home)
 
 # --- subscribe proportions ------------------------------------
@@ -91,11 +93,15 @@ check("hub covers all AI tools", grid_tools == hub_tools and len(grid_tools) == 
 check("hub toolkit cards", home.count('class="hub-card" href="#video-toolkit"') == 4)
 check("hub script+prompt card", 'class="hub-card" href="#script-prompt"' in home)
 
-# nav Tools destination on every page
-check("home nav tools -> hub",
-      'class="nav-link js-tools" href="#tools-hub"' in home)
+# nav Tools destination on every page — SUPERSEDED by
+# release .26 (2026-11-16): the nav item is the Tools
+# dropdown now (one entry per tool, grouped like the hub;
+# the full contract lives in test_round6.py). The footer
+# link still lands on the hub.
+check("home nav tools -> dropdown",
+      'id="toolsMenuBtn"' in home and 'id="toolsMenuPanel"' in home)
 for name, page in [("platform", plat), ("proxies", prox), ("scriptprompt", sp)]:
-    check(f"{name} nav tools -> hub", 'href="/#tools-hub"' in page)
+    check(f"{name} nav tools -> dropdown", 'id="toolsMenuPanel"' in page)
 check("footer tools -> hub", 'href="/#tools-hub"' in home)
 
 # hub entrance animation wiring

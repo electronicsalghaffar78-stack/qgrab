@@ -419,9 +419,10 @@
     <div class="brand-side">
       <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="brand-text"><span class="wm">Q<span>Grab</span></span><span class="tagline">All Platform Video Download in One Place</span></span></a>
     </div>
-    <nav class="hnav" aria-label="Main">
+    <button type="button" class="nav-burger" id="navBurger" aria-expanded="false" aria-controls="mainNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Menu</button>
+    <nav class="hnav" id="mainNav" aria-label="Main">
       <a class="nav-link on" href="/">Home</a>
-      <a class="nav-link js-tools" href="#tools-hub">Tools</a>
+      {% include "_toolsmenu.html" %}
       <a class="nav-link" href="/download-history">Download History</a>
       <a class="nav-link" href="#faq">FAQ</a>
       <a class="nav-link" href="/telegram-proxies">Telegram Proxies</a>
@@ -481,13 +482,6 @@
         <p id="spAutoNote" class="sp-auto-note" style="display:none"></p>
       </div>
     </div>
-
-  <div class="usage-card" id="usage">
-    <h3>Today's free usage</h3>
-    <div class="usage-row"><span>Tool uses</span><span class="uv" id="usageToolsVal">–</span></div>
-    <div class="usage-row"><span>Downloads</span><span class="uv" id="usageDlVal">–</span></div>
-    <p class="usage-note">Everything on QGrab is free with no daily limits — these are just today's counts. Downloads are counted on this device; QGrab needs no account.</p>
-  </div>
 
   {% include "_toolshub.html" %}
 
@@ -926,40 +920,13 @@ form.addEventListener('submit', async (e) => {
 });
 </script>
 <script>
-/* --- Today's free usage (2026-11-16 round 2; round 3:
-   counts only — the owner removed every daily limit, so the
-   card shows how much was used today, never a cap) ---
-   Tool uses come from the server's usage counters (AI Tools +
-   Script/Prompt); Downloads come from this browser's own
-   Download History (no account exists). */
+/* (Release .26, 2026-11-16: the visible daily-usage card
+   was removed on the owner's order. The server-side
+   counters it read — /api/ai-tools/quota, /api/script-prompt/
+   quota and the /api/event + /api/stats aggregates — are
+   untouched and keep counting exactly as before; only the
+   homepage display is gone.) */
 (function () {
-  function load() {
-    var toolsUsed = 0, got = 0;
-    function done() {
-      got++;
-      if (got < 2) return;
-      var val = document.getElementById('usageToolsVal');
-      if (val) val.textContent = toolsUsed + ' today · Unlimited';
-      var n = window.QGHistory ? window.QGHistory.todayCount() : 0;
-      var dv = document.getElementById('usageDlVal');
-      if (dv) dv.textContent = n + ' today · Unlimited';
-    }
-    fetch('/api/ai-tools/quota').then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d && typeof d.used === 'number') toolsUsed += d.used;
-      }).catch(function () {}).then(done);
-    fetch('/api/script-prompt/quota').then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d && typeof d.script_used === 'number') {
-          toolsUsed += d.script_used + d.prompts_used;
-        }
-      }).catch(function () {}).then(done);
-  }
-  window.qgrabUsageRefresh = load;
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', load);
-  } else { load(); }
-
   /* Download Again for items without a stored format: re-run
      the main downloader's lookup for the original link. */
   window.qgrabHistoryRerun = function (url) {

@@ -726,3 +726,92 @@ Archer spotted in his screenshot and one icon correction:
   APP_VERSION .24 -> .25. Mirrors re-synced, backup ZIP
   refreshed. Push + manual Render deploy + live check are
   the parent's steps.
+
+# Release 2026-11-16.26 — Nav Tools dropdown (owner's precise spec), usage card removed, responsive mobile nav
+
+Three owner orders landed in this one round:
+
+- **Nav "Tools" is a DROPDOWN MENU** (templates/_toolsmenu.html,
+  a shared partial now included by all five shared-nav pages:
+  home, platform, proxies, scriptprompt, history). The tab
+  shows the word "Tools" with a small down-arrow (chevron) on
+  the RIGHT of the word. Contents = every tool, grouped like
+  the Tools Hub: AI TOOLS (AI Title Generator, AI Tags
+  Generator, AI Hashtag Generator, AI Channel Name
+  Generator, Keyword Suggestions, AI Thumbnail Idea
+  Generator), VIDEO TOOLKIT (Video Details, Thumbnail
+  Downloader, Hashtag Extractor, Video Tags Extractor),
+  SCRIPT + PROMPT (Video to Script and AI Video Prompts
+  listed separately), plus an "All tools ->" footer entry
+  that keeps the old #tools-hub destination. The on-page
+  Tools Hub itself is untouched (11 cards).
+- **Picking a tool OPENS it.** AI picks pre-select the
+  generator (a synthetic click on its AI-grid button — the
+  exact hub-card mechanism); Video Toolkit picks click the
+  matching .tk-tool button (asks for a link first, or
+  flashes the matching part of a fetched result); Script /
+  Prompts picks focus the SP link field and flash the
+  matching Create button (the buttons are no-ops until a
+  link exists). On the homepage the click is intercepted and
+  runs in place; from any other page the item hrefs
+  (/?tool=titles#ai-tools, /?toolkit=tags#video-toolkit,
+  /?sp=prompts#script-prompt) navigate home and a new
+  on-load handler in _animjs.html runs the same activation —
+  the ?url= prefill pattern, one parameter per tool family.
+- **Precise spec honoured:** on desktop (fine pointer),
+  HOVERING over the Tools tab opens the list (the owner's
+  reference video shows hover-open); a click pins a
+  hover-opened list open, a second click / Esc / outside
+  click / picking an item closes it; on touch, tapping
+  toggles. The panel is JS-nudged on open so it never spills
+  out of the viewport, and its height cap was raised
+  (min(80vh, 620px)) so all 12 entries + the footer fit
+  without scrolling on normal screens.
+- **"Today's free usage" card REMOVED** from the homepage
+  (markup, its filler JS and its CSS are all gone). ONLY
+  the visible card went: the invisible server-side counting
+  — POST /api/event, GET /api/stats aggregates and the
+  AI-Tools / Script+Prompt quota counters — keeps working
+  exactly as before (pinned by tests). Homepage order is
+  now hero -> Tools Hub -> Video Toolkit -> AI Tools ->
+  Script+Prompt -> Search Videos -> ... (tools block
+  directly under the hero). Nothing linked to #usage.
+- **RESPONSIVE NAV:** desktop is byte-for-byte the old row
+  (the Menu button never renders). At <= 820px the header
+  menu collapses behind a "Menu" (hamburger) button; the
+  same nav opens as a stacked panel (Home, Tools, Download
+  History, FAQ, Telegram Proxies, Invite, then the theme /
+  three-dot cluster), and inside it the Tools list expands
+  INLINE (static panel, accordion-style) with the chevron
+  at the row's right edge. Picking a tool from the mobile
+  panel activates it and closes the panel. Burger/panel
+  wiring lives in _animjs.html; the CSS in _extras.html.
+- **Tests:** new tests/test_round6.py (dropdown on every
+  shared-nav page, all 12 entries in hub order with their
+  href/data-key pairs matching the controls they activate,
+  chevron-right + hover wiring, usage-card removal with
+  counting intact, burger/panel markup + breakpoint CSS).
+  Superseded pins updated in test_round2.py (usage
+  counters), test_round3.py (tools nav hook), test_round4.py
+  (nav destination + the CSS-liveness guard repointed) and
+  test_round5.py (homepage order: hero, not usage card).
+  **Full suite: 33 Python files + 6 JS suites + extension
+  17/17 — ALL PASS.**
+- **Verification (the gate):** local build in headless
+  Chromium. Desktop 1280: burger hidden, row unchanged,
+  overflow 0, hover opens the panel (12 items, no clipped
+  names, fully in viewport), mouse-away closes, click pins,
+  Esc closes, "AI Title Generator" pick lands on #ai-tools
+  with the Title button active; cross-page from
+  /telegram-proxies (hover-open, Tags pick -> /?tool=tags,
+  Tags active). Mobile 390 in all three states — closed
+  (only Menu button), panel open (six items stacked),
+  Tools expanded inline (panel position: static, 12 items)
+  — overflow 0 in every state, and a mobile pick activates
+  the tool and closes the panel. Usage card absent from
+  the DOM; section tops confirm hero -> hub adjacency.
+  Captures in ~/workspace/qg26-verify/shots/, driver at
+  ~/workspace/qg26-verify/drive.py.
+  APP_VERSION .25 -> .26. Mirrors re-synced, backup ZIP
+  refreshed. Push + manual Render deploy + live check are
+  the parent's steps.

@@ -1,7 +1,7 @@
 <script>
 /* QGrab round 3 (2026-11-16): scroll-reveal animations and
-   the nav "Tools" animated reveal (round 4: retargeted from
-   the AI tools grid to the #tools-hub chooser), plus the
+   the Tools Hub animated reveal (round 4), plus the nav
+   Tools dropdown's tool activation (round 6) and the
    ?url= prefill the PC extension hands off with.
    Everything is defensive: no IntersectionObserver (or reduced
    motion) simply leaves the page exactly as it was — the .rv
@@ -17,7 +17,7 @@
   /* --- scroll-triggered reveals --- */
   try {
     var targets = document.querySelectorAll(
-      'section, .grab, .usage-card');
+      'section, .grab');
     if (targets.length && 'IntersectionObserver' in window && !reduced) {
       var io = new IntersectionObserver(function (entries) {
         entries.forEach(function (en) {
@@ -35,14 +35,25 @@
     }
   } catch (e) {}
 
-  /* --- Tools nav: the Tools Hub (round 4) ---
-     Clicking "Tools" lands on the #tools-hub chooser (every
-     tool in the app as a card) and replays the hub cards'
-     staggered L/R/U entrance. Hub cards for AI generators
-     also pre-select that generator in the AI Tools section
-     (a synthetic click on its grid button — the same thing a
-     tap there does); Toolkit cards are plain anchors, since
-     a toolkit chip tap needs a fetched video first. */
+  /* --- Tools: the hub pop + the nav dropdown (round 6) ---
+     The #tools-hub chooser still replays its cards' staggered
+     L/R/U entrance when landed on. Round 6 (2026-11-16.26,
+     the owner's order) turned the nav "Tools" item into a
+     dropdown of every tool (templates/_toolsmenu.html): a
+     pick OPENS that tool. The activation mirrors the hub
+     cards exactly — an AI generator pick is a synthetic click
+     on its AI-grid button (the same thing a tap there does);
+     a Video Toolkit pick is a synthetic click on its
+     .tk-tool button (which itself asks for a link first, or
+     flashes the matching part of a fetched result); a
+     Script/Prompt pick focuses the SP link field and flashes
+     the matching Create button (the buttons are no-ops until
+     a link is pasted, so a synthetic click would do nothing).
+     On the homepage the dropdown clicks are intercepted and
+     run in place; from any other page the items' plain hrefs
+     (/?tool=…#ai-tools and friends) navigate here, and the
+     on-load handler below runs the same activation — the
+     ?url= prefill pattern, one parameter per tool family. */
   function popTools() {
     var cards = document.querySelectorAll('.hub-grid .hub-card');
     if (!cards.length) return;
@@ -55,32 +66,144 @@
     cards.forEach(function (c) { c.classList.add('hub-pop'); });
   }
   window.qgrabPopTools = popTools;
-  try {
-    var link = document.querySelector('.js-tools');
-    if (link) {
-      link.addEventListener('click', function () {
-        var sec = document.getElementById('tools-hub');
-        if (sec) {
-          setTimeout(function () {
-            sec.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth',
-                                 block: 'start' });
-            popTools();
-          }, 350);
-        }
-      });
+
+  function scrollToId(id) {
+    var sec = document.getElementById(id);
+    if (sec) {
+      sec.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth',
+                           block: 'start' });
     }
+    return sec;
+  }
+  function activateAI(tool) {
+    setTimeout(function () {
+      var b = document.querySelector(
+        '.ai-grid .ai-tool[data-tool="' + tool + '"]');
+      if (b) b.click();
+    }, 700);
+  }
+  function activateTK(tool) {
+    setTimeout(function () {
+      var b = document.querySelector(
+        '.tk-tool[data-tool="' + tool + '"]');
+      if (b) b.click();
+    }, 650);
+  }
+  function activateSP(side) {
+    setTimeout(function () {
+      var input = document.getElementById('spUrl');
+      if (input) {
+        try { input.focus({ preventScroll: true }); }
+        catch (e) { input.focus(); }
+      }
+      var btn = document.getElementById(
+        side === 'prompts' ? 'spBtnPrompts' : 'spBtnScript');
+      if (btn) {
+        btn.classList.remove('tool-flash');
+        void btn.offsetWidth;
+        btn.classList.add('tool-flash');
+      }
+    }, 650);
+  }
+
+  try {
     if (location.hash === '#tools-hub') setTimeout(popTools, 400);
     document.querySelectorAll('.hub-card[data-ai-tool]').forEach(
       function (card) {
         card.addEventListener('click', function () {
-          var tool = card.getAttribute('data-ai-tool');
-          setTimeout(function () {
-            var b = document.querySelector(
-              '.ai-grid .ai-tool[data-tool="' + tool + '"]');
-            if (b) b.click();
-          }, 700);
+          activateAI(card.getAttribute('data-ai-tool'));
         });
       });
+
+    /* nav dropdown picks: activate in place when the target
+       section lives on this page; anywhere else, leave the
+       plain href alone — it navigates to the homepage with
+       the activation parameter the on-load handler reads. */
+    document.querySelectorAll(
+      '.tmenu-panel a[data-ai-tool], .tmenu-panel a[data-tk-tool],' +
+      ' .tmenu-panel a[data-sp-tool]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        var ai = a.getAttribute('data-ai-tool');
+        var tk = a.getAttribute('data-tk-tool');
+        var sp = a.getAttribute('data-sp-tool');
+        var id = ai ? 'ai-tools' : (tk ? 'video-toolkit' : 'script-prompt');
+        if (!document.getElementById(id)) return;
+        e.preventDefault();
+        if (window.qgrabCloseToolsMenu) window.qgrabCloseToolsMenu();
+        if (window.qgrabCloseMobileNav) window.qgrabCloseMobileNav();
+        scrollToId(id);
+        if (ai) activateAI(ai);
+        else if (tk) activateTK(tk);
+        else activateSP(sp);
+        try { history.replaceState(null, '', '#' + id); } catch (err) {}
+      });
+    });
+    var allLink = document.querySelector('.tmenu-panel .tmenu-all');
+    if (allLink && document.getElementById('tools-hub')) {
+      allLink.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (window.qgrabCloseToolsMenu) window.qgrabCloseToolsMenu();
+        if (window.qgrabCloseMobileNav) window.qgrabCloseMobileNav();
+        scrollToId('tools-hub');
+        popTools();
+        try { history.replaceState(null, '', '#tools-hub'); }
+        catch (err) {}
+      });
+    }
+  } catch (e) {}
+
+  /* --- Mobile nav (round 6): under the phone breakpoint the
+     header menu collapses behind the Menu (hamburger) button
+     and the same nav becomes a stacked panel. The burger
+     toggles it; picking any link inside closes it (the Tools
+     toggle is a <button>, not a link, so the inline tools
+     accordion can open without the panel snapping shut), and
+     Esc closes it too. Desktop CSS ignores the class. --- */
+  try {
+    var burger = document.getElementById('navBurger');
+    var mainNav = document.getElementById('mainNav');
+    if (burger && mainNav) {
+      var closeMobileNav = function () {
+        mainNav.classList.remove('nav-open');
+        burger.setAttribute('aria-expanded', 'false');
+      };
+      window.qgrabCloseMobileNav = closeMobileNav;
+      burger.addEventListener('click', function () {
+        var open = mainNav.classList.toggle('nav-open');
+        burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      mainNav.addEventListener('click', function (e) {
+        var a = e.target && e.target.closest ?
+          e.target.closest('a') : null;
+        if (a) closeMobileNav();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeMobileNav();
+      });
+    }
+  } catch (e) {}
+
+  /* --- cross-page tool activation: ?tool= / ?toolkit= / ?sp=
+     The hash in the URL does the scrolling; these run the
+     activation once the page has settled. Unknown values and
+     pages without the sections are ignored. --- */
+  try {
+    var params = new URLSearchParams(location.search);
+    var wantAI = params.get('tool');
+    var wantTK = params.get('toolkit');
+    var wantSP = params.get('sp');
+    if (wantAI && document.querySelector(
+        '.ai-grid .ai-tool[data-tool="' + wantAI + '"]')) {
+      activateAI(wantAI);
+    }
+    if (wantTK && document.querySelector(
+        '.tk-tool[data-tool="' + wantTK + '"]')) {
+      activateTK(wantTK);
+    }
+    if ((wantSP === 'script' || wantSP === 'prompts') &&
+        document.getElementById('script-prompt')) {
+      activateSP(wantSP);
+    }
   } catch (e) {}
 
   /* --- usage-stat wiring for UI-only actions (round 3) --- */

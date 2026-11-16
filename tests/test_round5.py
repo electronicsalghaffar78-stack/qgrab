@@ -89,14 +89,18 @@ for path in ("/", "/youtube-video-downloader", "/telegram-proxies",
           'href="#download-history"' not in page
           and 'href="/#download-history"' not in page)
 
-# --- 3 + 2. homepage order: usage -> tools -> search -> specs,
+# --- 3 + 2. homepage order: hero -> tools -> search -> specs,
 #        invite last before the footer --------------------------
+# (Release .26 removed the "Today's free usage" card that
+# used to sit between the hero and the tools block, so the
+# tools block now directly follows the hero/downloader card.)
 def pos(needle, label):
     i = home.find(needle)
     check(f"present: {label}", i >= 0, needle)
     return i
 
-p_usage = pos('id="usage"', "usage card")
+check("usage card gone", 'id="usage"' not in home)
+p_hero = pos('id="download"', "hero/downloader card")
 p_hub = pos('id="tools-hub"', "tools hub")
 p_tk = pos('id="video-toolkit"', "video toolkit")
 p_ai = pos('id="ai-tools"', "ai tools")
@@ -105,8 +109,8 @@ p_search = pos('id="search-videos"', "search videos")
 p_specs = pos('class="specs"', "at a glance")
 p_invite = pos('id="invite"', "invite")
 p_footer = pos("<footer", "footer")
-check("tools block directly after usage",
-      p_usage < p_hub < p_tk < p_ai < p_sp)
+check("tools block directly after the hero",
+      p_hero < p_hub < p_tk < p_ai < p_sp)
 check("search + specs after the tools block",
       p_sp < p_search < p_specs)
 check("invite is the last section before the footer",

@@ -194,9 +194,10 @@
     <div class="brand-side">
       <a class="logo" href="/"><img src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="brand-text"><span class="wm">Q<span>Grab</span></span><span class="tagline">All Platform Video Download in One Place</span></span></a>
     </div>
-    <nav class="hnav" aria-label="Main">
+    <button type="button" class="nav-burger" id="navBurger" aria-expanded="false" aria-controls="mainNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Menu</button>
+    <nav class="hnav" id="mainNav" aria-label="Main">
       <a class="nav-link" href="/">Home</a>
-      <a class="nav-link" href="/#tools-hub">Tools</a>
+      {% include "_toolsmenu.html" %}
       <a class="nav-link" href="/download-history">Download History</a>
       <a class="nav-link" href="/#faq">FAQ</a>
       <a class="nav-link on" href="/telegram-proxies">Telegram Proxies</a>

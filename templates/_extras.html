@@ -61,6 +61,82 @@
   [dir="rtl"] .hmenu{margin-left:0;margin-right:10px}
   [dir="rtl"] .hmenu-panel{right:auto;left:0;text-align:right}
 
+  /* Tools dropdown (2026-11-16.26, the owner's order): the
+     nav "Tools" item is a dropdown listing EVERY tool,
+     grouped like the Tools Hub, so a visitor picks one tool
+     and lands on it directly. Styled after the three-dot
+     menu panel above so it feels native in all three
+     themes (light / dark / eyecare all ride the same vars).
+     Item rules are prefixed with .tmenu-panel so they beat
+     the per-page ".nav nav a" boilerplate. */
+  .tmenu{position:relative;display:inline-block}
+  .tmenu-btn{display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+    background:none;border:0;font:inherit;text-align:left}
+  .tmenu-btn .tchev{width:13px;height:13px;flex:none;
+    transition:transform .18s ease}
+  .tmenu-btn.open .tchev{transform:rotate(180deg)}
+  .tmenu-panel{position:absolute;top:calc(100% + 10px);left:0;width:258px;
+    max-width:calc(100vw - 16px);max-height:min(80vh,620px);overflow:auto;
+    background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:8px;z-index:60;box-shadow:0 16px 34px var(--sh-strong);
+    text-align:left}
+  .tmenu-panel[hidden]{display:none}
+  .tmenu-panel .tmenu-sec{padding:9px 11px 4px;color:var(--muted);
+    font-size:.72rem;font-weight:800;letter-spacing:1.2px;
+    text-transform:uppercase}
+  .tmenu-panel .tmenu-sec:first-child{padding-top:3px}
+  .tmenu-panel .tmenu-item{display:block;color:var(--text);font-weight:600;
+    font-size:.93rem;padding:7px 11px;border-radius:9px;margin:0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tmenu-panel .tmenu-item:hover{background:var(--bg2);color:var(--accent)}
+  .tmenu-panel .tmenu-all{display:block;border-top:1px solid var(--line);
+    margin:6px 0 0;padding:9px 11px 5px;color:var(--accent);
+    font-weight:700;font-size:.9rem;white-space:nowrap}
+  .tmenu-panel .tmenu-all:hover{color:var(--text)}
+  [dir="rtl"] .tmenu-panel{text-align:right}
+  /* flash that points at the control a nav-dropdown pick
+     activated (Script / Prompts buttons in the SP tool) */
+  .tool-flash{animation:qgToolFlash 1.4s ease}
+  @keyframes qgToolFlash{0%,60%{box-shadow:0 0 0 3px var(--accent)}
+    100%{box-shadow:0 0 0 0 transparent}}
+  @media (prefers-reduced-motion: reduce){
+    .tool-flash{animation:none}
+    .tmenu-btn .tchev{transition:none} }
+
+  /* Responsive nav (2026-11-16.26, the owner's order): on
+     DESKTOP widths the header menu stays exactly as it was —
+     the whole row in front, and the Menu (hamburger) button
+     never renders. On PHONE widths (<= 820px) the row
+     collapses behind the Menu button; tapping it opens the
+     same nav as a stacked panel, and inside that panel the
+     Tools dropdown stops floating and expands INLINE
+     (accordion-style) so a tool can still be picked and
+     opened. The theme / three-dot cluster rides at the
+     panel's end when it is open. */
+  .nav-burger{display:none;align-items:center;gap:7px;cursor:pointer;
+    background:var(--bg2);border:1.5px solid var(--line);color:var(--text);
+    font:inherit;font-weight:700;font-size:.92rem;
+    padding:7px 13px;border-radius:999px;flex:none}
+  .nav-burger:hover{border-color:var(--accent)}
+  .nav-burger svg{width:17px;height:17px;display:block}
+  @media (max-width:820px){
+    .nav-burger{display:inline-flex}
+    .hnav{display:none}
+    .hnav.nav-open{display:flex;flex-direction:column;
+      align-items:stretch;flex-basis:100%;gap:2px;
+      padding:8px 0 6px}
+    .hnav.nav-open .nav-link{display:block;padding:10px 9px}
+    .hnav.nav-open .tmenu{display:block}
+    .hnav.nav-open .tmenu-btn{display:flex;width:100%;
+      justify-content:space-between;padding:10px 9px}
+    .hnav.nav-open .tmenu-panel{position:static;width:auto;
+      max-width:none;max-height:none;overflow:visible;
+      box-shadow:none;border:0;background:transparent;
+      border-radius:0;padding:0 0 4px 14px}
+    .hnav.nav-open .tmenu-panel .tmenu-item{padding:9px 11px}
+    .hnav.nav-open .nav-right{margin-top:6px;padding:4px 9px 2px}
+  }
+
   /* (2026-11-08.12 — the owner's order: NO Install App button
      in the header, and the install guide sheet that only it
      could open is retired with it. Installing now lives only
@@ -360,21 +436,6 @@
        padding:5px 13px;font-size:.85rem;font-weight:700;
        background:var(--bg2);border:1px solid var(--accent);
        color:var(--accent)}
-     .usage-card{max-width:760px;margin:18px auto 0;background:var(--card);
-       border:1px solid var(--line);border-radius:16px;
-       padding:18px 20px;box-shadow:0 10px 26px var(--sh-soft);
-       text-align:left}
-     [dir="rtl"] .usage-card{text-align:right}
-     .usage-card h3{margin:0 0 12px;font-size:1rem;text-align:center}
-     .usage-row{display:flex;justify-content:space-between;gap:12px;
-       font-size:.9rem;margin-top:10px}
-     .usage-row .uv{color:var(--muted);font-weight:700}
-     .usage-bar{height:8px;background:var(--bg2);border-radius:99px;
-       overflow:hidden;margin-top:5px}
-     .usage-fill{height:100%;background:var(--accent);width:0;
-       transition:width .4s ease}
-     .usage-note{color:var(--muted);font-size:.8rem;margin-top:12px;
-       text-align:center}
      .hist-list{display:flex;flex-direction:column;gap:9px;
        max-width:760px;margin:0 auto;text-align:left}
      [dir="rtl"] .hist-list{text-align:right}

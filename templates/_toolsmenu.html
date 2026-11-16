@@ -1,0 +1,103 @@
+<div class="tmenu">
+  <button type="button" class="nav-link tmenu-btn" id="toolsMenuBtn" aria-haspopup="true" aria-expanded="false">Tools <svg class="tchev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+  <div class="tmenu-panel" id="toolsMenuPanel" role="menu" hidden>
+    <div class="tmenu-sec">AI Tools</div>
+    <a class="tmenu-item" role="menuitem" href="/?tool=titles#ai-tools" data-ai-tool="titles">AI Title Generator</a>
+    <a class="tmenu-item" role="menuitem" href="/?tool=tags#ai-tools" data-ai-tool="tags">AI Tags Generator</a>
+    <a class="tmenu-item" role="menuitem" href="/?tool=hashtags#ai-tools" data-ai-tool="hashtags">AI Hashtag Generator</a>
+    <a class="tmenu-item" role="menuitem" href="/?tool=channel_names#ai-tools" data-ai-tool="channel_names">AI Channel Name Generator</a>
+    <a class="tmenu-item" role="menuitem" href="/?tool=keywords#ai-tools" data-ai-tool="keywords">Keyword Suggestions</a>
+    <a class="tmenu-item" role="menuitem" href="/?tool=thumbnail_ideas#ai-tools" data-ai-tool="thumbnail_ideas">AI Thumbnail Idea Generator</a>
+    <div class="tmenu-sec">Video Toolkit</div>
+    <a class="tmenu-item" role="menuitem" href="/?toolkit=details#video-toolkit" data-tk-tool="details">Video Details</a>
+    <a class="tmenu-item" role="menuitem" href="/?toolkit=thumbnail#video-toolkit" data-tk-tool="thumbnail">Thumbnail Downloader</a>
+    <a class="tmenu-item" role="menuitem" href="/?toolkit=hashtags#video-toolkit" data-tk-tool="hashtags">Hashtag Extractor</a>
+    <a class="tmenu-item" role="menuitem" href="/?toolkit=tags#video-toolkit" data-tk-tool="tags">Video Tags Extractor</a>
+    <div class="tmenu-sec">Script + Prompt</div>
+    <a class="tmenu-item" role="menuitem" href="/?sp=script#script-prompt" data-sp-tool="script">Video to Script</a>
+    <a class="tmenu-item" role="menuitem" href="/?sp=prompts#script-prompt" data-sp-tool="prompts">AI Video Prompts</a>
+    <a class="tmenu-all" role="menuitem" href="/#tools-hub">All tools →</a>
+  </div>
+</div>
+<script>
+/* Tools dropdown (2026-11-16.26, the owner's precise spec):
+   the nav "Tools" tab carries a small down-arrow on the
+   RIGHT of the word. On desktop, HOVERING over the tab opens
+   the grouped list of every tool (his reference video shows
+   hover-open); a click PINS a hover-opened list so it stays
+   until an item is picked, Esc is pressed or a click lands
+   outside. On touch devices there is no hover, so tapping
+   the tab toggles the list. On open the panel is nudged
+   sideways so it can never spill out of the viewport on
+   narrow screens; inside the phone Menu panel it renders
+   inline instead (see the responsive-nav CSS in
+   _extras.html). Picking an item follows its href
+   (/?tool=…#ai-tools and friends); on the homepage the
+   _animjs handlers intercept the click and activate the tool
+   in place instead, exactly like the Tools Hub cards. */
+(function () {
+  var btn = document.getElementById('toolsMenuBtn');
+  var panel = document.getElementById('toolsMenuPanel');
+  if (!btn || !panel) return;
+  var wrap = btn.parentNode;
+  var finePointer = false;
+  try {
+    finePointer = !!(window.matchMedia &&
+      window.matchMedia('(hover: hover) and (pointer: fine)').matches);
+  } catch (e) {}
+  var pinned = false;
+  function place() {
+    panel.style.left = '0px';
+    var r = panel.getBoundingClientRect();
+    var vw = document.documentElement.clientWidth || window.innerWidth;
+    var shift = 0;
+    if (r.right > vw - 8) shift = (vw - 8) - r.right;
+    if (r.left + shift < 8) shift = 8 - r.left;
+    if (shift) panel.style.left = shift + 'px';
+  }
+  function open(pin) {
+    /* never leave the three-dot menu open underneath */
+    var hp = document.getElementById('hmenuPanel');
+    if (hp && !hp.hidden) {
+      hp.hidden = true;
+      var hb = document.getElementById('hmenuBtn');
+      if (hb) hb.setAttribute('aria-expanded', 'false');
+    }
+    panel.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    btn.classList.add('open');
+    pinned = !!pin;
+    place();
+  }
+  function close() {
+    panel.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('open');
+    pinned = false;
+  }
+  window.qgrabCloseToolsMenu = close;
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (panel.hidden) open(true);
+    else if (pinned) close();
+    else open(true); /* hover-opened: this click pins it open */
+  });
+  if (wrap && finePointer) {
+    wrap.addEventListener('mouseenter', function () {
+      if (panel.hidden) open(false);
+    });
+    wrap.addEventListener('mouseleave', function () {
+      if (!pinned && !panel.hidden) close();
+    });
+  }
+  panel.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var a = e.target && e.target.closest ? e.target.closest('a') : null;
+    if (a) close();
+  });
+  document.addEventListener('click', function () { if (!panel.hidden) close(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !panel.hidden) { close(); btn.focus(); }
+  });
+})();
+</script>
