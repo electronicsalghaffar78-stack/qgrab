@@ -552,3 +552,29 @@ This pass only makes the pages *eligible* and well-matched — it does not buy r
   30 Python files + 6 JS suites + extension 17/17 — ALL
   PASS.** APP_VERSION .21 → .22. Mirrors re-synced, backup
   ZIP refreshed.
+
+# Release 2026-11-16.23 — Dailymotion graduated (note cleanup only)
+
+- **Dailymotion graduated:** the parent live-verified the .22
+  HLS fix on production — a Dailymotion download now delivers
+  a real MP4 (video/mp4, ~12.4 MB, ftyp header) instead of
+  the 375-byte playlist — so Dailymotion leaves the "new and
+  still being improved" group everywhere, with exactly the
+  treatment Vimeo got in .22: the "New — Still Being
+  Improved" section is removed from the Dailymotion platform
+  page, the homepage works-note now names Reddit only
+  ("* Reddit is new and still being improved — some links
+  may fail."), Dailymotion's hero chip lost its beta class
+  and asterisk, and the Assistant knowledge base lists
+  Dailymotion with the working platforms.
+- **Reddit unchanged:** Reddit still fails from the
+  production host (platform-side limit), so its platform-page
+  note, beta chip and KB mention stay exactly as they were —
+  it is now the only platform in the improving group.
+- **Tests:** pinned KB/chip expectations updated in
+  test_assistant.py and test_round2.py; version stamps in
+  test_app_version.py and test_seo.py. **Full suite:
+  30 Python files + 6 JS suites + extension 17/17 — ALL
+  PASS.** APP_VERSION .22 → .23. Mirrors re-synced, backup
+  ZIP refreshed. Push + manual Render deploy + live check
+  are the parent's steps (auto-deploy webhook still broken).

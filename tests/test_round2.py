@@ -68,13 +68,16 @@ for chip, path in (("YouTube", "/youtube-video-downloader"),
                    # Release .22 (2026-11-16): Vimeo verified fully
                    # working in production (info + real downloads),
                    # so its chip graduated from beta to regular.
-                   ("Vimeo", "/vimeo-video-downloader")):
+                   ("Vimeo", "/vimeo-video-downloader"),
+                   # Release .23 (2026-11-16): Dailymotion graduated
+                   # too — the .22 HLS fix was live-verified
+                   # delivering real MP4 downloads.
+                   ("Dailymotion", "/dailymotion-video-downloader")):
     check(f"chip {chip} links to its page",
           f'<a class="pchip" href="{path}">{chip}</a>' in home)
 check("chip VK stays a span (no VK page)",
       '<span class="pchip">VK</span>' in home)
-for chip, path in (("Reddit", "/reddit-video-downloader"),
-                   ("Dailymotion", "/dailymotion-video-downloader")):
+for chip, path in (("Reddit", "/reddit-video-downloader"),):
     check(f"beta chip {chip} links to its page",
           f'<a class="pchip beta" href="{path}">{chip} *</a>' in home)
 check("beta honesty note", "still being improved" in home)

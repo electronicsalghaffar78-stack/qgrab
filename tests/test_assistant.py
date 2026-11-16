@@ -121,14 +121,16 @@ def test_knowledge_base_facts_present():
     # the iPhone install route. Release .22 (2026-11-16):
     # Vimeo graduated OUT of the "still being improved" group
     # (production retest verified info + real downloads), so
-    # the KB lists it with the working platforms; only Reddit
-    # and Dailymotion remain in the improving group.
+    # the KB lists it with the working platforms. Release .23
+    # (2026-11-16): Dailymotion graduated too — the .22 HLS
+    # fix was live-verified delivering real MP4 downloads —
+    # so only Reddit remains in the improving group.
     p = qgrab.ASSISTANT_SYSTEM_PROMPT
     for fact in (
             "YouTube, TikTok, Facebook, Instagram, Pinterest, "
             "X (Twitter), SoundCloud, Twitch, Telegram (public "
-            "posts only), Vimeo and VK",
-            "Reddit and Dailymotion are new and still "
+            "posts only), Vimeo, Dailymotion and VK",
+            "Reddit is new and still "
             "being improved",
             "Threads, SnackVideo/Kwai and WhatsApp are NOT "
             "supported",
