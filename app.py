@@ -5578,9 +5578,9 @@ def _sp_download_audio_mp3(url, expected_duration=None,
 # ROUND 3 (2026-11-16, owner's order): ALL daily usage limits
 # were removed — "when a limit runs out the visitor is blocked,
 # leaves, and never returns". These counters now only COUNT
-# successful generations per Pacific day (the homepage's
-# "Today's free usage" card shows the counts); they never block
-# anyone. The reserve/settle shape is kept so in-flight jobs
+# successful generations per Pacific day (owner-side
+# information only — the homepage card that once showed them
+# was removed in release .26); they never block anyone. The reserve/settle shape is kept so in-flight jobs
 # settle symmetrically, but _sp_quota_reserve always succeeds.
 # What still protects the service: the per-IP burst rate limit
 # at POST time (a short "please wait" throttle, never a daily
@@ -5674,7 +5674,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-16.25"
+APP_VERSION = "2026-11-16.26"
 
 
 @app.route("/api/version", methods=["GET"])
