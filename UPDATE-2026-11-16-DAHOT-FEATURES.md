@@ -578,3 +578,86 @@ This pass only makes the pages *eligible* and well-matched — it does not buy r
   PASS.** APP_VERSION .22 → .23. Mirrors re-synced, backup
   ZIP refreshed. Push + manual Render deploy + live check
   are the parent's steps (auto-deploy webhook still broken).
+
+# Release 2026-11-16.24 — Owner-verdict fixes: layout root cause, Tools Hub, subscribe proportions, header lockup, platform logos
+
+The owner checked the live site and reported: content squeezed
+with run-on chips overflowing the hero card, trust lines run
+together, "Tool uses0 today", a broken-looking Subscribe form,
+the header showing name + tagline as one big line, the Tools
+nav landing on a single tool, weak animations, and platforms
+shown as plain text names. All fixed:
+
+- **ROOT CAUSE (one bug behind most of it):** the Round-2
+  comment at the top of the Round-2 block in
+  templates/_extras.html was never closed (`/* ===== Round 2
+  ... =====` with no `*/`). It swallowed the ENTIRE Round-2
+  CSS block — .logo .brand-text, .tagline, .hnav .nav-link,
+  .pchip-row/.pchip, .tchip, .plan-pill, .usage-card/
+  .usage-row, .hist-* — on every page (30 `/*` vs 29 `*/`).
+  The markup was always correct; the styles were commented
+  out, so chips/trust/counters rendered as unstyled run-on
+  text. The comment is closed, and tests/test_round4.py now
+  pins comment balance for every template so this class of
+  bug can never ship silently again.
+- **Header lockup:** with the CSS revived, the header is the
+  intended lockup — logo + big "QGrab" with "All Platform
+  Video Download in One Place" as a small muted subtitle
+  UNDER the name (.tagline display:block, .68rem). SEO
+  <title> tags untouched.
+- **Subscribe proportions (owner: they were inverted):** the
+  email input is now the wide element and the button compact.
+  Two leaks fixed: the pages' global @media (max-width:560px)
+  .btn{width:100%} rule used to hit .sub-row .btn (flex:none +
+  width:100% claimed the row and squeezed the flex:1 input
+  to a sliver — the same leak the assistant composer was
+  hardened against in 2026-11-08.7); .sub-row .btn is now
+  {flex:0 0 auto;width:auto} (higher specificity), the row
+  wraps, and on mobile the input takes its own full-width
+  line with the button compact beneath. Verified by
+  measurement: desktop input 391px / button 121px; mobile
+  input 312px / button 121px (footer form likewise).
+- **Tools Hub (the owner's original instruction):** nav
+  "Tools" now opens #tools-hub on the homepage — a chooser
+  listing EVERY tool in the app, grouped: AI Tools (Title,
+  Tags, Hashtag, Channel Name, Keyword Suggestions,
+  Thumbnail Idea), Video Toolkit (Video Details, Thumbnail
+  Downloader, Hashtag Extractor, Video Tags Extractor),
+  Script + Prompt. 11 cards, each icon + name + one-liner;
+  AI cards also pre-select their generator. All pages' nav
+  (and the footer link) point to the hub.
+- **Animations enhanced:** hub cards pop in with the
+  staggered L/R/U entrances (alternating by column, 90ms
+  stagger) replaying on every nav-Tools click; cards and
+  buttons gained lift + glow hovers; all transform/opacity,
+  prefers-reduced-motion safe.
+- **Platform logos:** hero chips and the supported-platforms
+  grid now carry real brand icons next to every name
+  (YouTube play, TikTok note, Instagram camera, Facebook f,
+  X, Pinterest P, SoundCloud cloud+bars, Twitch glyph,
+  Telegram plane, VK badge, Reddit Snoo, Vimeo V,
+  Dailymotion D). Also fixed a garbled grid pair: the VK
+  pill's markup was inside the Pinterest link and vice
+  versa — Pinterest now has its own icon/link, VK its own
+  pill.
+- **Overflow audit (same class of bug):** the footer grid
+  pushed the whole page ~93px sideways at 390px (1fr tracks
+  can't shrink below the longest unbreakable link). Fixed
+  with .foot-grid>*{min-width:0} + link overflow-wrap.
+  Measured horizontal overflow after the fix: 0px at 1280
+  and 0px at 390 (homepage and platform page).
+- **Verification (the new gate):** local build rendered and
+  screenshotted at 1280 AND 390 — homepage top (header,
+  hero card + icon chips, usage counters), the Tools Hub,
+  both Subscribe forms, the platforms grid and a platform
+  page — eyeballed clean; nav-Tools click, hub pop replay
+  and AI pre-select exercised in a real headless browser.
+- **Tests:** new tests/test_round4.py (comment balance,
+  live-CSS pins, hub completeness cross-checked against the
+  real tool grids, nav destinations, chip icons, grid
+  un-garbling); pinned chip-markup expectations updated in
+  test_round2.py / test_seo.py for the icon-carrying chips.
+  **Full suite: 31 Python files + 6 JS suites + extension
+  17/17 — ALL PASS.** APP_VERSION .23 → .24. Mirrors
+  re-synced, backup ZIP refreshed. Push + manual Render
+  deploy + live check are the parent's steps.

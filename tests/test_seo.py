@@ -1,4 +1,4 @@
-"""SEO pass tests (2026-11-16, APP_VERSION 2026-11-16.23).
+"""SEO pass tests (2026-11-16, APP_VERSION 2026-11-16.24).
 
 The owner's goal: when anyone searches Google for "video
 download", "video downloader", "video download without
@@ -237,12 +237,15 @@ check("proxies page has hreflang alternates",
 # Internal linking
 # ------------------------------------------------------------------
 home = htmls["/"]
+# Release .24: chips carry brand icons now — anchor + icon + name.
 check("hero tiktok chip is a real link",
-      '<a class="pchip" href="/tiktok-video-downloader">TikTok</a>'
-      in home)
+      re.search(r'<a class="pchip" href="/tiktok-video-downloader">'
+                r'<svg class="pchip-ic".*?>TikTok</a>',
+                home, re.S) is not None)
 check("hero soundcloud chip is a real link",
-      '<a class="pchip" href="/soundcloud-downloader">SoundCloud</a>'
-      in home)
+      re.search(r'<a class="pchip" href="/soundcloud-downloader">'
+                r'<svg class="pchip-ic".*?>SoundCloud</a>',
+                home, re.S) is not None)
 for p in PAGES:
     if p in ("/", "/terms", "/privacy", "/dmca"):
         continue

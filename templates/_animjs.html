@@ -1,6 +1,7 @@
 <script>
-/* QGrab round 3 (2026-11-16): scroll-reveal animations, the
-   animated AI-Tools reveal on the nav "Tools" click, and the
+/* QGrab round 3 (2026-11-16): scroll-reveal animations and
+   the nav "Tools" animated reveal (round 4: retargeted from
+   the AI tools grid to the #tools-hub chooser), plus the
    ?url= prefill the PC extension hands off with.
    Everything is defensive: no IntersectionObserver (or reduced
    motion) simply leaves the page exactly as it was — the .rv
@@ -34,24 +35,31 @@
     }
   } catch (e) {}
 
-  /* --- Tools nav: staggered animated reveal of the AI tools --- */
+  /* --- Tools nav: the Tools Hub (round 4) ---
+     Clicking "Tools" lands on the #tools-hub chooser (every
+     tool in the app as a card) and replays the hub cards'
+     staggered L/R/U entrance. Hub cards for AI generators
+     also pre-select that generator in the AI Tools section
+     (a synthetic click on its grid button — the same thing a
+     tap there does); Toolkit cards are plain anchors, since
+     a toolkit chip tap needs a fetched video first. */
   function popTools() {
-    var cards = document.querySelectorAll('.ai-grid .ai-tool');
+    var cards = document.querySelectorAll('.hub-grid .hub-card');
     if (!cards.length) return;
     cards.forEach(function (c, i) {
-      c.classList.remove('tool-pop');
+      c.classList.remove('hub-pop');
       c.style.animationDelay = (i * 90) + 'ms';
     });
     /* force reflow so re-clicking replays the animation */
     void document.body.offsetWidth;
-    cards.forEach(function (c) { c.classList.add('tool-pop'); });
+    cards.forEach(function (c) { c.classList.add('hub-pop'); });
   }
   window.qgrabPopTools = popTools;
   try {
     var link = document.querySelector('.js-tools');
     if (link) {
       link.addEventListener('click', function () {
-        var sec = document.getElementById('ai-tools');
+        var sec = document.getElementById('tools-hub');
         if (sec) {
           setTimeout(function () {
             sec.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth',
@@ -61,7 +69,18 @@
         }
       });
     }
-    if (location.hash === '#ai-tools') setTimeout(popTools, 400);
+    if (location.hash === '#tools-hub') setTimeout(popTools, 400);
+    document.querySelectorAll('.hub-card[data-ai-tool]').forEach(
+      function (card) {
+        card.addEventListener('click', function () {
+          var tool = card.getAttribute('data-ai-tool');
+          setTimeout(function () {
+            var b = document.querySelector(
+              '.ai-grid .ai-tool[data-tool="' + tool + '"]');
+            if (b) b.click();
+          }, 700);
+        });
+      });
   } catch (e) {}
 
   /* --- usage-stat wiring for UI-only actions (round 3) --- */

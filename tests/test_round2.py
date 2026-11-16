@@ -22,6 +22,7 @@ Run:  .venv/bin/python tests/test_round2.py
 import base64
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -58,6 +59,9 @@ check("works-with line", "Works with YouTube, TikTok, Instagram, Facebook" in ho
 # SEO pass (2026-11-16): the hero chips are real links to the
 # platform pages now (they were plain spans), so the checks pin the
 # anchor markup; VK has no page of its own and stays a span.
+# Release .24 (2026-11-16): every chip now carries its platform's
+# brand icon (<svg class="pchip-ic">) before the name, so the
+# checks pin anchor + icon + name instead of the bare anchor.
 for chip, path in (("YouTube", "/youtube-video-downloader"),
                    ("TikTok", "/tiktok-video-downloader"),
                    ("Instagram", "/instagram-video-downloader"),
@@ -74,12 +78,17 @@ for chip, path in (("YouTube", "/youtube-video-downloader"),
                    # delivering real MP4 downloads.
                    ("Dailymotion", "/dailymotion-video-downloader")):
     check(f"chip {chip} links to its page",
-          f'<a class="pchip" href="{path}">{chip}</a>' in home)
+          re.search(rf'<a class="pchip" href="{re.escape(path)}">'
+                    rf'<svg class="pchip-ic".*?>{chip}</a>',
+                    home, re.S) is not None)
 check("chip VK stays a span (no VK page)",
-      '<span class="pchip">VK</span>' in home)
+      re.search(r'<span class="pchip"><svg class="pchip-ic".*?>VK</span>',
+                home, re.S) is not None)
 for chip, path in (("Reddit", "/reddit-video-downloader"),):
     check(f"beta chip {chip} links to its page",
-          f'<a class="pchip beta" href="{path}">{chip} *</a>' in home)
+          re.search(rf'<a class="pchip beta" href="{re.escape(path)}">'
+                    rf'<svg class="pchip-ic".*?>{chip} \*</a>',
+                    home, re.S) is not None)
 check("beta honesty note", "still being improved" in home)
 for gone in ("Threads", "SnackVideo", "WhatsApp"):
     check(f"no chip {gone}", f'<span class="pchip">{gone}</span>' not in home
