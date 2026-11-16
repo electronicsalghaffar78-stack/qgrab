@@ -501,3 +501,54 @@ This pass only makes the pages *eligible* and well-matched — it does not buy r
   **Full suite: 29 Python files + 6 JS suites + extension
   17/17 — ALL PASS.** APP_VERSION .20 → .21. Mirrors re-synced,
   backup ZIP refreshed.
+
+---
+
+# Release 2026-11-16.22 — HLS downloads remuxed (Dailymotion fix) + Vimeo graduated
+
+- **Production retest of .21 (parent, live):** Vimeo FULLY works
+  (info + a real MP4 download verified); Reddit still fails from
+  the production host (the platform limits the server IP — its
+  honesty note stays); Dailymotion /api/info works (2 HLS
+  formats) but /download delivered the raw .m3u8 playlist
+  (375 bytes) instead of a video.
+- **HLS fix (app.py):** `_download_impl` now detects an HLS
+  format up front (`_is_hls_target`: protocol m3u8*, ext m3u8,
+  or a URL ending in .m3u8) and routes it to `_download_hls`
+  instead of the byte proxy: ffmpeg reads the playlist and
+  writes ONE real MP4 (`-c copy`, no re-encode;
+  `_ffmpeg_remux_url`, 300 s timeout, and the output is
+  rejected if it is itself a playlist). If ffmpeg is
+  missing/fails, yt-dlp's native HLS download
+  (`_download_via_ytdlp`) is the fallback; if that fails too,
+  the visitor gets the site's friendly error (502 +
+  FRIENDLY_ERROR) — the raw playlist is never served. The
+  remux runs inside the existing heavy-download slot (queue
+  behaviour unchanged) and its temp dir is removed when the
+  response closes, so disk use stays bounded to one file per
+  download. Dailymotion's "still being improved" note STAYS in
+  this release — it comes off only after the parent verifies
+  this fix live.
+- **Vimeo graduated:** the "New — Still Being Improved"
+  section is removed from the Vimeo platform page, the
+  homepage works-note now names only Reddit and Dailymotion,
+  Vimeo's hero chip lost its beta asterisk, and the Assistant
+  knowledge base lists Vimeo with the working platforms.
+  Reddit's and Dailymotion's notes are unchanged.
+- **Tests:** new `tests/test_hls_download.py` (7 tests): HLS
+  detection variants; a simulated m3u8 format through
+  /download asserting the video/mp4 content type, the exact
+  remuxed bytes and an .mp4 filename (with the raw proxy
+  rigged to fail the test if it is used); the yt-dlp fallback
+  path; the failure path asserting 502 + the friendly error
+  and no playlist bytes; a non-HLS regression (a plain MP4
+  format is still proxied, with the remux rigged to fail if
+  used); and the remux guard exercised end-to-end against
+  fake ffmpeg executables (playlist output rejected, real
+  MP4 accepted). The real ffmpeg remux was also smoke-tested
+  locally against a generated HLS stream (valid MP4,
+  h264 + aac). Pinned KB/chip expectations updated in
+  test_assistant.py and test_round2.py. **Full suite:
+  30 Python files + 6 JS suites + extension 17/17 — ALL
+  PASS.** APP_VERSION .21 → .22. Mirrors re-synced, backup
+  ZIP refreshed.

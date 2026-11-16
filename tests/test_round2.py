@@ -64,13 +64,16 @@ for chip, path in (("YouTube", "/youtube-video-downloader"),
                    ("Facebook", "/facebook-video-downloader"),
                    ("SoundCloud", "/soundcloud-downloader"),
                    ("Twitch", "/twitch-video-downloader"),
-                   ("Telegram", "/telegram-video-downloader")):
+                   ("Telegram", "/telegram-video-downloader"),
+                   # Release .22 (2026-11-16): Vimeo verified fully
+                   # working in production (info + real downloads),
+                   # so its chip graduated from beta to regular.
+                   ("Vimeo", "/vimeo-video-downloader")):
     check(f"chip {chip} links to its page",
           f'<a class="pchip" href="{path}">{chip}</a>' in home)
 check("chip VK stays a span (no VK page)",
       '<span class="pchip">VK</span>' in home)
 for chip, path in (("Reddit", "/reddit-video-downloader"),
-                   ("Vimeo", "/vimeo-video-downloader"),
                    ("Dailymotion", "/dailymotion-video-downloader")):
     check(f"beta chip {chip} links to its page",
           f'<a class="pchip beta" href="{path}">{chip} *</a>' in home)

@@ -118,13 +118,17 @@ def test_knowledge_base_facts_present():
     # Premium, no payments and no referrals; the JazzCash/
     # Easypaisa prices and trial facts are gone. Round 3 also
     # added the Telegram Proxies and QGrab-for-PC facts and
-    # the iPhone install route.
+    # the iPhone install route. Release .22 (2026-11-16):
+    # Vimeo graduated OUT of the "still being improved" group
+    # (production retest verified info + real downloads), so
+    # the KB lists it with the working platforms; only Reddit
+    # and Dailymotion remain in the improving group.
     p = qgrab.ASSISTANT_SYSTEM_PROMPT
     for fact in (
             "YouTube, TikTok, Facebook, Instagram, Pinterest, "
             "X (Twitter), SoundCloud, Twitch, Telegram (public "
-            "posts only) and VK",
-            "Reddit, Vimeo and Dailymotion are new and still "
+            "posts only), Vimeo and VK",
+            "Reddit and Dailymotion are new and still "
             "being improved",
             "Threads, SnackVideo/Kwai and WhatsApp are NOT "
             "supported",
