@@ -1,7 +1,11 @@
-/* Subscribe popup trigger logic (round 3): the decision
-   function from templates/_subscribejs.html — shows at the
-   3rd download, never when subscribed, not again within
-   7 days of a dismissal, again after 7 days.
+/* Stats-ping partial (templates/_subscribejs.html).
+   Until release 2026-11-16.27 this partial also carried the
+   email-subscribe form wiring and the 3rd-download popup
+   decision (qgrabSubShouldShow). The owner ordered ALL
+   visitor-facing subscribe UI removed in .27, so the contract
+   now is: qgStat survives (fire-and-forget POST /api/event —
+   history/invite/anim code depends on it) and NO subscribe
+   machinery ships anymore.
    Run:  node tests/test_subscribe_js.js */
 'use strict';
 const fs = require('fs');
@@ -13,47 +17,52 @@ const html = fs.readFileSync(
   path.join(__dirname, '..', 'templates', '_subscribejs.html'), 'utf8');
 const code = html.match(/<script>([\s\S]*)<\/script>/)[1];
 
-function makeWorld({ downloads, subscribed, dismissed }) {
-  const store = {};
-  if (subscribed) store.qgrab_subscribed = '1';
-  if (dismissed) store.qgrab_sub_dismissed = String(dismissed);
+/* --- the shipped source carries no subscribe machinery --- */
+assert.ok(!code.includes('/api/subscribe'),
+  'partial must not call /api/subscribe anymore');
+assert.ok(!code.includes('js-sub-form'),
+  'partial must not wire subscribe forms anymore');
+assert.ok(!code.includes('qgrab_subscribed'),
+  'partial must not touch the old subscribed flag');
+assert.ok(!code.includes('sub-pop'),
+  'partial must not build the subscribe popup anymore');
+
+function makeWorld() {
+  const calls = [];
   const sandbox = {
     console,
-    fetch: () => Promise.reject(new Error('offline')),
+    fetch: (url, opts) => {
+      calls.push({ url, opts });
+      return Promise.resolve({});
+    },
     localStorage: {
-      getItem: (k) => (k in store ? store[k] : null),
-      setItem: (k, v) => { store[k] = String(v); },
-      removeItem: (k) => { delete store[k]; },
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
     },
-    document: {
-      querySelectorAll: () => [],
-      createElement: () => ({ classList: { add() {} }, style: {},
-        addEventListener() {}, querySelector: () => null,
-        set innerHTML(v) {}, }),
-      body: { appendChild() {} },
-    },
-    QGHistory: { list: () => new Array(downloads).fill({}) },
+    document: { querySelectorAll: () => [] },
   };
   sandbox.window = sandbox;
   vm.runInNewContext(code, sandbox, { filename: '_subscribejs.html' });
-  return sandbox;
+  return { sandbox, calls };
 }
 
-const NOW = 1763000000000;
-const DAY = 24 * 3600 * 1000;
+const { sandbox, calls } = makeWorld();
 
-let w = makeWorld({ downloads: 2 });
-assert.strictEqual(w.qgrabSubShouldShow(NOW), false, 'not before 3rd download');
-w = makeWorld({ downloads: 3 });
-assert.strictEqual(w.qgrabSubShouldShow(NOW), true, 'shows at 3rd download');
-w = makeWorld({ downloads: 9 });
-assert.strictEqual(w.qgrabSubShouldShow(NOW), true, 'still shows after 3rd');
-w = makeWorld({ downloads: 5, subscribed: true });
-assert.strictEqual(w.qgrabSubShouldShow(NOW), false, 'never when subscribed');
-w = makeWorld({ downloads: 5, dismissed: NOW - 3 * DAY });
-assert.strictEqual(w.qgrabSubShouldShow(NOW), false, 'not within 7 days of dismissal');
-w = makeWorld({ downloads: 5, dismissed: NOW - 8 * DAY });
-assert.strictEqual(w.qgrabSubShouldShow(NOW), true, 'again after 7 days');
-assert.strictEqual(typeof w.qgStat, 'function', 'qgStat helper defined');
+/* --- qgStat survives and pings /api/event --- */
+assert.strictEqual(typeof sandbox.qgStat, 'function',
+  'qgStat must still be defined');
+sandbox.qgStat('extension_download');
+assert.strictEqual(calls.length, 1, 'qgStat fires exactly one ping');
+assert.strictEqual(calls[0].url, '/api/event');
+assert.strictEqual(calls[0].opts.method, 'POST');
+assert.deepStrictEqual(JSON.parse(calls[0].opts.body),
+  { name: 'extension_download' });
 
-console.log('test_subscribe_js: ALL PASS');
+/* --- the popup decision/entry points are gone --- */
+assert.strictEqual(sandbox.qgrabSubShouldShow, undefined,
+  'qgrabSubShouldShow must be gone');
+assert.strictEqual(sandbox.qgrabSubMaybeShow, undefined,
+  'qgrabSubMaybeShow must be gone');
+
+console.log('PASS test_subscribe_js (stats ping only, subscribe gone)');

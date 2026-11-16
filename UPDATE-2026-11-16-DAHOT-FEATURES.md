@@ -815,3 +815,81 @@ Three owner orders landed in this one round:
   APP_VERSION .25 -> .26. Mirrors re-synced, backup ZIP
   refreshed. Push + manual Render deploy + live check are
   the parent's steps.
+
+
+# Release 2026-11-16.27 — Extension download FIXED (runtime-built ZIP), subscribe REMOVED entirely, usage section confirmed gone
+
+The owner tested .26 on his own laptop and reported three
+things; all three are handled here.
+
+- **EXTENSION DOWNLOAD FIXED (top priority).** His Chrome
+  showed "qgrab-extension.zip — File wasn't available on
+  site" three times: the button's URL
+  (/static/downloads/qgrab-extension.zip) 404'd in production
+  because the ZIP is a binary and binaries never reached the
+  code repo. Fix with NO binary upload: app.py now BUILDS the
+  ZIP at runtime — a new route serves that exact same URL
+  (an all-static route beats Flask's /static/<path> catch-all)
+  by zipping the extension's text sources from extension/
+  (manifest.json, background.js, content.js, popup.html,
+  popup.js, README.md, test_logic.js) in memory with zipfile,
+  cached per process. deploy/Dockerfile gained
+  `COPY extension ./extension` so the sources exist in the
+  image. The icon PNGs are binaries too and absent from the
+  repo checkout, so any icon missing on disk is GENERATED in
+  memory by a pure-Python PNG writer (zlib/struct): QGrab-red
+  rounded square, white Q ring + tail, at 16/32/48/128/192.
+  If the sources are ever unavailable, the route falls back
+  to a prebuilt ZIP on disk, else an honest 404 JSON.
+  Proven by tests/test_round7.py: the served bytes open as a
+  zip, manifest.json parses (manifest_version 3, name
+  "QGrab Downloader — IDM-style panel"), EVERY file the
+  manifest references is inside, all five icons are valid
+  PNGs of the right size — and a simulated production build
+  (sources only, no icon files) produces an equally complete
+  package with generated icons (transparent corners, red
+  body, white ring, pixel-verified).
+- **SUBSCRIBE REMOVED ENTIRELY (owner reversed his .25
+  "footer form is perfect" call).** Gone: the FOOTER
+  subscribe form on every page ("Daily updates by email"
+  block in _footer.html), the 3rd-download AUTO-POPUP, the
+  form wiring, and the subscribe-only CSS (.sub-form/.sub-row/
+  .sub-msg/.sub-note/.sub-pop-form/-msg/-note in _extras.html).
+  templates/_subscribejs.html is now ONLY the qgStat stats
+  ping (history/invite/anim code depends on it; the filename
+  stays because five templates include it). The popup-shell
+  CSS (.sub-pop*) survives — the Invite/Share popup reuses
+  those classes. The /api/subscribe + digest backend stays
+  in app.py DORMANT: nothing visitor-facing references it,
+  and no email has ever been sent (RESEND_API_KEY was never
+  set). test_subscribe.py (backend contract) still passes;
+  test_subscribe_js.js was rewritten to pin the trimmed
+  partial; the flipped pins in test_round4.py (proportions)
+  and test_round5.py (footer-kept/popup-shipped) now assert
+  absence.
+- **"UNLIMITED USE" SECTION — CONFIRMED GONE.** The
+  "Today's free usage" card was already removed in .26 (the
+  owner had seen a pre-.26 page). Verified this round: no
+  usage section/anchor anywhere in the templates; the only
+  "unlimited" traces left are ordinary inline copy (the AI
+  panel's "Free & unlimited — no daily limit" line and the
+  specs table's Limits row) — no distinct promotional
+  section exists to remove.
+- **Tests:** new tests/test_round7.py (50 checks: ZIP route
+  + manifest completeness + generated-icons build + subscribe
+  absence on 5 rendered pages + footer intact + usage
+  absence). **Full suite: 34 Python files + 6 JS suites +
+  extension 17/17 — ALL PASS.**
+- **Verification (the gate):** local build in headless
+  Chromium at 1280 + 390 — footer renders with NO form, NO
+  email input, NO subscribe copy at either width (DOM +
+  eyeballed captures); homepage order unchanged (hero ->
+  Tools Hub -> Video Toolkit -> AI Tools -> Script+Prompt ->
+  Search -> ... -> Invite -> footer); overflow 0 at both
+  widths. Plus a real HTTP download of the ZIP from the
+  local server with the zip/manifest assertions printed.
+  Captures in ~/workspace/qg27-verify/shots/, driver at
+  ~/workspace/qg27-verify/drive.py.
+  APP_VERSION .26 -> .27. Mirrors re-synced, backup ZIP
+  refreshed. Push + manual Render deploy + live check are
+  the parent's steps.

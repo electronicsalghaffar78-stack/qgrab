@@ -543,30 +543,13 @@
   .ai-tool.tool-pop{animation:none}
 }
 
-/* === Round 3: subscribe forms + popup === */
-.sub-form{margin-top:14px;text-align:left}
-.sub-form-center{max-width:520px;margin-left:auto;margin-right:auto}
-.sub-label{font-weight:800;font-size:.92rem;display:block;margin-bottom:8px}
-/* Round 4 fix (2026-11-16.24): the EMAIL INPUT is the wide
-   element and the Subscribe BUTTON stays compact (auto width,
-   label-sized). Two guards make that true at every width:
-   (1) .sub-row .btn has higher specificity than the pages'
-   global @media (max-width:560px) .btn{width:100%} rule, which
-   used to leak in, claim the whole row and squeeze the flex:1
-   input to a sliver (the same leak the assistant composer was
-   hardened against in 2026-11-08.7); (2) the row wraps, and on
-   small screens the input takes its own full-width line while
-   the button stays compact — never stretched. */
-.sub-row{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch}
-.sub-row input{flex:1 1 200px;min-width:0;background:var(--bg2);border:1px solid var(--line);
-  border-radius:10px;padding:10px 12px;color:var(--text);font-size:.95rem}
-.sub-row .btn{flex:0 0 auto;width:auto}
-@media (max-width:560px){
-  .sub-row input{flex-basis:100%}
-  .sub-row .btn{width:auto}
-}
-.sub-msg{color:var(--ok);font-size:.85rem;font-weight:700;margin-top:7px;min-height:1em}
-.sub-note{color:var(--muted);font-size:.8rem;margin-top:6px}
+/* === Popup shell (Round 3) — originally built for the
+   subscribe popup; since release 2026-11-16.27 removed ALL
+   subscribe UI (owner's order), these rules now serve the
+   Invite/Share popup (_invitejs.html), which reuses the same
+   shell classes. The subscribe-form rules (.sub-form, .sub-row,
+   .sub-msg, .sub-note, .sub-pop-form/-msg/-note) were deleted
+   with the forms. === */
 .sub-pop-overlay{position:fixed;inset:0;background:rgba(6,8,12,.62);
   display:flex;align-items:center;justify-content:center;z-index:1200;padding:18px}
 .sub-pop{background:var(--card);border:1px solid var(--line);border-radius:18px;
@@ -575,9 +558,6 @@
   animation:qgToolU .45s cubic-bezier(.2,.7,.3,1) both}
 .sub-pop-title{font-size:1.25rem;font-weight:800}
 .sub-pop p{color:var(--muted);margin:8px 0 0}
-.sub-pop-form{margin-top:14px;text-align:left}
-.sub-pop-msg{color:var(--ok);font-size:.85rem;font-weight:700;margin-top:7px}
-.sub-pop-note{font-size:.8rem}
 .sub-pop-no{margin-top:12px;background:none;border:none;color:var(--muted);
   font-size:.9rem;font-weight:700;cursor:pointer;text-decoration:underline}
 

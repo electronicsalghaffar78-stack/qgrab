@@ -6,7 +6,11 @@ homepage section placement, and ordered:
   1. the homepage Subscribe card ("QGrab updates, by email")
      REMOVED — the footer subscribe form stays (owner: "that
      one is perfect"); the /api/subscribe backend and the
-     3rd-download subscribe popup stay too;
+     3rd-download subscribe popup stay too.
+     (SUPERSEDED by release .27: the owner later ordered ALL
+     subscribe UI removed — footer form and popup included.
+     The absence contract now lives in test_round7.py; the
+     checks below were flipped to match.)
   2. the Invite card moved to the VERY BOTTOM of the homepage
      content — the last section before the footer;
   3. the tools block (Tools Hub + Video Toolkit + AI Tools +
@@ -47,15 +51,17 @@ def check(name, cond, detail=""):
 client = qgrab.app.test_client()
 home = client.get("/").get_data(as_text=True)
 
-# --- 1. homepage Subscribe card removed, footer form kept -----
+# --- 1. homepage Subscribe card removed (release .27 removed
+#        the footer form + popup too — see test_round7.py) -----
 check("no subscribe section on homepage", 'id="subscribe"' not in home)
 check("section subscribe card text gone",
       "QGrab updates, by email" not in home)
 check("no section subscribe form", 'data-source="section"' not in home)
-check("footer subscribe form kept", 'data-source="footer"' in home
-      and 'id="subEmailFoot"' in home)
-check("subscribe popup still shipped", "qgrab_subscribed" in home
-      and "sub-pop" in home)
+check("footer subscribe form removed (.27)",
+      'data-source="footer"' not in home
+      and 'id="subEmailFoot"' not in home)
+check("subscribe popup removed (.27)", "qgrab_subscribed" not in home
+      and "js-sub-form" not in home)
 r = client.post("/api/subscribe", json={"email": "fan@example.com"})
 check("subscribe API still works", r.status_code == 200
       and r.get_json().get("subscribed") is True, str(r.status_code))

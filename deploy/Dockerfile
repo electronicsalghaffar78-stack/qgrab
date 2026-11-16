@@ -32,6 +32,11 @@ COPY app.py ./
 COPY i18n.py ./
 COPY templates ./templates
 COPY static ./static
+# The extension's text sources (2026-11-16.27): app.py builds
+# the downloadable qgrab-extension.zip from them at runtime.
+# Binaries (the ZIP itself, the icon PNGs) are not in the repo,
+# so without this COPY the extension download 404s in the image.
+COPY extension ./extension
 # Bundled data snapshots that ship with the code (2026-11-16.21):
 # bundled_data/proxies.json is the deploy-proof fallback for the
 # Telegram Proxies page — data/ below stays an empty runtime dir,

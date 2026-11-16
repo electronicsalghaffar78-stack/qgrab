@@ -73,9 +73,11 @@ check("tchip-row css live", ".tchip-row{display:flex" in home)
 check("wrap centered", ".wrap{max-width:860px;margin:0 auto" in home)
 
 # --- subscribe proportions ------------------------------------
-check("sub btn compact css", ".sub-row .btn{flex:0 0 auto;width:auto}" in home)
-check("sub row wraps", ".sub-row{display:flex;gap:8px;flex-wrap:wrap" in home)
-check("sub input grows", ".sub-row input{flex:1 1 200px" in home)
+# (Removed in release .27: the owner ordered ALL subscribe UI
+# off the site, so the .sub-row proportion rules were deleted
+# with the footer form. The absence contract — no subscribe
+# form, popup or CSS on any rendered page — is pinned in
+# test_round7.py.)
 
 # --- footer grid hardening ------------------------------------
 check("foot-grid shrink css", ".foot-grid>*{min-width:0}" in home)
