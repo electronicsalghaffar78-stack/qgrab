@@ -3395,6 +3395,17 @@ def dmca():
     return render_template("dmca.html")
 
 
+@app.route("/download-history")
+def download_history():
+    """Download History page (2026-11-16.25, owner's order): the
+    history used to be a section on the homepage; it is now its
+    own page, like Chrome's downloads tab. The list itself lives
+    in the visitor's browser (localStorage qgrab_dl_history_v1,
+    rendered by _historyjs.html) — this route only serves the
+    page shell, exactly like the legal pages above."""
+    return render_template("history.html", site_url=SITE_URL)
+
+
 # Candidate files for the Telegram proxy list, in priority order.
 # (1) data/proxies.json — the runtime data folder; a refreshed
 # list dropped in there always wins. (2) bundled_data/proxies.json
@@ -5663,7 +5674,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-16.24"
+APP_VERSION = "2026-11-16.25"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -6371,12 +6382,14 @@ SUPPORT_CONFIRMATION = (
     "it is a problem with the site, we aim to fix it within "
     "24–48 hours — please try again after that.")
 
-# Section ids the assistant may send a visitor to — exactly the
-# ids present in templates/index.html (downloader box, Search
+# Section ids the assistant may send a visitor to — the ids
+# present in templates/index.html (downloader box, Search
 # Videos, Video Toolkit, AI Tools, the Script+Prompt section,
-# Tools, Download History and Install). Round 3 removed the
-# Plans section (site is fully free). A model-named target
-# outside this list is dropped
+# Tools and Install) plus "download-history", which since
+# release .25 is its own page (/download-history): the
+# assistant JS navigates there instead of scrolling. Round 3
+# removed the Plans section (site is fully free). A model-named
+# target outside this list is dropped
 # to null server-side; the button never scrolls to a guess.
 ASSISTANT_GOTO_IDS = (
     "download", "search-videos", "video-toolkit", "ai-tools",
@@ -6438,7 +6451,7 @@ ASSISTANT_SYSTEM_PROMPT = (
     "can also be downloaded when offered. Starting a download "
     "also starts the video's Script + Prompt automatically.\n"
     "- Download History: every video and MP3 you download is "
-    "listed in the Download History section (in the top "
+    "listed on the Download History page (linked in the top "
     "menu). It is saved in your own browser on this device — "
     "there is no account, so it does not follow you to other "
     "devices. Each item has a Download Again button, and "
