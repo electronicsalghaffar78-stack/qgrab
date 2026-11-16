@@ -2159,8 +2159,6 @@ PLATFORM_PAGES = {
              "app or software to download first, and using the "
              "downloader is completely free."),
             ("A Note on Personal Use", PERSONAL_USE_NOTE),
-            ("New — Still Being Improved",
-             "Dailymotion restricts many automated requests, so some public links may fail even though they open fine in a browser. That is a Dailymotion-side limit; support here is new and still being improved."),
         ],
         "faq": [
             ("Is the Dailymotion downloader free?",
@@ -5665,7 +5663,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-16.22"
+APP_VERSION = "2026-11-16.23"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -6427,9 +6425,9 @@ ASSISTANT_SYSTEM_PROMPT = (
     "sign-up is needed — QGrab has no login at all.\n"
     "- Downloads work from: YouTube, TikTok, Facebook, "
     "Instagram, Pinterest, X (Twitter), SoundCloud, Twitch, "
-    "Telegram (public posts only), Vimeo and VK. Reddit and "
-    "Dailymotion are new and still being improved — some of "
-    "their links may fail. Threads, SnackVideo/Kwai and "
+    "Telegram (public posts only), Vimeo, Dailymotion and VK. "
+    "Reddit is new and still being improved — some of its "
+    "links may fail. Threads, SnackVideo/Kwai and "
     "WhatsApp are NOT supported. Private or login-only videos "
     "cannot be downloaded — only public videos work.\n"
     "- How to download: paste the video link into the "
