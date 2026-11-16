@@ -28,14 +28,17 @@ YOUTUBE-FALLBACK-REPORT.md.
 """
 
 import base64
+import binascii
 import hashlib
 import hmac
 import html as _html_lib
+import io
 import json
 import mimetypes
 import os
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import threading
@@ -45,6 +48,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import urllib.error
 import uuid
+import zipfile
+import zlib
 from urllib.parse import parse_qs, parse_qsl, quote, unquote, \
     urlencode, urlparse, urlunparse
 
@@ -5674,7 +5679,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-16.26"
+APP_VERSION = "2026-11-16.27"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -8331,6 +8336,148 @@ def service_worker():
     resp.headers["Service-Worker-Allowed"] = "/"
     resp.headers["Cache-Control"] = "no-cache"
     return resp
+
+
+# ---------------------------------------------------------------------------
+# PC browser extension download (release 2026-11-16.27)
+#
+# The homepage's "Download the extension (ZIP)" button points at
+# /static/downloads/qgrab-extension.zip — but a ZIP is a binary,
+# and binaries never reached the code repo, so in production the
+# static file simply was not there and the URL 404'd (the owner
+# hit exactly that on his laptop: "File wasn't available on
+# site"). The fix needs no binary upload: the ZIP is BUILT at
+# runtime from the extension's text sources (extension/, shipped
+# in the Docker image since this release) and served at the very
+# same URL — an explicit all-static route wins over Flask's
+# /static/<path:filename> catch-all for this exact path.
+#
+# The icon PNGs are binaries too and are likewise absent from
+# the repo checkout, so any icon missing on disk is generated in
+# memory by a tiny pure-Python PNG writer (QGrab-red rounded
+# square, white Q ring + tail). Either way the served package is
+# complete and installable: manifest.json, the service worker,
+# the content script, the popup, and every icon the manifest
+# references.
+# ---------------------------------------------------------------------------
+
+_EXT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "extension")
+_EXT_TEXT_FILES = ("manifest.json", "background.js", "content.js",
+                   "popup.html", "popup.js", "README.md",
+                   "test_logic.js")
+_EXT_ICON_SIZES = (16, 32, 48, 128, 192)
+_ext_zip_cache = {}
+_ext_zip_lock = threading.Lock()
+
+
+def _png_bytes(size, pixel):
+    """A minimal valid RGBA PNG of size x size; pixel(x, y)
+    returns an (r, g, b, a) tuple. Pure stdlib (zlib + struct),
+    filter-none scanlines."""
+    raw = bytearray()
+    for y in range(size):
+        raw.append(0)
+        for x in range(size):
+            raw.extend(pixel(x, y))
+
+    def chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I",
+                              binascii.crc32(tag + data) & 0xFFFFFFFF))
+
+    ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IEND", b""))
+
+
+def _ext_icon_png(size):
+    """The generated fallback extension icon: a QGrab-red
+    rounded square with a white Q (ring + diagonal tail)."""
+    red = (227, 45, 40, 255)
+    white = (255, 255, 255, 255)
+    clear = (0, 0, 0, 0)
+    s = float(size)
+    c = s / 2.0
+    corner = 0.24 * s
+    r_out, r_in = 0.315 * s, 0.185 * s
+
+    def pixel(x, y):
+        px, py = x + 0.5, y + 0.5
+        # rounded-square clip: distance to the clamped point
+        nx = min(max(px, corner), s - corner)
+        ny = min(max(py, corner), s - corner)
+        if (px - nx) ** 2 + (py - ny) ** 2 > corner ** 2:
+            return clear
+        dx, dy = px - c, py - c
+        d2 = dx * dx + dy * dy
+        if r_in * r_in < d2 < r_out * r_out:
+            return white  # the Q's ring
+        # the Q's tail: a short diagonal bar, lower-right
+        if (0.08 * s < dx < 0.40 * s and 0.08 * s < dy < 0.40 * s
+                and abs(dx - dy) < 0.085 * s):
+            return white
+        return red
+
+    return _png_bytes(size, pixel)
+
+
+def _build_extension_zip(ext_dir=None):
+    """Assemble qgrab-extension.zip (bytes) from the extension
+    sources in ext_dir (default: the repo's extension/). Text
+    sources are read from disk; any icon PNG missing on disk is
+    generated. Raises OSError if a text source is missing."""
+    ext_dir = ext_dir or _EXT_DIR
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name in _EXT_TEXT_FILES:
+            with open(os.path.join(ext_dir, name), "rb") as f:
+                z.writestr(name, f.read())
+        for size in _EXT_ICON_SIZES:
+            arc = "icons/icon-%d.png" % size
+            disk = os.path.join(ext_dir, "icons",
+                                "icon-%d.png" % size)
+            if os.path.exists(disk):
+                with open(disk, "rb") as f:
+                    z.writestr(arc, f.read())
+            else:
+                z.writestr(arc, _ext_icon_png(size))
+    return buf.getvalue()
+
+
+def _extension_zip_bytes():
+    data = _ext_zip_cache.get("data")
+    if data is None:
+        with _ext_zip_lock:
+            data = _ext_zip_cache.get("data")
+            if data is None:
+                data = _build_extension_zip()
+                _ext_zip_cache["data"] = data
+    return data
+
+
+@app.route("/static/downloads/qgrab-extension.zip")
+def extension_zip():
+    """Serve the PC-extension ZIP, built in memory from the
+    extension sources (see the block comment above) at the same
+    URL the homepage button has always pointed at."""
+    try:
+        data = _extension_zip_bytes()
+    except OSError:
+        # Sources unavailable (an image built without them):
+        # fall back to a prebuilt ZIP on disk if one is there,
+        # else an honest 404.
+        prebuilt = os.path.join(app.static_folder, "downloads",
+                                "qgrab-extension.zip")
+        if os.path.exists(prebuilt):
+            return send_file(prebuilt, mimetype="application/zip",
+                             as_attachment=True,
+                             download_name="qgrab-extension.zip")
+        return jsonify({"error": "extension_unavailable"}), 404
+    return send_file(io.BytesIO(data), mimetype="application/zip",
+                     as_attachment=True,
+                     download_name="qgrab-extension.zip")
 
 
 @app.route("/healthz")
