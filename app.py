@@ -4701,12 +4701,17 @@ SP_AUDIO_CHUNK_SECONDS = 600  # 10-minute transcription chunks
 # the same deeper budget on 2026-11-05 — see
 # SP_TEXT_SLOW_MAX_ATTEMPTS below.
 SP_AUDIO_SLOW_MAX_ATTEMPTS = 6  # audio: pairs tried after a slow failure
-SP_DEFAULT_MODEL = "gemini-3.8-flash"
+SP_DEFAULT_MODEL = "gemini-3.5-flash"  # Dahot-probed fast primary
+# (2026-11-17: Dahot probed this on 2026-11-09 — gemini-3.5-flash
+# answers in ~2 s on v1beta while gemini-3.8-flash HANGS on
+# generateContent. QGrab's chain used to START with the hanging
+# model, which is why the Gemini route measured 30-44 s live;
+# 3.8-flash is now the last resort, exactly as in Dahot.)
 # The Gemini cascade, in order. Every model has its own free-tier
 # daily quota, so widening the chain stretches the day's total.
-SP_MODEL_CHAIN = ["gemini-3.8-flash", "gemini-3.6-flash",
-                  "gemini-3.5-flash", "gemini-3.7-flash",
-                  "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+SP_MODEL_CHAIN = ["gemini-3.5-flash", "gemini-3.6-flash",
+                  "gemini-3.7-flash", "gemini-3.5-flash-lite",
+                  "gemini-3.1-flash-lite", "gemini-3.8-flash"]
 # Attempt policy (see _gemini_call): a failure that comes back in
 # under this many seconds is the quota/error signature and the
 # cascade keeps walking the chain; once a failure is SLOW (a
@@ -5146,6 +5151,188 @@ def _gemini_call(parts, system_instruction, timeout, max_models=None,
     raise _GeminiUnavailable(str(last_error))
 
 
+
+# ---------------------------------------------------------------------------
+# Ant Ling provider (2026-11-17 speed build, owner's order: "fastest
+# module lagao"). Live measurements on 2026-11-17 (see
+# UPDATE-2026-11-17-ANTLING-SPEED.md for the full table):
+#   * AI Titles: Gemini route 30.15 s vs Ling-3.1-flash 3.7-4.2 s
+#   * Assistant: Gemini route 34-44 s vs Ling-3.1-flash 2.3 s
+#   * Script (captions): the Gemini job ran 60+ s and never
+#     finished vs Ling-3.1-flash 2.5 s (script) / 7.4 s (prompts)
+#   * Transcription of 33 s of speech: Ming-3.0-asr-tiny 4.4 s,
+#     word-perfect, vs the Gemini audio route's 150 s attempts.
+# So every TEXT generation now tries Ant Ling FIRST (env
+# ANT_LING_API_KEY; the key travels in the Authorization header
+# only — never logged, never returned, never stored in the repo)
+# and falls back to the Gemini cascade when Ant Ling is not
+# configured or fails. Two hard-won details:
+#   * "thinking" MUST be disabled: the Ling flash models are
+#     hybrid reasoning models and the hidden reasoning pass ate
+#     5,251 of 5,871 tokens (58 s) on the Prompts instruction.
+#     With thinking off the same call answers in ~7 s with the
+#     usool rules intact. (The Gemini twin of this trick —
+#     thinkingBudget 0 — came from Dahot, 2026-11-16.)
+#   * Ling-3.2-flash is NOT used: it measured 35 s on the titles
+#     task. Ling-3.1-flash only.
+# The free quota is 500,000 tokens/day on the owner's Ant Ling
+# account; when it runs out the API answers an error and the
+# Gemini fallback below carries the visitor, so nobody sees a
+# failure for quota reasons.
+# ---------------------------------------------------------------------------
+
+ANTLING_API_URL = "https://api.ant-ling.com/v1"
+ANTLING_CHAT_MODEL = "Ling-3.1-flash"      # env ANTLING_MODEL override
+ANTLING_ASR_MODEL = "Ming-3.0-asr-tiny"    # env ANTLING_ASR_MODEL override
+ANTLING_CHAT_TIMEOUT = 30     # seconds; measured answers are 2-8 s
+ANTLING_ASR_TIMEOUT = 60      # seconds; 33 s of speech took 4.4 s
+
+
+class _AntLingUnavailable(Exception):
+    """Ant Ling could not answer (not configured, network error,
+    HTTP error or an empty reply). Callers fall back to Gemini."""
+
+
+def _antling_api_key():
+    """The Ant Ling key from the environment, or ''. Read fresh
+    on every call so a Render env change needs no code change."""
+    return (os.environ.get("ANT_LING_API_KEY") or "").strip()
+
+
+def _antling_configured():
+    return bool(_antling_api_key())
+
+
+def _antling_chat(system_instruction, user_text, timeout=None):
+    """One Ant Ling chat completion -> (raw_text, model_used).
+
+    OpenAI-shaped: POST /v1/chat/completions with a system and a
+    user message. Reasoning is disabled (see the block comment
+    above). Raises _AntLingUnavailable on any failure."""
+    api_key = _antling_api_key()
+    if not api_key:
+        raise _AntLingUnavailable("not configured")
+    model = (os.environ.get("ANTLING_MODEL") or "").strip() \
+        or ANTLING_CHAT_MODEL
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": user_text},
+        ],
+        "thinking": {"type": "disabled"},
+    }
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        ANTLING_API_URL + "/chat/completions", data=body,
+        method="POST",
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + api_key})
+    try:
+        with urllib.request.urlopen(
+                req, timeout=timeout or ANTLING_CHAT_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:  # HTTP error / network / timeout
+        raise _AntLingUnavailable(type(e).__name__) from e
+    try:
+        text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        text = ""
+    if not isinstance(text, str) or not text.strip():
+        raise _AntLingUnavailable("empty response")
+    return text, model
+
+
+def _antling_transcribe_file(path, timeout=None):
+    """One audio file -> its transcript text, via Ming ASR
+    (POST /v1/audio/transcriptions, multipart). Returns '' when
+    the file holds no intelligible speech (an empty transcript
+    is a valid answer, exactly like a Gemini chunk with no
+    speech). Raises _AntLingUnavailable on any failure."""
+    api_key = _antling_api_key()
+    if not api_key:
+        raise _AntLingUnavailable("not configured")
+    model = (os.environ.get("ANTLING_ASR_MODEL") or "").strip() \
+        or ANTLING_ASR_MODEL
+    with open(path, "rb") as fh:
+        blob = fh.read()
+    boundary = "----qgrab" + uuid.uuid4().hex
+
+    def _field(name, value):
+        return (f"--{boundary}\r\nContent-Disposition: form-data; "
+                f"name=\"{name}\"\r\n\r\n{value}\r\n").encode("utf-8")
+
+    head = (f"--{boundary}\r\nContent-Disposition: form-data; "
+            f"name=\"file\"; filename=\"{os.path.basename(path)}\"\r\n"
+            "Content-Type: audio/mpeg\r\n\r\n").encode("utf-8")
+    body = head + blob + b"\r\n" + _field("model", model) \
+        + f"--{boundary}--\r\n".encode("utf-8")
+    req = urllib.request.Request(
+        ANTLING_API_URL + "/audio/transcriptions", data=body,
+        method="POST",
+        headers={"Content-Type":
+                 f"multipart/form-data; boundary={boundary}",
+                 "Authorization": "Bearer " + api_key})
+    try:
+        with urllib.request.urlopen(
+                req, timeout=timeout or ANTLING_ASR_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:  # HTTP error / network / timeout
+        raise _AntLingUnavailable(type(e).__name__) from e
+    text = data.get("text") if isinstance(data, dict) else ""
+    return text.strip() if isinstance(text, str) else ""
+
+
+def _ai_text_call(parts, system_instruction, timeout,
+                  slow_max_attempts=None, thinking_budget=None):
+    """One TEXT generation: Ant Ling first when configured, the
+    Gemini cascade as the fallback. Same contract as _gemini_call
+    — (raw_text, model_used), raising _GeminiUnavailable when
+    every route failed — so existing callers and their error
+    handling are untouched. A call carrying an inline_data part
+    (audio, an image) is not text-eligible and goes straight to
+    Gemini, whose cascade is the multimodal route."""
+    if _antling_configured() and not any(
+            isinstance(p, dict) and "inline_data" in p for p in parts):
+        user_text = "\n".join(
+            p["text"] for p in parts
+            if isinstance(p, dict) and isinstance(p.get("text"), str))
+        if user_text.strip():
+            try:
+                return _antling_chat(system_instruction, user_text)
+            except _AntLingUnavailable as e:
+                app.logger.warning(
+                    "ant ling failed, falling back to gemini: %s", e)
+    return _gemini_call(parts, system_instruction, timeout,
+                        slow_max_attempts=slow_max_attempts,
+                        thinking_budget=thinking_budget)
+
+
+def _antling_generate_audio(mp3_path, title, mode):
+    """The Ant Ling audio route: Ming ASR transcribes the audio
+    (in the same chunks the Gemini route uses for long files),
+    then the mode's script/prompts are written from the stitched
+    transcript through _gemini_generate_from_transcript — which
+    itself tries Ant Ling chat first. Returns the same
+    (raw_json, model) pair the Gemini audio route returns,
+    including the {"error": "no_speech"} answer when no chunk
+    holds speech. Raises _AntLingUnavailable so the caller can
+    fall back to the Gemini audio route."""
+    chunks = [mp3_path]
+    duration = _sp_probe_duration(mp3_path)
+    if duration and duration > SP_AUDIO_CHUNK_SECONDS:
+        chunks = _sp_split_audio_chunks(mp3_path)
+    pieces = []
+    for chunk in chunks:
+        text = _antling_transcribe_file(chunk)
+        if text:
+            pieces.append(text)
+    if not pieces:
+        return json.dumps({"error": "no_speech"}), ANTLING_ASR_MODEL
+    return _gemini_generate_from_transcript(
+        "\n".join(pieces), title, mode)
+
+
 def _gemini_generate_text(timed_script, title, cap_lang, mode):
     """Caption route: timed captions in, the mode's JSON out."""
     system = SP_TEXT_INSTRUCTION_SCRIPT if mode == "script" \
@@ -5154,9 +5341,9 @@ def _gemini_generate_text(timed_script, title, cap_lang, mode):
         f"Video title: {title or 'Untitled'}\n"
         f"Caption language code: {cap_lang}\n\n"
         f"Timed captions:\n{timed_script}")}]
-    return _gemini_call(parts, system, SP_GEMINI_TIMEOUT,
-                        slow_max_attempts=SP_TEXT_SLOW_MAX_ATTEMPTS,
-                        thinking_budget=0)
+    return _ai_text_call(parts, system, SP_GEMINI_TIMEOUT,
+                         slow_max_attempts=SP_TEXT_SLOW_MAX_ATTEMPTS,
+                         thinking_budget=0)
 
 
 def _gemini_generate_audio(mp3_path, title, mode):
@@ -5167,6 +5354,13 @@ def _gemini_generate_audio(mp3_path, title, mode):
     instead (see _gemini_generate_audio_chunked) — one giant call
     is where long videos used to die. Both paths pass the audio
     route's deeper slow-failure budget to _gemini_call."""
+    if _antling_configured():
+        try:
+            return _antling_generate_audio(mp3_path, title, mode)
+        except _AntLingUnavailable as e:
+            app.logger.warning(
+                "ant ling audio route failed, falling back "
+                "to gemini audio: %s", e)
     duration = _sp_probe_duration(mp3_path)
     if duration and duration > SP_AUDIO_CHUNK_SECONDS:
         chunks = _sp_split_audio_chunks(mp3_path)
@@ -5274,9 +5468,9 @@ def _gemini_generate_from_transcript(transcript, title, mode):
     parts = [{"text": (
         f"Video title: {title or 'Untitled'}\n\n"
         f"Transcript:\n{transcript}")}]
-    return _gemini_call(parts, system, SP_GEMINI_TIMEOUT,
-                        slow_max_attempts=SP_AUDIO_SLOW_MAX_ATTEMPTS,
-                        thinking_budget=0)
+    return _ai_text_call(parts, system, SP_GEMINI_TIMEOUT,
+                         slow_max_attempts=SP_AUDIO_SLOW_MAX_ATTEMPTS,
+                         thinking_budget=0)
 
 
 def _gemini_generate_audio_chunked(chunks, title, mode):
@@ -5306,9 +5500,9 @@ def _gemini_generate_prompts_from_script(script_text):
     parts = [{"text": (
         "The script of the video, provided or edited by the user:\n\n"
         + script_text)}]
-    return _gemini_call(parts, SP_SCRIPT_INSTRUCTION_PROMPTS,
-                        SP_GEMINI_TIMEOUT,
-                        slow_max_attempts=SP_TEXT_SLOW_MAX_ATTEMPTS)
+    return _ai_text_call(parts, SP_SCRIPT_INSTRUCTION_PROMPTS,
+                         SP_GEMINI_TIMEOUT,
+                         slow_max_attempts=SP_TEXT_SLOW_MAX_ATTEMPTS)
 
 
 def _sp_parse_output(raw):
@@ -5679,7 +5873,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-16.27"
+APP_VERSION = "2026-11-17.28"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -5970,7 +6164,7 @@ def _ai_generate(tool, topic):
     cascade. Returns the cleaned item list; raises
     _GeminiUnavailable when every (model, key) pair failed."""
     parts = [{"text": f"Topic: {topic}"}]
-    raw, _model = _gemini_call(
+    raw, _model = _ai_text_call(
         parts, AI_TOOL_PROMPTS[tool], AI_GEMINI_TIMEOUT,
         slow_max_attempts=AI_SLOW_MAX_ATTEMPTS, thinking_budget=0)
     return _ai_parse_items(raw, tool)
@@ -5998,7 +6192,7 @@ def api_ai_tools_generate():
             or len(topic.strip()) > AI_INPUT_LIMIT:
         return jsonify({"error": "invalid_request"}), 400
     topic = topic.strip()
-    if not _gemini_api_keys():
+    if not _gemini_api_keys() and not _antling_configured():
         return jsonify({"error": "not_configured"}), 503
     cache_key = _ai_cache_key(tool, topic)
     cached = _ai_cache_get(cache_key)
@@ -6687,7 +6881,7 @@ def _assistant_ask(message, history, image=None):
     parts = [{"text": "\n".join(lines)}]
     if image is not None:
         parts.append({"inline_data": image})
-    raw, _model = _gemini_call(
+    raw, _model = _ai_text_call(
         parts, ASSISTANT_SYSTEM_PROMPT, AI_GEMINI_TIMEOUT,
         slow_max_attempts=AI_SLOW_MAX_ATTEMPTS, thinking_budget=0)
     return _assistant_parse_reply(raw)
@@ -6724,7 +6918,7 @@ def api_assistant():
     if not message and image is None:
         return jsonify({"error": "invalid_request"}), 400
     history = _assistant_clean_history(data.get("history"))
-    if not _gemini_api_keys():
+    if not _gemini_api_keys() and not _antling_configured():
         return jsonify({"error": "not_configured"}), 503
     _asst_quota_reserve()  # counting only — never blocks (round 3)
     try:
@@ -7611,7 +7805,7 @@ def api_script_prompt():
     url = clean_url(data.get("url", ""))
     if not url:
         return jsonify({"error": "invalid_url"}), 400
-    if not _gemini_api_key():
+    if not _gemini_api_key() and not _antling_configured():
         return jsonify({"error": "not_configured"}), 503
     mode = str(data.get("mode") or "").strip().lower()
     if mode not in ("script", "prompts"):

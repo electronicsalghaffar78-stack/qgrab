@@ -27,9 +27,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import app as qgrab  # noqa: E402
 
-CHAIN = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash",
+CHAIN = ["gemini-3.5-flash", "gemini-3.6-flash",
          "gemini-3.7-flash", "gemini-3.5-flash-lite",
-         "gemini-3.1-flash-lite"]
+         "gemini-3.1-flash-lite", "gemini-3.8-flash"]
 
 
 class _FakeResponse:
