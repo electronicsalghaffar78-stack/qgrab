@@ -1,8 +1,10 @@
 <script>
 /* QGrab round 3 (2026-11-16): usage-stat pings + email
-   subscribe (forms, footer + section) + the 3rd-download
-   subscribe popup. qgStat is fire-and-forget by design: it
-   must never slow or break the feature it counts. */
+   subscribe (the footer form; the homepage section form was
+   removed in release .25 — the footer form and the popup
+   remain) + the 3rd-download subscribe popup. qgStat is
+   fire-and-forget by design: it must never slow or break the
+   feature it counts. */
 window.qgStat = function (name) {
   try {
     fetch('/api/event', {
@@ -14,7 +16,7 @@ window.qgStat = function (name) {
 };
 
 (function () {
-  /* --- subscribe forms (footer + homepage section) --- */
+  /* --- subscribe forms (footer + the popup's own form) --- */
   function wireForm(form) {
     form.addEventListener('submit', function (e) {
       e.preventDefault();

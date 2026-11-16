@@ -661,3 +661,68 @@ shown as plain text names. All fixed:
   17/17 — ALL PASS.** APP_VERSION .23 → .24. Mirrors
   re-synced, backup ZIP refreshed. Push + manual Render
   deploy + live check are the parent's steps.
+
+# Release 2026-11-16.25 — Owner's homepage-layout orders: subscribe card off, Invite to the bottom, tools block up, Download History becomes a page, premium leftover deleted, Apple glyph
+
+The owner checked .24 ("everything else is perfect") and
+ordered homepage placement changes only, plus one leftover
+Archer spotted in his screenshot and one icon correction:
+
+- **Homepage Subscribe card REMOVED** ("QGrab updates, by
+  email" section): the owner says the footer subscribe form
+  already exists and is perfect — two forms were one too many.
+  The footer form, the /api/subscribe backend and the
+  3rd-download subscribe popup are untouched.
+- **Invite card moved to the VERY BOTTOM** of the homepage
+  content — the last section before the footer.
+- **Tools block moved UP:** Tools Hub + Video Toolkit + AI
+  Tools + Script + Prompt now sit directly below the "Today's
+  free usage" card. Homepage order is now: hero -> usage ->
+  hub -> toolkit -> AI tools -> script+prompt -> Search
+  Videos -> QGrab at a Glance -> (chips/platforms/why/tools/
+  how/FAQ/reviews/install/PC unchanged) -> Invite -> footer.
+- **Download History is its OWN PAGE** (/download-history,
+  new route + templates/history.html on the shared shell):
+  the homepage section is gone; the page renders the same
+  localStorage list (qgrab_dl_history_v1) with thumbnails,
+  Download Again and Clear History. Nav "Download History"
+  links on ALL pages point to /download-history. Recording
+  from the downloader/platform flows is unchanged; a
+  format-less Download Again bounces to the homepage's ?url=
+  handoff. Assistant KB/fallback now say "page", and the
+  assistant's goto navigates there. Sitemap deliberately
+  unchanged: the page is device-local (empty for crawlers),
+  unlike the static utility pages the sitemap lists.
+- **Stale premium leftover DELETED:** the "QGrab at a
+  Glance" table still showed "Premium subscription —
+  $20/month" from the plans era (dead since .17). The specs
+  row is removed, the dead plans CSS block (.plans-grid/
+  .plan-card/.plan-price/.plan-badge/.plan-btn) is out of the
+  homepage head, and a full grep confirms no other
+  visitor-facing premium/price text remains (the i18n
+  spec_pricing keys stay in i18n.py, unused; tests that pin
+  the /api/premium/* 404s are untouched).
+- **Apple glyph:** the iOS card's red-apple emoji (🍎) is
+  replaced with the authentic monochrome bitten-apple
+  silhouette (inline SVG, currentColor, sized to the heading)
+  — the only Apple-style mark the site used anywhere.
+- **Tests:** new tests/test_round5.py (homepage order
+  measured by template position, removals, the new page,
+  nav targets on every page, assistant updates, glyph);
+  test_round2.py history checks moved to the page;
+  test_remove_sections.py's specs block now asserts the
+  premium row is GONE in all 30 languages (superseding its
+  2026-11-08 pin). **Full suite: 32 Python files + 6 JS
+  suites + extension 17/17 — ALL PASS.**
+- **Verification (the gate):** local build rendered in
+  headless Chromium at 1280 AND 390 — section order measured
+  from live layout (usage 643 < hub 824 < toolkit 1626 <
+  AI tools 1940 < script+prompt 2437 < search 2851 < specs
+  3256 < invite 9578 < footer 9902 at 1280; same order at
+  390), horizontal overflow 0px on homepage and history page
+  at both widths, history page eyeballed empty AND with a
+  seeded 2-item list, iOS card eyeballed at both widths.
+  Captures in ~/workspace/qg25-verify/shots/.
+  APP_VERSION .24 -> .25. Mirrors re-synced, backup ZIP
+  refreshed. Push + manual Render deploy + live check are
+  the parent's steps.

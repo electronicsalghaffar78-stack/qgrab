@@ -8,7 +8,8 @@ input). Covers the RENDERED pages and the assistant endpoint:
     FAQ, hero title and downloader-card title in Dahot's shape
     with QGrab's name, platform chips (verified + beta-noted),
     the four trust chips, the free pill, the Today's-free-usage
-    counters and the Download History section;
+    counters and the Download History (a homepage section in
+    round 2; its own page since release .25);
   * the assistant avatar is QGrab's own animated Q-orb SVG —
     and no ghost (👻) exists anywhere in templates/;
   * assistant photo input: a valid photo reaches Gemini as an
@@ -54,7 +55,7 @@ check("hero title", "Free Video Downloader &amp; Social Media Tools — QGrab" i
 check("card title", "Online Video Downloader — YouTube, TikTok, Instagram, Facebook" in home)
 for label in ("Home", "Tools", "Download History", "FAQ"):
     check(f"nav has {label}", f">{label}</a>" in home)
-check("nav history target", 'href="#download-history"' in home)
+check("nav history target", 'href="/download-history"' in home)
 check("works-with line", "Works with YouTube, TikTok, Instagram, Facebook" in home)
 # SEO pass (2026-11-16): the hero chips are real links to the
 # platform pages now (they were plain spans), so the checks pin the
@@ -102,11 +103,21 @@ check("no advertisement placeholder", "ADVERTISEMENT" not in home
       and "Ads appear here" not in home)
 check("usage counters", 'id="usageToolsVal"' in home
       and 'id="usageDlVal"' in home and "Today's free usage" in home)
-check("history section", 'id="download-history"' in home
-      and 'id="histList"' in home and 'id="histClear"' in home
-      and "Clear History" in home)
+# Release .25 (2026-11-16): the history section left the
+# homepage — it is its own page now (/download-history). The
+# homepage still ships the history JS (downloads are recorded
+# here); the list itself renders on the new page.
+check("history section gone from homepage",
+      'id="download-history"' not in home and 'id="histList"' not in home)
+hist = client.get("/download-history")
+check("history page serves", hist.status_code == 200,
+      str(hist.status_code))
+hist = hist.get_data(as_text=True)
+check("history page renders the list", 'id="histList"' in hist
+      and 'id="histClear"' in hist and "Clear History" in hist
+      and "No downloads yet" in hist)
 check("history js shipped", "qgrab_dl_history_v1" in home
-      and "QGHistory" in home)
+      and "QGHistory" in home and "qgrab_dl_history_v1" in hist)
 
 plat = client.get("/youtube-video-downloader").get_data(as_text=True)
 check("platform header tagline", "All Platform Video Download in One Place" in plat)

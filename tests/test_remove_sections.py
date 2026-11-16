@@ -13,6 +13,13 @@ moved up under Script+Prompt: the pricing row no longer says
 "$0 — Free" — it is the premium line, "Premium subscription" /
 "$20/month", in every language (asserted below).
 
+UPDATE (release 2026-11-16.25): pricing was cancelled entirely
+in round 3 (.17) and the site is 100% free; the owner spotted
+the surviving specs pricing row in a screenshot and ordered it
+deleted. The specs block below now asserts the row is GONE —
+no "Premium subscription", no "$20/month" on the homepage.
+(The i18n spec_pricing keys remain in i18n.py, unused.)
+
 Deliberately KEPT (asserted here so a future edit cannot quietly
 undo the owner's decision):
   * the "All Tools" section (id="tools");
@@ -97,23 +104,20 @@ for path in ("/youtube-video-downloader", "/tiktok-video-downloader",
           f"got {r.status_code}")
 
 # ------------------------------------------------------------------
-# Specs pricing row: premium line instead of "$0 — Free"
+# Specs pricing row: REMOVED in release .25 (owner's order —
+# the site is 100% free; the premium line was a stale leftover
+# from the plans era). Asserted absent in the rendered specs,
+# in the default (EN) rendering and in every language.
 # ------------------------------------------------------------------
-check("specs pricing label renders (EN)",
-      EN["spec_pricing"] in html)
-check("specs pricing value renders as $20/month (EN)",
-      "$20/month" in html)
+check("specs pricing label GONE (EN)",
+      EN["spec_pricing"] not in html)
+check("no $20/month anywhere on the homepage", "$20/month" not in html)
 check("no $0 price anywhere on the homepage", "$0" not in html)
-bad_val = [c for c in i18n.LANG_CODES
-           if i18n.get_strings(c)["spec_pricing_val"] != "$20/month"]
-check("spec_pricing_val is $20/month in all 30 languages",
-      not bad_val, f"bad: {bad_val}")
-bad_lbl = [c for c in i18n.LANG_CODES if c != "en"
-           and (not i18n.get_strings(c)["spec_pricing"]
-                or i18n.get_strings(c)["spec_pricing"]
-                == EN["spec_pricing"])]
-check("every language carries its own premium label",
-      not bad_lbl, f"bad: {bad_lbl}")
+for code in i18n.LANG_CODES:
+    h = client.get("/?lang=" + code).get_data(as_text=True)
+    lbl = i18n.get_strings(code)["spec_pricing"]
+    check(f"specs pricing row gone [{code}]",
+          lbl not in h and "$20/month" not in h)
 
 # ------------------------------------------------------------------
 # Search Videos heading: now self-explanatory (owner, same

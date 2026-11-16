@@ -173,6 +173,12 @@
     b.textContent = 'Take me there →';
     b.addEventListener('click', function () {
       setOpen(false);
+      if (gotoId === 'download-history') {
+        /* Since release .25 the history is its own page, not a
+           homepage section — navigate instead of scrolling. */
+        window.location.href = '/download-history';
+        return;
+      }
       var target = document.getElementById(gotoId);
       if (target && target.scrollIntoView) {
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });

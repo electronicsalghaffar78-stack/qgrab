@@ -86,7 +86,7 @@
   /* --- usage-stat wiring for UI-only actions (round 3) --- */
   try {
     document.querySelectorAll(
-      'a[href="#download-history"], a[href="/#download-history"]'
+      'a[href="/download-history"]'
     ).forEach(function (a) {
       a.addEventListener('click', function () {
         if (window.qgStat) window.qgStat('history_view');
