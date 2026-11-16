@@ -2023,8 +2023,6 @@ PLATFORM_PAGES = {
              "app or software to download first, and using the "
              "downloader is completely free."),
             ("A Note on Personal Use", PERSONAL_USE_NOTE),
-            ("New — Still Being Improved",
-             "Vimeo restricts many automated requests, so some public links may fail even though they open fine in a browser. That is a Vimeo-side limit; support here is new and still being improved."),
         ],
         "faq": [
             ("Is the Vimeo downloader free?",
@@ -5667,7 +5665,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-16.21"
+APP_VERSION = "2026-11-16.22"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -6429,7 +6427,7 @@ ASSISTANT_SYSTEM_PROMPT = (
     "sign-up is needed — QGrab has no login at all.\n"
     "- Downloads work from: YouTube, TikTok, Facebook, "
     "Instagram, Pinterest, X (Twitter), SoundCloud, Twitch, "
-    "Telegram (public posts only) and VK. Reddit, Vimeo and "
+    "Telegram (public posts only), Vimeo and VK. Reddit and "
     "Dailymotion are new and still being improved — some of "
     "their links may fail. Threads, SnackVideo/Kwai and "
     "WhatsApp are NOT supported. Private or login-only videos "
@@ -8022,6 +8020,104 @@ def _open_media_stream(media_url, headers):
             _read_chunks(upstream), upstream.close)
 
 
+# ---------------------------------------------------------------------------
+# HLS (m3u8) downloads — remuxed server-side, never proxied raw
+#
+# Some platforms (Dailymotion above all) publish ONLY HLS formats:
+# the format's URL is an .m3u8 playlist, not a media file. The plain
+# /download proxy streams whatever the URL returns, so visitors got
+# the few-hundred-byte playlist itself — an unplayable text file
+# wearing a video filename (verified live 2026-11-16: a Dailymotion
+# "download" delivered a 375-byte playlist). HLS formats are
+# therefore detected up front and REMUXED here: ffmpeg reads the
+# playlist, pulls every segment and writes one real MP4 (-c copy,
+# no re-encode); if ffmpeg is missing or fails, yt-dlp's native
+# HLS download gets its chance; only when both fail does the
+# visitor see the site's friendly error. The raw playlist is
+# never passed through.
+# ---------------------------------------------------------------------------
+
+_HLS_REMUX_TIMEOUT = 300  # seconds; bounds time/disk like the merges
+
+
+def _is_hls_target(target, media_url):
+    """True when a format's URL is an HLS playlist, not a media file."""
+    proto = (target.get("protocol") or "").lower()
+    if proto.startswith("m3u8"):
+        return True
+    if (target.get("ext") or "").lower() == "m3u8":
+        return True
+    path = (media_url or "").split("?", 1)[0].split("#", 1)[0].lower()
+    return path.endswith(".m3u8")
+
+
+def _ffmpeg_remux_url(media_url, headers, out_path):
+    """ffmpeg -i <playlist> -c copy -> one real MP4 at out_path.
+
+    Returns True only when a non-empty file that is NOT itself a
+    playlist landed on disk — a passed-through playlist is the
+    exact failure this path exists to prevent."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        app.logger.warning("hls remux: ffmpeg missing")
+        return False
+    cmd = [ffmpeg, "-y"]
+    hdr = "".join(f"{k}: {v}\r\n" for k, v in headers.items() if v)
+    if hdr:
+        cmd += ["-headers", hdr]
+    cmd += ["-i", media_url, "-c", "copy",
+            "-movflags", "+faststart", out_path]
+    try:
+        proc = subprocess.run(cmd, capture_output=True,
+                              timeout=_HLS_REMUX_TIMEOUT)
+    except Exception as e:
+        app.logger.info("hls remux errored for %s: %s", media_url, e)
+        return False
+    if proc.returncode != 0 or not os.path.exists(out_path) \
+            or os.path.getsize(out_path) == 0:
+        app.logger.info("hls remux failed (rc=%s) for %s",
+                        proc.returncode, media_url)
+        return False
+    with open(out_path, "rb") as fh:
+        if fh.read(7) == b"#EXTM3U":
+            app.logger.info("hls remux produced a playlist for %s",
+                            media_url)
+            return False
+    return True
+
+
+def _download_hls(url, format_id, info, target):
+    """Serve an HLS format as a real MP4 (see the section note).
+
+    Runs inside the /download route's heavy-download slot, so the
+    concurrency queue behaviour is unchanged; the temp dir is
+    removed when the response closes (the _send_temp_file
+    pattern), keeping disk use bounded to one file per download.
+    """
+    media_url = target["url"]
+    headers = dict(target.get("http_headers") or {})
+    headers.setdefault(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0 Safari/537.36")
+    tmpdir = tempfile.mkdtemp(prefix="qgrab-hls-")
+    out_path = os.path.join(tmpdir, "video.mp4")
+    if _ffmpeg_remux_url(media_url, headers, out_path):
+        app.logger.info("hls remux succeeded for %s format %s",
+                        url, format_id)
+        return _send_temp_file(out_path, tmpdir,
+                               safe_filename(info.get("title"), "mp4"),
+                               "video/mp4")
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    # ffmpeg could not do it — yt-dlp downloads HLS natively
+    # (its own downloader fetches and joins the segments).
+    fallback = _download_via_ytdlp(url, format_id)
+    if fallback is not None:
+        return fallback
+    abort(502, FRIENDLY_ERROR)
+
+
 @app.route("/download")
 def download():
     """The download gate (see _HEAVY_DOWNLOAD_LIMIT above): take
@@ -8109,6 +8205,12 @@ def _download_impl():
         abort(404, "That format is no longer available.")
 
     media_url = target["url"]
+    if _is_hls_target(target, media_url):
+        # An HLS playlist, not a media file: remux it server-side
+        # into a real MP4 instead of proxying the playlist bytes
+        # through under a video filename (see _download_hls).
+        return _download_hls(url, format_id, info, target)
+
     headers = dict(target.get("http_headers") or {})
     headers.setdefault("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                      "AppleWebKit/537.36 (KHTML, like Gecko) "
