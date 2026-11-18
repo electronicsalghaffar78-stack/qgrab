@@ -1,0 +1,550 @@
+{# Animated showcase (build 2026-11-18.37): a SCENE-STAGE
+   animation modelled on the Google AI Studio vibe-code hero,
+   placed directly under the download box. A JS cycler plays
+   short scenes on one stage: S0 the huge word "Download",
+   S1 a tilted QGrab download bar with letter-by-letter typing,
+   S2-S4 one large drifting feature card beside a huge headline,
+   S5 a finale where all 8 feature cards fly in and scatter
+   around the FIXED headline "Download anything from Social
+   Media" (never any rotating platform names). The tagline sits
+   small and static at the stage's bottom centre throughout.
+   Branding (build .37, the owner's anti-copy request): a brand
+   lockup — the site's own logo mark + "QGrab" wordmark (the
+   header's treatment) over "qgrab.onrender.com" — sits directly
+   under the headline in the finale and in the static fallback,
+   and a small logo + "QGrab" watermark rides the stage's
+   top-left corner above every scene, so a screen recording of
+   the animation always carries the brand.
+   The stage follows the site theme: near-black + starfield in
+   the dark theme, a soft light stage with subtle dots in the
+   light/eyecare themes (driven by the site's own CSS variables
+   and html[data-theme] rules). With JavaScript off, or under
+   prefers-reduced-motion, the stage is replaced by a static
+   block: the same fixed headline plus all 8 cards in a tidy
+   grid. Self-contained: scoped qgsc- classes, no external
+   assets, transform/opacity animation only. #}
+<section class="qgsc" aria-label="What QGrab can do" data-qgsc-stage>
+  <style>
+    .qgsc,.qgsc *{box-sizing:border-box}
+    .qgsc{--qgsc-dot:rgba(255,255,255,.85);--qgsc-star-op:.5;
+      position:relative;margin:34px 0 6px;border:1px solid var(--line);
+      border-radius:24px;background:var(--bg);overflow:hidden}
+    html[data-theme="light"] .qgsc{--qgsc-dot:rgba(19,23,32,.38);
+      --qgsc-star-op:.30}
+    html[data-theme="eyecare"] .qgsc{--qgsc-dot:rgba(61,47,29,.42);
+      --qgsc-star-op:.30}
+    .qgsc[data-live]{min-height:540px}
+
+    /* starfield + nebula glows (behind everything) */
+    .qgsc-stars{position:absolute;inset:-46px;pointer-events:none;z-index:0}
+    .qgsc-stars-a{opacity:var(--qgsc-star-op);background-image:
+      radial-gradient(1.6px 1.6px at 9% 18%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1.3px 1.3px at 23% 64%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1.8px 1.8px at 37% 30%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1.2px 1.2px at 52% 78%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1.6px 1.6px at 66% 14%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1.3px 1.3px at 78% 52%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1.7px 1.7px at 88% 26%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1.2px 1.2px at 95% 72%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1.4px 1.4px at 15% 86%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1.5px 1.5px at 44% 48%,var(--qgsc-dot) 50%,transparent 51%)}
+    .qgsc-stars-b{opacity:calc(var(--qgsc-star-op)*.6);background-image:
+      radial-gradient(1px 1px at 18% 42%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1px 1px at 31% 10%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1px 1px at 58% 38%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1px 1px at 71% 84%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1px 1px at 83% 66%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1px 1px at 5% 55%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1px 1px at 49% 92%,var(--qgsc-dot) 50%,transparent 51%),
+      radial-gradient(1px 1px at 92% 90%,var(--qgsc-dot) 50%,transparent 51%);
+      animation:qgsc-stardrift 26s ease-in-out infinite alternate}
+    @keyframes qgsc-stardrift{from{transform:translate(0,0)}
+      to{transform:translate(-14px,-9px)}}
+    .qgsc-glow{position:absolute;border-radius:50%;pointer-events:none;z-index:0;
+      filter:blur(64px);animation:qgsc-glowpulse 7s ease-in-out infinite}
+    .qgsc-glow-a{width:340px;height:340px;left:-110px;top:-150px;
+      background:var(--accent);opacity:.16}
+    .qgsc-glow-b{width:380px;height:380px;right:-130px;bottom:-190px;
+      background:var(--accent2);opacity:.14;animation-delay:-3.5s}
+    @keyframes qgsc-glowpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
+
+    /* shared bits */
+    .qgsc-accent{display:inline-block;
+      background:linear-gradient(92deg,var(--accent),var(--accent2));
+      -webkit-background-clip:text;background-clip:text;color:transparent}
+    .qgsc-ic{font-size:1.7rem;line-height:1}
+    .qgsc-ic svg{width:1em;height:1em;display:block}
+    .qgsc-tt{font-weight:700;font-size:.98rem;color:var(--text);line-height:1.3}
+    .qgsc-pp{font-size:.82rem;color:var(--muted);line-height:1.45}
+    .qgsc-badge{position:absolute;top:10px;right:10px;color:#fff;z-index:2;
+      background:linear-gradient(92deg,var(--accent),var(--accent2));
+      font-size:.6rem;font-weight:800;letter-spacing:.5px;
+      padding:2.5px 7px;border-radius:99px}
+    @keyframes qgsc-rise{from{opacity:0;transform:translateY(20px)}
+      to{opacity:1;transform:translateY(0)}}
+    @keyframes qgsc-bigwordin{from{opacity:0;transform:scale(.92)}
+      to{opacity:1;transform:scale(1)}}
+    @keyframes qgsc-float{
+      0%,100%{transform:translateY(0) rotate(-1.2deg)}
+      50%{transform:translateY(-9px) rotate(1.2deg)}}
+
+    /* tagline: small, static, bottom centre of the stage */
+    .qgsc-tag{position:relative;z-index:6;margin:0;padding:16px 16px 22px;
+      text-align:center;color:var(--muted);font-size:.95rem}
+    .qgsc[data-live] .qgsc-tag{position:absolute;left:0;right:0;bottom:14px;
+      padding:0 16px}
+
+    /* corner watermark (build .37): logo mark + "QGrab" in the
+       stage's top-left corner, above every scene and the static
+       fallback, so recordings of the animation carry the brand */
+    .qgsc-wm{position:absolute;top:14px;left:16px;z-index:8;display:flex;
+      align-items:center;gap:6px;opacity:.6;pointer-events:none;
+      color:var(--text)}
+    .qgsc-wmlogo{width:16px;height:16px;border-radius:4px;display:block}
+    .qgsc-wmt{font-size:.78rem;font-weight:700;letter-spacing:.2px;
+      line-height:1;white-space:nowrap}
+
+    /* brand lockup (build .37): the header's own branding —
+       logo mark + "Q" / accent-"Grab" wordmark — over the site
+       URL, centred directly under the finale/static headline */
+    .qgsc-brand{margin-top:16px;display:flex;flex-direction:column;
+      align-items:center;gap:5px}
+    .qgsc-brandline{display:flex;align-items:center;gap:9px}
+    .qgsc-blogo{width:32px;height:32px;border-radius:9px;display:block}
+    .qgsc-bwm{font-size:1.6rem;font-weight:800;letter-spacing:-.5px;
+      line-height:1.1;color:var(--text);white-space:nowrap}
+    .qgsc-bwm>span{color:var(--accent)}
+    .qgsc-burl{font-size:.8rem;color:var(--muted);letter-spacing:.3px}
+    .qgsc-on .qgsc-brand{animation:qgsc-rise .7s .25s cubic-bezier(.21,.82,.25,1) both}
+
+    /* ---------- live scenes ---------- */
+    .qgsc-scenes{display:none}
+    .qgsc[data-live] .qgsc-scenes{display:block;position:absolute;inset:0;z-index:2}
+    .qgsc-scene{position:absolute;inset:0;display:flex;align-items:center;
+      justify-content:center;padding:36px 30px 64px;opacity:0;
+      visibility:hidden;transform:scale(.985);
+      transition:opacity .6s ease,transform .6s ease,visibility 0s linear .6s}
+    .qgsc-scene.qgsc-on{opacity:1;visibility:visible;transform:scale(1);
+      transition:opacity .6s ease,transform .6s ease,visibility 0s}
+
+    /* S0: the huge opening word */
+    .qgsc-bigword{font-size:clamp(3rem,10vw,5rem);font-weight:800;
+      letter-spacing:-1.5px;line-height:1.05;color:var(--text);text-align:center}
+    .qgsc-on .qgsc-bigword{animation:qgsc-bigwordin .8s cubic-bezier(.21,.82,.25,1) both}
+
+    /* S1: the tilted download bar with typing */
+    .qgsc-promptwrap{width:min(680px,94%);perspective:900px}
+    .qgsc-on .qgsc-promptwrap{animation:qgsc-rise .7s cubic-bezier(.21,.82,.25,1) both}
+    .qgsc-prompttilt{transform:rotateX(6deg) rotateY(-7deg)}
+    .qgsc-on .qgsc-prompttilt{animation:qgsc-push 3.4s ease-out both}
+    @keyframes qgsc-push{
+      from{transform:rotateX(6deg) rotateY(-7deg) scale(1)}
+      to{transform:rotateX(6deg) rotateY(-7deg) scale(1.05)}}
+    .qgsc-prompt{display:flex;align-items:center;gap:12px;background:var(--card);
+      border:1px solid var(--line);border-radius:16px;padding:16px 18px;
+      box-shadow:0 24px 50px var(--sh-strong)}
+    .qgsc-ptext{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;
+      font-size:1.05rem;color:var(--text);text-align:left}
+    .qgsc-caret{display:inline-block;width:2px;height:1.05em;margin-left:2px;
+      vertical-align:-.15em;background:var(--accent);
+      animation:qgsc-blink 1s steps(1) infinite}
+    @keyframes qgsc-blink{0%,55%{opacity:1}56%,100%{opacity:0}}
+    .qgsc-mic{flex:none;color:var(--muted);display:grid;place-items:center}
+    .qgsc-mic svg{width:21px;height:21px;display:block}
+    .qgsc-pbtn{flex:none;color:#fff;font-weight:700;font-size:.98rem;
+      background:linear-gradient(92deg,var(--accent),var(--accent2));
+      padding:10px 22px;border-radius:99px}
+    .qgsc-pnote{margin:18px 0 0;text-align:center;color:var(--muted);
+      font-size:.95rem}
+    .qgsc-on .qgsc-pnote{animation:qgsc-rise .7s .15s cubic-bezier(.21,.82,.25,1) both}
+
+    /* S2-S4: one big drifting card + one huge headline */
+    .qgsc-feat{gap:42px}
+    .qgsc-feat.qgsc-rev{flex-direction:row-reverse}
+    .qgsc-bigcard{flex:0 1 330px;perspective:900px}
+    .qgsc-on .qgsc-bigcard{animation:qgsc-rise .7s cubic-bezier(.21,.82,.25,1) both}
+    .qgsc-drift{position:relative;display:flex;flex-direction:column;
+      align-items:center;gap:9px;text-align:center;background:var(--card);
+      border:1px solid var(--line);border-radius:18px;padding:30px 24px 26px;
+      box-shadow:0 24px 50px var(--sh-strong);
+      transform:rotateX(7deg) rotateY(-8deg)}
+    .qgsc-rev .qgsc-drift{transform:rotateX(7deg) rotateY(8deg)}
+    .qgsc-on .qgsc-drift{animation:qgsc-drift 3.4s ease-in-out both}
+    .qgsc-on .qgsc-rev .qgsc-drift{animation-name:qgsc-drift-r}
+    @keyframes qgsc-drift{
+      0%{transform:rotateX(7deg) rotateY(-8deg) scale(1) translateY(0)}
+      50%{transform:rotateX(4deg) rotateY(-4deg) scale(1.04) translateY(-9px)}
+      100%{transform:rotateX(5deg) rotateY(-6deg) scale(1.03) translateY(-5px)}}
+    @keyframes qgsc-drift-r{
+      0%{transform:rotateX(7deg) rotateY(8deg) scale(1) translateY(0)}
+      50%{transform:rotateX(4deg) rotateY(4deg) scale(1.04) translateY(-9px)}
+      100%{transform:rotateX(5deg) rotateY(6deg) scale(1.03) translateY(-5px)}}
+    .qgsc-bigcard .qgsc-ic{font-size:2.6rem;color:var(--muted)}
+    .qgsc-bigcard .qgsc-tt{font-size:1.25rem}
+    .qgsc-bigcard .qgsc-pp{font-size:.95rem;line-height:1.55}
+    .qgsc-bighead{flex:0 1 440px;font-size:clamp(2rem,5.2vw,3.4rem);
+      font-weight:800;letter-spacing:-.5px;line-height:1.12;color:var(--text);
+      text-align:left}
+    .qgsc-rev .qgsc-bighead{text-align:right}
+    .qgsc-on .qgsc-bighead{animation:qgsc-rise .7s .12s cubic-bezier(.21,.82,.25,1) both}
+
+    /* S5: finale — fixed headline + 8 cards scattered around it */
+    .qgsc-fhead{position:relative;z-index:3;text-align:center;max-width:660px}
+    .qgsc-fh{font-size:clamp(1.9rem,5.4vw,3.2rem);font-weight:800;
+      letter-spacing:-.5px;line-height:1.16;color:var(--text)}
+    .qgsc-on .qgsc-fh{animation:qgsc-bigwordin .7s cubic-bezier(.21,.82,.25,1) both}
+    .qgsc-fcard{position:absolute;width:148px;opacity:0;z-index:1}
+    .qgsc-f1{left:3.5%;top:7%}
+    .qgsc-f2{right:4%;top:6%}
+    .qgsc-f3{left:6%;bottom:11%}
+    .qgsc-f4{right:6%;bottom:10%}
+    .qgsc-f5{left:27%;top:2.5%}
+    .qgsc-f6{right:28%;bottom:3.5%}
+    .qgsc-f7{left:1.5%;top:43%}
+    .qgsc-f8{right:1.5%;top:45%}
+    .qgsc-on .qgsc-fcard{animation:qgsc-fly .8s cubic-bezier(.21,.82,.25,1) both;
+      animation-delay:calc(var(--d,0)*1ms)}
+    @keyframes qgsc-fly{
+      from{opacity:0;transform:translate(var(--fx,0),var(--fy,0)) scale(.35)
+        rotate(var(--r,0deg))}
+      to{opacity:1;transform:translate(0,0) scale(var(--s,1))
+        rotate(var(--r,0deg))}}
+    .qgsc-ffloat{position:relative;display:flex;flex-direction:column;
+      align-items:center;gap:6px;background:var(--card);
+      border:1px solid var(--line);border-radius:14px;padding:15px 10px 13px;
+      box-shadow:0 14px 30px var(--sh-strong);text-align:center;
+      animation:qgsc-float 7s ease-in-out infinite;
+      animation-delay:calc(var(--i,0)*-.85s)}
+    .qgsc-fcard:nth-of-type(odd) .qgsc-ffloat{animation-duration:7.8s}
+    .qgsc-ffloat .qgsc-ic{font-size:1.45rem;color:var(--muted)}
+    .qgsc-ffloat .qgsc-tt{font-size:.84rem}
+
+    /* ---------- static fallback (no JS / reduced motion) ---------- */
+    .qgsc-static{position:relative;z-index:2;padding:44px 18px 8px;text-align:center}
+    .qgsc[data-live] .qgsc-static{display:none}
+    .qgsc-sh{font-size:clamp(2.05rem,7vw,3.1rem);font-weight:800;
+      letter-spacing:-.5px;line-height:1.18;color:var(--text)}
+    .qgsc-sfield{position:relative;display:flex;flex-wrap:wrap;gap:14px;
+      justify-content:center;max-width:1020px;margin:30px auto 0}
+    .qgsc-scard{flex:1 1 190px;max-width:228px;opacity:0;
+      animation:qgsc-in .8s cubic-bezier(.21,.82,.25,1) forwards;
+      animation-delay:calc(var(--i,0)*95ms + 200ms)}
+    @keyframes qgsc-in{
+      from{opacity:0;transform:translateY(26px) scale(.96) rotate(var(--r,0deg))}
+      to{opacity:1;transform:translateY(0) scale(1) rotate(var(--r,0deg))}}
+    .qgsc-sface{position:relative;display:flex;flex-direction:column;
+      align-items:center;gap:7px;height:100%;background:var(--card);
+      border:1px solid var(--line);border-radius:16px;padding:20px 16px 17px;
+      box-shadow:0 10px 26px var(--sh-soft);
+      animation:qgsc-float 7s ease-in-out infinite;
+      animation-delay:calc(var(--i,0)*-.85s)}
+    .qgsc-scard:nth-child(odd) .qgsc-sface{animation-duration:7.8s}
+    .qgsc-scard:nth-child(3n) .qgsc-sface{animation-duration:6.2s}
+    .qgsc-sface .qgsc-ic{color:var(--muted)}
+
+    @media (max-width:560px){
+      .qgsc{margin:26px 0 6px}
+      .qgsc[data-live]{min-height:500px}
+      .qgsc-scene{padding:26px 16px 58px}
+      .qgsc-bigword{font-size:clamp(2.6rem,13vw,3.4rem)}
+      .qgsc-prompt{padding:13px 14px;gap:9px;border-radius:14px}
+      .qgsc-ptext{font-size:.95rem}
+      .qgsc-mic svg{width:19px;height:19px}
+      .qgsc-pbtn{padding:8px 15px;font-size:.9rem}
+      .qgsc-pnote{font-size:.88rem}
+      .qgsc-feat,.qgsc-feat.qgsc-rev{flex-direction:column;gap:18px}
+      .qgsc-bigcard{flex:0 1 auto;width:min(300px,100%)}
+      .qgsc-drift{padding:24px 18px 20px}
+      .qgsc-bigcard .qgsc-ic{font-size:2.2rem}
+      .qgsc-bigcard .qgsc-tt{font-size:1.12rem}
+      .qgsc-bigcard .qgsc-pp{font-size:.9rem}
+      .qgsc-bighead,.qgsc-rev .qgsc-bighead{flex:0 1 auto;font-size:1.65rem;
+        text-align:center}
+      .qgsc-fh{font-size:1.75rem}
+      .qgsc-fhead{max-width:300px}
+      .qgsc-fcard{width:104px}
+      .qgsc-f1{left:3%;top:4.5%}
+      .qgsc-f2{right:3%;top:4.5%}
+      .qgsc-f5{left:35.5%;top:1.5%}
+      .qgsc-f7{left:2%;top:31%}
+      .qgsc-f8{right:2%;top:31%}
+      .qgsc-f3{left:4%;bottom:8%}
+      .qgsc-f4{right:4%;bottom:8%}
+      .qgsc-f6{right:35.5%;bottom:2.5%}
+      .qgsc-ffloat{padding:11px 7px 10px;border-radius:12px}
+      .qgsc-ffloat .qgsc-ic{font-size:1.25rem}
+      .qgsc-ffloat .qgsc-tt{font-size:.74rem}
+      .qgsc-static{padding:34px 14px 6px}
+      .qgsc-sfield{gap:16px;margin-top:26px}
+      .qgsc-scard{flex:1 1 100%;max-width:none}
+      .qgsc-sface{padding:26px 22px 22px;gap:9px;min-height:158px;
+        justify-content:center;border-radius:18px}
+      .qgsc-sface .qgsc-ic{font-size:2.15rem}
+      .qgsc-sface .qgsc-tt{font-size:1.05rem}
+      .qgsc-sface .qgsc-pp{font-size:.92rem;line-height:1.55}
+      .qgsc-wm{top:11px;left:12px}
+      .qgsc-brand{margin-top:12px;gap:4px}
+      .qgsc-blogo{width:28px;height:28px;border-radius:8px}
+      .qgsc-bwm{font-size:1.4rem}
+      .qgsc-burl{font-size:.75rem}
+    }
+    @media (prefers-reduced-motion: reduce){
+      .qgsc-scenes{display:none!important}
+      .qgsc-static{display:block!important}
+      .qgsc[data-live]{min-height:0}
+      .qgsc[data-live] .qgsc-tag{position:relative;left:auto;right:auto;
+        bottom:auto;padding:16px 16px 22px}
+      .qgsc *,.qgsc-stars,.qgsc-glow{animation:none!important}
+      .qgsc-scard{opacity:1}
+    }
+  </style>
+  <span class="qgsc-stars qgsc-stars-a" aria-hidden="true"></span>
+  <span class="qgsc-stars qgsc-stars-b" aria-hidden="true"></span>
+  <span class="qgsc-glow qgsc-glow-a" aria-hidden="true"></span>
+  <span class="qgsc-glow qgsc-glow-b" aria-hidden="true"></span>
+  <span class="qgsc-wm" aria-hidden="true"><img class="qgsc-wmlogo" src="/static/icons/qgrab-logo.webp" alt=""><span class="qgsc-wmt">QGrab</span></span>
+
+  <div class="qgsc-scenes" aria-hidden="true">
+    <div class="qgsc-scene qgsc-s0" data-scene="0">
+      <div class="qgsc-bigword">Download</div>
+    </div>
+
+    <div class="qgsc-scene qgsc-s1" data-scene="1">
+      <div class="qgsc-promptwrap">
+        <div class="qgsc-prompttilt">
+          <div class="qgsc-prompt">
+            <span class="qgsc-ptext"><span data-qgsc-type></span><span class="qgsc-caret"></span></span>
+            <span class="qgsc-mic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.996.996 0 0 0-.98-.85c-.61 0-1.09.55-1 1.15.49 3.08 2.91 5.45 5.91 5.99V21c0 .55.45 1 1 1s1-.45 1-1v-2.86c3-.54 5.42-2.91 5.91-5.99.1-.6-.39-1.15-1-1.15z"/></svg></span>
+            <span class="qgsc-pbtn">Download</span>
+          </div>
+        </div>
+        <p class="qgsc-pnote">Paste a link from any app — QGrab does the rest</p>
+      </div>
+    </div>
+
+    <div class="qgsc-scene qgsc-feat" data-scene="2">
+      <div class="qgsc-bigcard">
+        <div class="qgsc-drift">
+          <span class="qgsc-ic" aria-hidden="true">🔍</span>
+          <span class="qgsc-tt">Video Search</span>
+          <span class="qgsc-pp">Find videos on YouTube, TikTok, Facebook &amp; Instagram, then watch or download.</span>
+        </div>
+      </div>
+      <div class="qgsc-bighead">Find any video</div>
+    </div>
+
+    <div class="qgsc-scene qgsc-feat qgsc-rev" data-scene="3">
+      <div class="qgsc-bigcard">
+        <div class="qgsc-drift">
+          <span class="qgsc-badge">NEW</span>
+          <span class="qgsc-ic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.996.996 0 0 0-.98-.85c-.61 0-1.09.55-1 1.15.49 3.08 2.91 5.45 5.91 5.99V21c0 .55.45 1 1 1s1-.45 1-1v-2.86c3-.54 5.42-2.91 5.91-5.99.1-.6-.39-1.15-1-1.15z"/></svg></span>
+          <span class="qgsc-tt">Voice Search</span>
+          <span class="qgsc-pp">Speak instead of typing — the mic understands any language.</span>
+        </div>
+      </div>
+      <div class="qgsc-bighead">Just speak it</div>
+    </div>
+
+    <div class="qgsc-scene qgsc-feat" data-scene="4">
+      <div class="qgsc-bigcard">
+        <div class="qgsc-drift">
+          <span class="qgsc-ic" aria-hidden="true">✨</span>
+          <span class="qgsc-tt">Video to Script + Prompt</span>
+          <span class="qgsc-pp">Any video's full script, plus scene-by-scene AI video prompts.</span>
+        </div>
+      </div>
+      <div class="qgsc-bighead">Video into Script + Prompt</div>
+    </div>
+
+    <div class="qgsc-scene qgsc-finale" data-scene="5">
+      <div class="qgsc-fhead">
+        <div class="qgsc-fh">Download anything from
+          <span class="qgsc-accent">Social Media</span></div>
+        <div class="qgsc-brand" data-brand="1">
+          <span class="qgsc-brandline"><img class="qgsc-blogo" src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="qgsc-bwm">Q<span>Grab</span></span></span>
+          <span class="qgsc-burl">qgrab.onrender.com</span>
+        </div>
+      </div>
+      <div class="qgsc-fcard qgsc-f1" data-finale="1" style="--s:.95;--r:-5deg;--fx:-140px;--fy:-40px;--d:0;--i:0">
+        <div class="qgsc-ffloat">
+          <span class="qgsc-ic" aria-hidden="true">⬇️</span>
+          <span class="qgsc-tt">Video Downloader</span>
+        </div>
+      </div>
+      <div class="qgsc-fcard qgsc-f2" data-finale="1" style="--s:.85;--r:4deg;--fx:140px;--fy:-40px;--d:70;--i:1">
+        <div class="qgsc-ffloat">
+          <span class="qgsc-ic" aria-hidden="true">🔍</span>
+          <span class="qgsc-tt">Video Search</span>
+        </div>
+      </div>
+      <div class="qgsc-fcard qgsc-f3" data-finale="1" style="--s:.9;--r:3deg;--fx:-120px;--fy:90px;--d:140;--i:2">
+        <div class="qgsc-ffloat">
+          <span class="qgsc-badge">NEW</span>
+          <span class="qgsc-ic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.996.996 0 0 0-.98-.85c-.61 0-1.09.55-1 1.15.49 3.08 2.91 5.45 5.91 5.99V21c0 .55.45 1 1 1s1-.45 1-1v-2.86c3-.54 5.42-2.91 5.91-5.99.1-.6-.39-1.15-1-1.15z"/></svg></span>
+          <span class="qgsc-tt">Voice Search</span>
+        </div>
+      </div>
+      <div class="qgsc-fcard qgsc-f4" data-finale="1" style="--s:1;--r:-4deg;--fx:120px;--fy:90px;--d:210;--i:3">
+        <div class="qgsc-ffloat">
+          <span class="qgsc-ic" aria-hidden="true">✨</span>
+          <span class="qgsc-tt">Video to Script + Prompt</span>
+        </div>
+      </div>
+      <div class="qgsc-fcard qgsc-f5" data-finale="1" style="--s:.68;--r:6deg;--fx:0;--fy:-130px;--d:280;--i:4">
+        <div class="qgsc-ffloat">
+          <span class="qgsc-ic" aria-hidden="true">🏷️</span>
+          <span class="qgsc-tt">AI Titles &amp; Hashtags</span>
+        </div>
+      </div>
+      <div class="qgsc-fcard qgsc-f6" data-finale="1" style="--s:.68;--r:-6deg;--fx:0;--fy:130px;--d:350;--i:5">
+        <div class="qgsc-ffloat">
+          <span class="qgsc-ic" aria-hidden="true">🖼️</span>
+          <span class="qgsc-tt">AI Thumbnail Ideas</span>
+        </div>
+      </div>
+      <div class="qgsc-fcard qgsc-f7" data-finale="1" style="--s:.62;--r:-8deg;--fx:-150px;--fy:0;--d:420;--i:6">
+        <div class="qgsc-ffloat">
+          <span class="qgsc-ic" aria-hidden="true">🛡️</span>
+          <span class="qgsc-tt">Telegram Proxies</span>
+        </div>
+      </div>
+      <div class="qgsc-fcard qgsc-f8" data-finale="1" style="--s:.62;--r:7deg;--fx:150px;--fy:0;--d:490;--i:7">
+        <div class="qgsc-ffloat">
+          <span class="qgsc-ic" aria-hidden="true">🤖</span>
+          <span class="qgsc-tt">AI Assistant</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="qgsc-static">
+    <div class="qgsc-sh">Download anything from
+      <span class="qgsc-accent">Social Media</span></div>
+    <div class="qgsc-brand">
+      <span class="qgsc-brandline"><img class="qgsc-blogo" src="/static/icons/qgrab-logo.webp" alt="QGrab logo"><span class="qgsc-bwm">Q<span>Grab</span></span></span>
+      <span class="qgsc-burl">qgrab.onrender.com</span>
+    </div>
+    <div class="qgsc-sfield">
+      <div class="qgsc-scard" style="--i:0;--r:-2deg">
+        <div class="qgsc-sface">
+          <span class="qgsc-ic" aria-hidden="true">⬇️</span>
+          <span class="qgsc-tt">Video Downloader</span>
+          <span class="qgsc-pp">YouTube, TikTok, Facebook, Instagram &amp; 1000+ more sites — TikTok without a watermark.</span>
+        </div>
+      </div>
+      <div class="qgsc-scard" style="--i:1;--r:1.5deg">
+        <div class="qgsc-sface">
+          <span class="qgsc-ic" aria-hidden="true">🔍</span>
+          <span class="qgsc-tt">Video Search</span>
+          <span class="qgsc-pp">Find videos on YouTube, TikTok, Facebook &amp; Instagram, then watch or download.</span>
+        </div>
+      </div>
+      <div class="qgsc-scard" style="--i:2;--r:-1deg">
+        <div class="qgsc-sface">
+          <span class="qgsc-badge">NEW</span>
+          <span class="qgsc-ic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.996.996 0 0 0-.98-.85c-.61 0-1.09.55-1 1.15.49 3.08 2.91 5.45 5.91 5.99V21c0 .55.45 1 1 1s1-.45 1-1v-2.86c3-.54 5.42-2.91 5.91-5.99.1-.6-.39-1.15-1-1.15z"/></svg></span>
+          <span class="qgsc-tt">Voice Search</span>
+          <span class="qgsc-pp">Speak instead of typing — the mic understands any language.</span>
+        </div>
+      </div>
+      <div class="qgsc-scard" style="--i:3;--r:2deg">
+        <div class="qgsc-sface">
+          <span class="qgsc-ic" aria-hidden="true">✨</span>
+          <span class="qgsc-tt">Video to Script + Prompt</span>
+          <span class="qgsc-pp">Any video's full script, plus scene-by-scene AI video prompts.</span>
+        </div>
+      </div>
+      <div class="qgsc-scard" style="--i:4;--r:-1.5deg">
+        <div class="qgsc-sface">
+          <span class="qgsc-ic" aria-hidden="true">🏷️</span>
+          <span class="qgsc-tt">AI Titles &amp; Hashtags</span>
+          <span class="qgsc-pp">Catchy titles, SEO tags and ready-to-paste hashtags in seconds.</span>
+        </div>
+      </div>
+      <div class="qgsc-scard" style="--i:5;--r:1deg">
+        <div class="qgsc-sface">
+          <span class="qgsc-ic" aria-hidden="true">🖼️</span>
+          <span class="qgsc-tt">AI Thumbnail Ideas</span>
+          <span class="qgsc-pp">Text, colors &amp; layout concepts for thumbnails that get clicks.</span>
+        </div>
+      </div>
+      <div class="qgsc-scard" style="--i:6;--r:-2deg">
+        <div class="qgsc-sface">
+          <span class="qgsc-ic" aria-hidden="true">🛡️</span>
+          <span class="qgsc-tt">Telegram Proxies</span>
+          <span class="qgsc-pp">Fresh free proxies for Telegram, ready to use.</span>
+        </div>
+      </div>
+      <div class="qgsc-scard" style="--i:7;--r:1.5deg">
+        <div class="qgsc-sface">
+          <span class="qgsc-ic" aria-hidden="true">🤖</span>
+          <span class="qgsc-tt">AI Assistant</span>
+          <span class="qgsc-pp">Stuck? Ask the built-in assistant — help right inside the site.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="qgsc-tag">All Platform Video Download in One Place</p>
+
+  <script>
+  /* Showcase scene cycler (build 2026-11-18.37): plays the
+     S0-S5 scenes on the stage, ~3.4s each with CSS crossfades,
+     restarts the prompt-bar typing whenever S1 activates, and
+     pauses while the tab is hidden. Under prefers-reduced-motion
+     (checked here as well as in CSS) or without the stage markup
+     it does nothing at all — the static fallback stays on show. */
+  (function () {
+    var stage = document.querySelector('[data-qgsc-stage]');
+    if (!stage) return;
+    if (window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var scenes = stage.querySelectorAll('.qgsc-scene');
+    if (!scenes || scenes.length < 2) return;
+    var typeEl = stage.querySelector('[data-qgsc-type]');
+    var TYPE_TEXT = 'youtube.com/watch?v=…';
+    var DUR = 3400;
+    var idx = 0, timer = null, typeTimer = null;
+
+    function stopTyping() {
+      if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
+    }
+    function startTyping() {
+      if (!typeEl) return;
+      stopTyping();
+      var i = 0;
+      typeEl.textContent = '';
+      typeTimer = setInterval(function () {
+        i += 1;
+        typeEl.textContent = TYPE_TEXT.slice(0, i);
+        if (i >= TYPE_TEXT.length) stopTyping();
+      }, 55);
+    }
+    function show(n) {
+      for (var k = 0; k < scenes.length; k++) {
+        if (k === n) scenes[k].classList.add('qgsc-on');
+        else scenes[k].classList.remove('qgsc-on');
+      }
+      idx = n;
+      if (n === 1) startTyping(); else stopTyping();
+    }
+    function play() {
+      if (timer || document.hidden) return;
+      timer = setInterval(function () { show((idx + 1) % scenes.length); }, DUR);
+    }
+    function pause() {
+      if (timer) { clearInterval(timer); timer = null; }
+      stopTyping();
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { pause(); return; }
+      if (idx === 1) startTyping();
+      play();
+    });
+
+    stage.setAttribute('data-live', '1');
+    show(0);
+    play();
+  })();
+  </script>
+</section>

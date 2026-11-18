@@ -227,7 +227,7 @@
     {% else %}
     <div class="grab" id="download">
       <form class="grab-row" id="grabForm">
-        <input id="urlInput" type="url" inputmode="url" autocomplete="off"
+        <input id="urlInput" type="url" inputmode="url" autocomplete="off" data-voice="1"
                placeholder="{{ page.placeholder }}" required>
         <button class="btn" id="goBtn" type="submit">{{ t.btn_download }}</button>
       </form>
@@ -543,6 +543,7 @@ form.addEventListener('submit', async (e) => {
 {% include "_appupdatejs.html" %}
 {% include "_asstfallback.html" %}
 {% include "_assistantjs.html" %}
+{% include "_voicejs.html" %}
 {% include "_historyjs.html" %}
 {% include "_subscribejs.html" %}
 {% include "_invitejs.html" %}

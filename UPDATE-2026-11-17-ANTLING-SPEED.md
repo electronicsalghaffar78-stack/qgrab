@@ -91,13 +91,24 @@ Gemini fallback answers instead — the visitor never sees a quota failure.
   Script+Prompt prompts job **7.51 s** (model: Ling-3.1-flash),
   audio route for 33 s of speech **6.63 s** end to end.
 
-## ⛔ DEPLOY BLOCKER — isi liye ye build abhi LIVE nahi hai
+## ✅ LIVE — deploy ho gaya (2026-11-17 ~02:11 PKT)
 
-Render par chalne ke liye QGrab ke server ko Ant Ling ki key chahiye:
-Render Dashboard → qgrab service → Environment → `ANT_LING_API_KEY` add karna
-hoga. Key ki value sirf secure vault me hai — Archer use nikaal nahi sakta aur
-nikaalne ki koshish bhi nahi ki. Qudoos ko key dalne ka secure tareeqa main chat
-se bataya jayega. Key lagte hi: GitHub push → Render Manual Deploy → live
-timings dobara measure → desktop (1280px) + mobile (390px) screenshot verify →
-backup ZIP refresh. Push/deploy se pehle approval card ki warning Roman Urdu
-me di jayegi — koi surprise card nahi ayega.
+Qudoos ne key faraham ki, Archer ne use Render Environment me
+`ANT_LING_API_KEY` ke tor par lagaya (key chat/file/memory me kahin record
+nahi ki gayi). GitHub push commit `8cf21c8` (Qudoos ne approval card approve
+kiya); env-save ne khud usi commit ka deploy trigger kiya — "Deploy
+succeeded | Live", aur `/api/version` live par **2026-11-17.28** de raha hai.
+
+### LIVE numbers (deploy ke baad, asal site par naape gaye)
+
+| Kaam | Pehle (.27) | Ab (.28 LIVE) |
+|---|---|---|
+| AI Title Generator (naya topic) | 30.15s | **3.83s** |
+| Support Assistant (asal sawal) | 34–44s | **2.50s** |
+| Script+Prompt — apni script se prompts | Gemini slow chain | **6.36s** (model: Ling-3.1-flash) |
+| Script+Prompt — YouTube video (19s "Me at the zoo") | 63s+ me job gum, site ~100s freeze | job **complete** (route=captions, model Ling-3.1-flash). Kul waqt ka bara hissa video/captions FETCH ka hai — Render ke datacenter IP se YouTube ke attempts, ye purana fetch-side mamla hai jo AI module se alag hai; AI hissa seconds me hua aur site poori dair responsive rahi, freeze NAHI hua |
+| Wahi video dobara (cache) | — | **~2–4s** me done |
+
+Backup ZIP refresh: `QGrab-Complete-Backup-2026-11-04.zip` +
+`QGrab-Complete-Backup-2026-11-17.zip` (201 files, andar app.py .28, secret
+scan clean).

@@ -1954,7 +1954,7 @@ PLATFORM_PAGES = {
         "title": "Reddit Video Downloader — Download Reddit Videos Free — QGrab",
         "description": "Download Reddit videos free online with QGrab. Paste a public Reddit post link and save the video — with sound where the post has it. QGrab never adds a watermark.",
         "h1": "Reddit Video Downloader",
-        "tagline": "Save videos from public Reddit posts for free. Paste the post link, pick a quality, and download — no Reddit account needed.",
+        "tagline": "Save videos from public Reddit posts for free. Paste the post link, pick a quality, and download — no Reddit account needed. NOTE: Reddit downloads are currently unavailable — Reddit restricts automated access from our servers (see the note below).",
         "placeholder": "Paste a Reddit link here… e.g. "
                        "https://www.reddit.com/r/…/comments/…/…",
         "steps": [
@@ -1980,8 +1980,8 @@ PLATFORM_PAGES = {
              "app or software to download first, and using the "
              "downloader is completely free."),
             ("A Note on Personal Use", PERSONAL_USE_NOTE),
-            ("New — Still Being Improved",
-             "Reddit restricts many automated requests, so some public links may fail even though they open fine in a browser. That is a Reddit-side limit; support here is new and still being improved."),
+            ("Currently Unavailable — A Reddit-Side Restriction",
+             "Reddit downloads are currently unavailable on QGrab. Reddit restricts automated access from our servers, so public links fail here even though they open fine in a browser. That is a Reddit-side limit; support here is new and still being improved, and we will switch downloads back on if Reddit allows access again."),
         ],
         "faq": [
             ("Is the Reddit downloader free?",
@@ -2704,11 +2704,12 @@ def _platform_view(key):
 # those stored submissions — nothing is seeded, rounded up or
 # invented; with zero submissions the widget says exactly that.
 #
-# Storage is a plain JSON file (data/ratings.json next to app.py,
-# overridable with QGRAB_DATA_DIR). Render's free tier has an
-# ephemeral disk, so the file survives restarts of the process but
-# NOT a redeploy or a filesystem reset — ratings collected between
-# deploys are real but not permanent (see FEATURES-REPORT.md).
+# Storage goes through the durable store layer right below (build
+# .30): with DATABASE_URL set the payload lives in Postgres and
+# survives redeploys; without it, a plain JSON file (data/
+# ratings.json next to app.py, overridable with QGRAB_DATA_DIR) --
+# and Render's ephemeral disk means the file alone does NOT survive
+# a redeploy or a filesystem reset.
 # The data/ directory is gitignored: user data is never committed.
 #
 # Abuse controls are deliberately light for v1: one rating per
@@ -2732,25 +2733,179 @@ try:
 except OSError:
     pass  # _save_ratings retries the mkdir on every write
 
+# ---------------------------------------------------------------------------
+# Durable visitor-data store (build 2026-11-17.30, audit item A-2)
+#
+# Every visitor dataset -- ratings, support messages, problem
+# reports, usage stats and subscribers -- is ONE JSON payload that
+# used to live only in a JSON file under DATA_DIR. Render's
+# filesystem is ephemeral, so each redeploy wiped the files (the
+# investment audit found the live ratings count reset to 0). All
+# five datasets now go through the small layer below:
+#
+#   * DATABASE_URL set   -> the payload lives in Postgres, in ONE
+#     table "qgrab_datasets" (name TEXT PRIMARY KEY, payload JSONB,
+#     updated_at TIMESTAMPTZ) -- one row per dataset, the payload
+#     exactly the JSON the file used to hold, so every caller keeps
+#     its exact shapes, caps and trimming rules.
+#   * DATABASE_URL unset -> today's JSON files, unchanged (local
+#     dev and the whole test suite keep the file behaviour).
+#
+# Safety rules:
+#   * First run against an empty table imports each dataset from
+#     its JSON file ONCE, when the file exists and holds data; a
+#     dataset that already has a row is never overwritten by the
+#     file again.
+#   * A Postgres failure (bad URL, DB down, driver missing) falls
+#     back to the JSON file instead of breaking the feature -- the
+#     site must never fail because its data store hiccuped.
+#   * psycopg is imported lazily, only when DATABASE_URL is set.
+# ---------------------------------------------------------------------------
+
+_STORE_DATASET_FILES = {
+    "ratings": "RATINGS_FILE",
+    "support": "SUPPORT_FILE",
+    "reports": "REPORTS_FILE",
+    "stats": "STATS_FILE",
+    "subscribers": "SUBSCRIBERS_FILE",
+}
+_store_lock = threading.Lock()
+_store_pg_state = {"url": None, "ready": False}
+
+
+def _database_url():
+    return (os.environ.get("DATABASE_URL") or "").strip()
+
+
+def _store_warn(msg):
+    try:
+        app.logger.warning("durable-store: %s", msg)
+    except Exception:
+        pass
+
+
+def _store_file_read(path):
+    """Raw parsed JSON from a dataset file, or None."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _store_file_write(path, payload):
+    """The pre-.30 file write, verbatim: tmp file + atomic replace."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def _pg_connect(url):
+    import psycopg  # lazy: only needed when DATABASE_URL is set
+    return psycopg.connect(url, connect_timeout=10)
+
+
+def _pg_ensure(url):
+    """Create the table if absent + run the one-time JSON import.
+
+    Returns True when Postgres is usable. Cached per URL; a failure
+    is NOT cached, so the next call retries."""
+    with _store_lock:
+        if _store_pg_state["ready"] and _store_pg_state["url"] == url:
+            return True
+        try:
+            from psycopg.types.json import Jsonb
+            with _pg_connect(url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "CREATE TABLE IF NOT EXISTS qgrab_datasets ("
+                        " name TEXT PRIMARY KEY,"
+                        " payload JSONB NOT NULL,"
+                        " updated_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+                    for name, global_name in \
+                            _STORE_DATASET_FILES.items():
+                        path = globals().get(global_name)
+                        if not path:
+                            continue
+                        cur.execute(
+                            "SELECT 1 FROM qgrab_datasets"
+                            " WHERE name = %s", (name,))
+                        if cur.fetchone():
+                            continue  # migrated / already in use
+                        data = _store_file_read(path)
+                        if data in (None, [], {}):
+                            continue  # nothing worth importing
+                        cur.execute(
+                            "INSERT INTO qgrab_datasets (name, payload)"
+                            " VALUES (%s, %s)", (name, Jsonb(data)))
+                conn.commit()
+        except Exception as exc:  # noqa: BLE001
+            _store_warn(
+                f"postgres unavailable ({exc!r}); using JSON files")
+            return False
+        _store_pg_state.update({"url": url, "ready": True})
+        return True
+
+
+def _store_read(name, path):
+    """The dataset's parsed payload, or None when nothing is stored.
+
+    Postgres first when DATABASE_URL is set; the JSON file is the
+    fallback for every failure and the only store without one."""
+    url = _database_url()
+    if url and _pg_ensure(url):
+        try:
+            with _pg_connect(url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT payload FROM qgrab_datasets"
+                        " WHERE name = %s", (name,))
+                    row = cur.fetchone()
+            return row[0] if row is not None else None
+        except Exception as exc:  # noqa: BLE001
+            _store_warn(
+                f"postgres read failed ({exc!r}); using JSON file")
+    return _store_file_read(path)
+
+
+def _store_write(name, path, payload):
+    """Persist one dataset payload: Postgres when DATABASE_URL is
+    configured, else the JSON file; a Postgres failure falls back
+    to the file so the feature keeps working."""
+    url = _database_url()
+    if url and _pg_ensure(url):
+        try:
+            from psycopg.types.json import Jsonb
+            with _pg_connect(url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO qgrab_datasets (name, payload,"
+                        " updated_at) VALUES (%s, %s, now())"
+                        " ON CONFLICT (name) DO UPDATE"
+                        " SET payload = EXCLUDED.payload,"
+                        " updated_at = now()",
+                        (name, Jsonb(payload)))
+                conn.commit()
+            return
+        except Exception as exc:  # noqa: BLE001
+            _store_warn(
+                f"postgres write failed ({exc!r}); using JSON file")
+    _store_file_write(path, payload)
+
+
 
 def _load_ratings():
-    try:
-        with open(RATINGS_FILE, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, list):
-            return [r for r in data if isinstance(r, dict)
-                    and isinstance(r.get("stars"), int)]
-    except (OSError, ValueError):
-        pass
+    data = _store_read("ratings", RATINGS_FILE)
+    if isinstance(data, list):
+        return [r for r in data if isinstance(r, dict)
+                and isinstance(r.get("stars"), int)]
     return []
 
 
 def _save_ratings(ratings):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    tmp = RATINGS_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(ratings, fh, ensure_ascii=False)
-    os.replace(tmp, RATINGS_FILE)
+    _store_write("ratings", RATINGS_FILE, ratings)
 
 
 def ratings_summary():
@@ -5873,7 +6028,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-17.28"
+APP_VERSION = "2026-11-18.37"
 
 
 @app.route("/api/version", methods=["GET"])
@@ -5884,6 +6039,115 @@ def api_version():
     resp = jsonify({"version": APP_VERSION})
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+# ---------------------------------------------------------------------------
+# Voice input: POST /api/voice-transcribe
+#
+# The AI half of the hybrid mic (templates/_voicejs.html, build
+# 2026-11-18.32). The browser's Web Speech API types live in the
+# phone/site language, but it cannot hear any other language; when
+# the visitor speaks a DIFFERENT language, the mic has also been
+# recording (MediaRecorder), and on stop the clip lands here.
+# Gemini — the same (model, key) cascade as every other AI route
+# (_gemini_call), no new env vars — transcribes it in the language
+# actually spoken and names that language; the page then swaps
+# its live text for this answer only when the languages differ
+# (or when live recognition produced nothing). Short search
+# phrases only: uploads are capped at ~2.5 MB and the page caps
+# recordings at 30 seconds. The audio itself is never stored or
+# logged — it exists only as this request's base64 payload.
+# ---------------------------------------------------------------------------
+
+VOICE_MAX_AUDIO_BYTES = 2_500_000   # ~2.5 MB upload cap
+VOICE_GEMINI_TIMEOUT = 30           # seconds, per model attempt
+VOICE_SYSTEM_INSTRUCTION = (
+    "You are a transcription service. Answer with JSON only.")
+VOICE_TRANSCRIBE_TEXT = (
+    "Transcribe this audio exactly as spoken, in the language "
+    "that is spoken. Respond with ONLY a JSON object: "
+    "{\"text\": \"<transcription>\", \"lang\": \"<BCP-47 code of "
+    "the spoken language, e.g. ur-PK, en-US, ar-SA>\"}. If there "
+    "is no clear speech, return {\"text\": \"\", \"lang\": \"\"}.")
+
+
+def _voice_parse_transcript(raw):
+    """Parse the voice model's reply into {"text", "lang"}.
+
+    Defensive by design: the model is asked for bare JSON, but
+    code fences or a stray word around it must not sink the
+    answer, so the outermost brace pair is sliced out before
+    json.loads. Returns None when nothing usable can be found —
+    the route then answers ai_unavailable and the page silently
+    keeps its live Web Speech text."""
+    if not raw or not isinstance(raw, str):
+        return None
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        obj = json.loads(raw[start:end + 1])
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    text = obj.get("text")
+    lang = obj.get("lang")
+    if not isinstance(text, str) or not isinstance(lang, str):
+        return None
+    return {"text": text.strip(), "lang": lang.strip()}
+
+
+@app.route("/api/voice-transcribe", methods=["POST"])
+def api_voice_transcribe():
+    """One hybrid-mic clip -> {"text", "lang"} in the spoken
+    language. Multipart form field "audio" (webm/mp4/ogg from
+    MediaRecorder). Answers:
+      200 {"text", "lang"}     — transcription (possibly empty)
+      400 {"error": "invalid_request"} — no/empty audio field
+      413 {"error": "too_large"}       — over the ~2.5 MB cap
+      502 {"error": "ai_unavailable"}  — the cascade failed or
+                                         its reply was unusable
+      503 {"error": "not_configured"}  — no Gemini key configured
+    Every failure is safe for the caller: the page falls back to
+    its live Web Speech text without showing anything."""
+    upload = request.files.get("audio")
+    if upload is None:
+        return jsonify({"error": "invalid_request"}), 400
+    data = upload.read()
+    if not data:
+        return jsonify({"error": "invalid_request"}), 400
+    if len(data) > VOICE_MAX_AUDIO_BYTES:
+        return jsonify({"error": "too_large"}), 413
+    if not _gemini_api_keys():
+        return jsonify({"error": "not_configured"}), 503
+    # MediaRecorder content types can carry a codecs parameter
+    # ("audio/webm;codecs=opus") — Gemini wants the bare type.
+    mime = (upload.content_type or "").split(";")[0].strip().lower()
+    if not mime.startswith("audio/"):
+        mime = "audio/webm"
+    parts = [
+        {"inline_data": {
+            "mime_type": mime,
+            "data": base64.b64encode(data).decode("ascii")}},
+        {"text": VOICE_TRANSCRIBE_TEXT},
+    ]
+    try:
+        raw, _model = _gemini_call(
+            parts, VOICE_SYSTEM_INSTRUCTION, VOICE_GEMINI_TIMEOUT,
+            slow_max_attempts=2)
+    except _GeminiUnavailable as e:
+        app.logger.warning("voice transcribe gemini failed: %s", e)
+        return jsonify({"error": "ai_unavailable"}), 502
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning("voice transcribe crashed: %s", e)
+        return jsonify({"error": "ai_unavailable"}), 502
+    parsed = _voice_parse_transcript(raw)
+    if parsed is None:
+        app.logger.warning("voice transcribe reply unusable")
+        return jsonify({"error": "ai_unavailable"}), 502
+    return jsonify(parsed)
 
 
 # ---------------------------------------------------------------------------
@@ -6638,8 +6902,10 @@ ASSISTANT_SYSTEM_PROMPT = (
     "- Downloads work from: YouTube, TikTok, Facebook, "
     "Instagram, Pinterest, X (Twitter), SoundCloud, Twitch, "
     "Telegram (public posts only), Vimeo, Dailymotion and VK. "
-    "Reddit is new and still being improved — some of its "
-    "links may fail. Threads, SnackVideo/Kwai and "
+    "Reddit is new and still being improved — downloads "
+    "from Reddit are currently unavailable because Reddit "
+    "restricts automated access from our servers, so its "
+    "links will fail for now. Threads, SnackVideo/Kwai and "
     "WhatsApp are NOT supported. Private or login-only videos "
     "cannot be downloaded — only public videos work.\n"
     "- How to download: paste the video link into the "
@@ -6958,24 +7224,16 @@ _SUPPORT_EMAIL_RE = re.compile(
 
 
 def _load_support():
-    try:
-        with open(SUPPORT_FILE, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, list):
-            return [m for m in data if isinstance(m, dict)
-                    and isinstance(m.get("email"), str)
-                    and isinstance(m.get("message"), str)]
-    except (OSError, ValueError):
-        pass
+    data = _store_read("support", SUPPORT_FILE)
+    if isinstance(data, list):
+        return [m for m in data if isinstance(m, dict)
+                and isinstance(m.get("email"), str)
+                and isinstance(m.get("message"), str)]
     return []
 
 
 def _save_support(messages):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    tmp = SUPPORT_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(messages, fh, ensure_ascii=False)
-    os.replace(tmp, SUPPORT_FILE)
+    _store_write("support", SUPPORT_FILE, messages)
 
 
 def _support_rate_try_take(ip):
@@ -7123,22 +7381,14 @@ def _owner_key_ok():
 # ---------------------------------------------------------------------------
 
 def _load_reports():
-    try:
-        with open(REPORTS_FILE, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, list):
-            return [r for r in data if isinstance(r, dict)]
-    except (OSError, ValueError):
-        pass
+    data = _store_read("reports", REPORTS_FILE)
+    if isinstance(data, list):
+        return [r for r in data if isinstance(r, dict)]
     return []
 
 
 def _save_reports(reports):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    tmp = REPORTS_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(reports, fh, ensure_ascii=False)
-    os.replace(tmp, REPORTS_FILE)
+    _store_write("reports", REPORTS_FILE, reports)
 
 
 @app.route("/api/report", methods=["POST"])
@@ -7288,26 +7538,18 @@ def _stats_day():
 
 
 def _load_stats():
-    try:
-        with open(STATS_FILE, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, dict):
-            return data
-    except (OSError, ValueError):
-        pass
+    data = _store_read("stats", STATS_FILE)
+    if isinstance(data, dict):
+        return data
     return {}
 
 
 def _save_stats(data):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    # Keep the file bounded: drop days older than ~13 months.
+    # Keep the store bounded: drop days older than ~13 months.
     cutoff = (_sp_quota_now().date()
               - timedelta(days=400)).isoformat()
     data = {d: c for d, c in data.items() if d >= cutoff}
-    tmp = STATS_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False)
-    os.replace(tmp, STATS_FILE)
+    _store_write("stats", STATS_FILE, data)
 
 
 def _stats_bump(name, day=None):
@@ -7410,22 +7652,14 @@ SUBSCRIBE_SOURCES = ("footer", "section", "popup", "site")
 
 
 def _load_subscribers():
-    try:
-        with open(SUBSCRIBERS_FILE, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, list):
-            return [r for r in data if isinstance(r, dict)]
-    except (OSError, ValueError):
-        pass
+    data = _store_read("subscribers", SUBSCRIBERS_FILE)
+    if isinstance(data, list):
+        return [r for r in data if isinstance(r, dict)]
     return []
 
 
 def _save_subscribers(rows):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    tmp = SUBSCRIBERS_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(rows, fh, ensure_ascii=False)
-    os.replace(tmp, SUBSCRIBERS_FILE)
+    _store_write("subscribers", SUBSCRIBERS_FILE, rows)
 
 
 def _subscribe_rate_ok(ip):

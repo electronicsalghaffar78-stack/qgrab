@@ -1,139 +1,131 @@
-# QGrab — All-in-One Video Downloader (v1)
+# QGrab — All Platform Video Download in One Place
 
-A small web app where a visitor pastes a video link (YouTube, TikTok,
-Instagram, Facebook, Twitter/X, Dailymotion and 1000+ other sites that
-yt-dlp supports), sees the video's title / thumbnail / duration and the
-available qualities, and downloads the one they pick.
+**Live:** https://qgrab.onrender.com · **Version:** 2026-11-17.29 ·
+**Code:** github.com/electronicsalghaffar78-stack/qgrab
 
-> **Name note:** the site is branded **QGrab** with the "Q" logo (white Q ring, play triangle, red download-arrow tail on deep navy) in `static/icons/`.
-> **Legal note:** the site carries a personal-use disclaimer. Visitors should
-> only download videos they own or have permission to save.
+QGrab is a free, no-account web app for downloading public videos:
+paste a link, pick a format, download. It also bundles a set of
+creator tools (AI Tools, Script+Prompt, a Video Toolkit) around the
+downloader. Everything is free with **no usage limits** — there is no
+pricing, no premium tier and no sign-up.
 
-## How to run it locally
+> **Name note:** the site is branded **QGrab** with the "Q" logo
+> (white Q ring, play triangle, red download-arrow tail on deep navy)
+> in `static/icons/`.
+> **Legal note:** the site carries a personal-use disclaimer.
+> Visitors should only download videos they own or have permission
+> to save.
 
-From this folder (`~/workspace/downloader-site/`):
+## Platforms
 
-```bash
-# one-time setup (already done on this machine, repeat on a new one)
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+Downloads work from 13 platforms: YouTube, TikTok, Instagram,
+Facebook, X (Twitter), Pinterest, SoundCloud, Twitch, Telegram
+(public posts), VK, Vimeo and Dailymotion.
 
-# start the site
-.venv/bin/python app.py
-```
+**Reddit is the exception:** downloads are currently unavailable
+because Reddit restricts automated access from the server. The site
+says so honestly wherever Reddit is listed; the Reddit page and
+route still exist for the day access works again. Private or
+login-only videos cannot be downloaded on any platform.
 
-Then open **http://127.0.0.1:5000** in a browser.
+## What the site includes
 
-Useful options:
-
-```bash
-PORT=8080 .venv/bin/python app.py          # different port
-HOST=0.0.0.0 .venv/bin/python app.py       # reachable from other devices on the LAN
-```
-
-Stop it with `Ctrl+C`.
+- **Downloader** — grouped formats (video with sound first), MP3
+  audio, subtitles and transcript downloads where the platform
+  offers them; byte-range streaming through the server so downloads
+  can resume.
+- **Search** — YouTube search in the page, plus web video search.
+- **AI Tools (6)** — title/description generators and helpers,
+  powered by AI (see below).
+- **Script+Prompt** — turns a video into a scene-by-scene script and
+  ready-to-use image/video prompts; it also auto-starts alongside a
+  download. It can also work from a pasted transcript or your own
+  script.
+- **Video Toolkit** — thumbnail grabber and related utilities.
+- **AI Assistant + support** — an on-site assistant that answers
+  QGrab questions in the visitor's language, a "Talk to Support"
+  form, and a report-a-problem form.
+- **Ratings & reviews**, **Telegram Proxies** page (100 proxies),
+  **Download History** page (stored in the visitor's own browser),
+  **browser extension** (manual Developer-mode install; not on the
+  Chrome Web Store yet), **PWA** install on phones and desktops.
+- **30 languages** of interface text (`i18n.py`), SEO pages for
+  every platform, sitemap and legal pages (Terms / Privacy / DMCA).
+- **No ads at this time.** If ads are ever introduced, they will be
+  clearly marked as ads. (The old ad placeholder boxes were removed
+  in build .29.)
 
 ## How it works
 
-- `app.py` — a Flask server with three routes:
-  - `GET /` — serves the single-page UI (`templates/index.html`).
-  - `POST /api/info` — takes `{"url": "..."}`, asks **yt-dlp** for the video's
-    metadata, and returns title, thumbnail, duration and a cleaned-up list of
-    formats (quality, file type, size, with-sound / video-only / audio-only)
-    as JSON.
-  - `GET /download?url=...&format_id=...` — looks up that format's real media
-    URL via yt-dlp, then **streams the file through this server** to the
-    visitor with the correct filename. Streaming through the server (with the
-    headers yt-dlp provides) is what makes downloads work even when a
-    platform's direct link needs a specific browser header. Byte-range
-    requests are passed through, so downloads can resume.
-- `templates/index.html` — the whole front end: one self-contained page
-  (no external CSS/JS files), dark theme, mobile-first. It includes clearly
-  marked **AD placeholder boxes** (top banner + in-content) showing where ad
-  units will go later, a supported-platforms row, a 3-step "How to use"
-  section, an FAQ, and the personal-use/copyright disclaimer in the footer.
+- `app.py` — the Flask server (52 routes). Key routes:
+  - `GET /` — the homepage (`templates/index.html` + includes);
+    one page per platform under `/<platform>-video-downloader`,
+    plus `/download-history`, `/telegram-proxies`, the
+    Script+Prompt pages and the legal pages.
+  - `POST /api/info` — takes `{"url": "..."}`, asks **yt-dlp** for
+    metadata and returns title, thumbnail, duration and a cleaned,
+    grouped list of formats as JSON.
+  - `GET /download?url=...&format_id=...` — resolves the real media
+    URL via yt-dlp and **streams the file through this server** with
+    the correct filename and headers; byte-range requests are
+    passed through so downloads can resume.
+  - `POST /api/ai-tools/*`, `POST /api/assistant`,
+    `POST /api/script-prompt` (+ status/quota) — the AI features.
+  - `/api/ratings` + `/api/rate`, `/api/support`, `/api/report` —
+    visitor feedback (stored as JSON files, see the note below).
+- **AI providers:** text generation defaults to **Ant Ling**
+  (`Ling-3.1-flash`, thinking disabled; `Ming-3.0-asr-tiny` for the
+  Script+Prompt audio route) and falls back to a **Google Gemini**
+  chain (fastest model first) if Ant Ling is unavailable or its
+  daily free quota is exhausted. Thumbnail *image* generation is
+  Gemini-only. Provider keys live only in the host's environment
+  variables (`ANT_LING_API_KEY`, `GEMINI_API_KEY[_2/_3]`,
+  `QGRAB_SERPER_API_KEY`, `SUPPORT_INBOX_KEY`) — never in the repo.
+- `templates/` — the front end (server-rendered, no build step).
 - `requirements.txt` — pinned Python dependencies (Flask + yt-dlp).
-- `.venv/` — the local Python environment for this project.
 
-Notes / v1 limitations:
+## Run it locally
 
-- Many sites (YouTube especially) now serve video and audio as **separate**
-  streams. For those, the format list includes "with sound" options marked
-  *merged on download*: when picked, the server downloads the best video
-  (up to 1080p) + best audio and joins them into one MP4 with **ffmpeg**
-  before sending it. That makes ffmpeg a required system tool on the host
-  (`ffmpeg -version` should work). Bigger merged files take a little longer
-  to start because the merge happens first.
-- Formats delivered as HLS (`.m3u8`) streams are filtered out of the direct
-  list — v1 only offers direct single-file downloads plus the merged option
-  above.
-- No accounts, no history, nothing is stored on the server: each download is
-  fetched live from the original platform.
-- Very large files pass through the server, so the host needs decent
-  bandwidth once the site is public.
+From this folder:
 
-## App plan (phone app + PC)
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python app.py
+```
 
-The product is **not website-only**. The plan has two phases:
+Then open **http://127.0.0.1:5000**. Options: `PORT=8080`,
+`HOST=0.0.0.0` (LAN). Stop with `Ctrl+C`. Without provider keys in
+the environment, the downloader works and the AI features report
+themselves as not configured.
 
-**Phase 1 — Responsive website + PWA (done in v1).**
-The site is mobile-first and ships as a **Progressive Web App**:
+## Deployment
 
-- `static/manifest.webmanifest` — app name "QGrab", dark theme colors
-  matching the UI, `display: standalone`, and icon entries
-  (`static/icons/`: 192px + 512px PNGs, a maskable 512px, and an Apple
-  touch icon — all derived locally with PIL from the chosen "Q" logo,
-  `static/icons/qgrab-logo.webp`).
-- `static/sw.js` — a service worker, served by the app at `/sw.js` so its
-  scope covers the whole site. It caches the homepage shell (page,
-  manifest, icons) so the installed app opens instantly and the homepage
-  loads offline. `/api/` and `/download` requests are never cached.
-- The page has an **"Install The QGrab App"** section: on Android/Chrome
-  it shows a real Install button when the browser offers one
-  (`beforeinstallprompt`), and it always shows the manual steps —
-  Android: menu → "Add to Home screen"; iPhone Safari: Share → "Add to
-  Home Screen". On PC the same site simply runs in the browser (Chrome/Edge
-  can also install it as a desktop app from the address-bar icon).
+Hosted on **Render** (free plan) from the GitHub repo above.
+Pushes go to `main`; because of a webhook issue, a **Manual Deploy**
+on Render is required after each push. The service reports its
+build at `GET /api/version` (used by the installed PWA's
+"Update App" button).
 
-Result: users get an installable app icon on their phone and a full
-experience on PC, from this one codebase, with no app store involved.
+## Known limitations (honest list)
 
-**Phase 2 — Android APK (later, not built yet).**
-A thin native Android app that is basically a **WebView wrapper around the
-live website** (loads the real site, handles downloads through the
-Android download manager, and nothing more). It will be **distributed as
-an APK download from our own website**, because Google Play does not
-allow video-downloader apps on the Play Store — direct distribution is
-the normal route for this category.
+- **Visitor data is ephemeral:** ratings, support tickets, problem
+  reports and stats are JSON files on the host's disk and reset on
+  redeploy — a durable store is a known pre-investment task.
+- **Free hosting fences:** the Render free plan sleeps when idle
+  and has monthly instance-hour/bandwidth caps shared with the
+  owner's other service.
+- **Script+Prompt first run:** for a fresh video, fetching the
+  video/captions from the platform can take minutes from a
+  datacenter IP; the AI step itself takes seconds, and repeat
+  requests are served from cache.
+- **Reddit:** currently unavailable (see Platforms above).
 
-What the APK build will need when we get there:
+## Tests
 
-- Android Studio / Android SDK + Gradle on a PC to build and sign the APK.
-- One small project: a single-activity WebView app with a download
-  listener, our icon/name, and the production site URL baked in.
-- A signing key (kept safe — all future updates must use the same key).
-- iPhone note: Apple does not allow sideloading like this, so on iPhone
-  the Phase 1 PWA ("Add to Home Screen") remains the app experience.
+```bash
+.venv/bin/python tests/test_<name>.py   # 35 Python suites
+node tests/test_<name>.js               # 6 JS suites
+```
 
-## Deployment notes (for later — not done yet)
-
-- Needs a small **VPS** (e.g. 1–2 GB RAM) or a Python-friendly PaaS
-  (Render / Railway / Fly.io style). A domain name will be bought later and
-  pointed at it.
-- On a VPS, run it properly behind a process manager and reverse proxy, e.g.:
-
-  ```bash
-  .venv/bin/pip install gunicorn
-  .venv/bin/gunicorn -w 2 --timeout 300 -b 127.0.0.1:5000 app:app
-  ```
-
-  …with Nginx (or Caddy) in front for HTTPS (free certificates via
-  Let's Encrypt) and the public domain.
-- **Keep yt-dlp updated** — platforms change their sites often; most
-  "downloads stopped working" problems are fixed by
-  `.venv/bin/pip install -U yt-dlp`.
-- Ads: the placeholder boxes mark the spots. When a real ad network account
-  exists (e.g. AdSense or an alternative network), replace those boxes with
-  the network's ad code.
-- Some platforms (notably Instagram/Facebook private content) may require
-  login cookies to download; that is intentionally **not** part of v1.
+Build history lives in the `UPDATE-*.md` notes in this repo.

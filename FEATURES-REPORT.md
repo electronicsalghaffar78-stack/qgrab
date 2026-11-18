@@ -1,7 +1,9 @@
 # QGrab — Feature Expansion + Real Reviews: Implementation Report
 
-Built 2026-11-03 (local only — **NOT pushed, NOT deployed**). Implements
-exactly what `FEATURES-TEST-REPORT.md` verified, on top of the SEO +
+Built 2026-11-03 as a local build (**historical report** — the product
+has since been pushed, deployed and is LIVE at https://qgrab.onrender.com;
+current build 2026-11-17.29 — see the current-status section below).
+Implements exactly what `FEATURES-TEST-REPORT.md` verified, on top of the SEO +
 30-language i18n state described in `SEO-REPORT.md` / `I18N-REPORT.md`.
 Both trees updated and md5-synced: `~/workspace/downloader-site/`
 (master) and `~/workspace/qgrab-repo/` (deploy).
@@ -10,6 +12,28 @@ Hard rules honoured: no fake stats/ratings/testimonials anywhere; the
 existing YouTube/TikTok/Facebook download cascade, the Invidious
 fallback, PWA, the logo pipeline, i18n and all SEO elements are
 untouched in behaviour (spot-checked below).
+
+## Current status — 2026-11-17 (build 2026-11-17.29)
+
+- LIVE at https://qgrab.onrender.com (Render); code in the public
+  GitHub repo `electronicsalghaffar78-stack/qgrab`. Local build .29
+  notes: `UPDATE-2026-11-17-INVESTFIX.md`.
+- 52 Flask routes: the downloader, 13 platform pages, Script+Prompt
+  pages, AI Tools, the AI Assistant, support + problem-report forms,
+  ratings/reviews, Telegram proxies, download history, legal pages,
+  a PWA and a browser extension.
+- Everything is free, with no usage limits and no user accounts.
+- AI features run on Ant Ling (Ling-3.1-flash for text, Ming ASR for
+  the audio route) with a Google Gemini fallback chain.
+- Reddit downloads are currently unavailable — Reddit restricts
+  automated access from the server; the site says so honestly
+  wherever Reddit is listed.
+- Known open items (platform/operations, not hidden): visitor data
+  (ratings, support tickets, reports, stats) is stored in ephemeral
+  JSON files on the free host and resets on redeploy; hosting is
+  Render's free plan; a fresh-video Script+Prompt run can spend
+  minutes fetching the video/captions before the seconds-fast AI
+  step; the browser extension is a manual (Developer mode) install.
 
 ---
 

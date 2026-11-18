@@ -166,12 +166,54 @@ for path in ("/", "/youtube-video-downloader"):
           '<h2 id="rTitle">' in html)
 
 # ------------------------------------------------------------------
+# Showcase (build .37): scene stage (S0-S5), one FIXED headline,
+# rotator fully removed, 8 finale cards + 8 static fallback cards,
+# brand lockup under the headline (finale + static) and a corner
+# watermark over the whole stage (the owner's anti-copy branding)
+# ------------------------------------------------------------------
+home_html = client.get("/").get_data(as_text=True)
+check("showcase fixed headline present",
+      "Download anything from" in home_html
+      and '<span class="qgsc-accent">Social Media</span>' in home_html)
+check("showcase tagline kept",
+      "All Platform Video Download in One Place" in home_html)
+check("showcase rotator fully removed",
+      "qgscRotWord" not in home_html and "qgsc-hide" not in home_html
+      and "qgsc-word" not in home_html)
+check("showcase stage carries all 6 scenes",
+      home_html.count('data-scene="') == 6,
+      str(home_html.count('data-scene="')))
+check("showcase finale scatters all 8 feature cards",
+      home_html.count('data-finale="1"') == 8,
+      str(home_html.count('data-finale="1"')))
+check("showcase static fallback keeps all 8 cards",
+      home_html.count('class="qgsc-scard"') == 8,
+      str(home_html.count('class="qgsc-scard"')))
+check("showcase scene headlines present",
+      "Find any video" in home_html and "Just speak it" in home_html
+      and "Video into Script + Prompt" in home_html)
+check("showcase prompt bar types into a mic download bar",
+      "data-qgsc-type" in home_html and 'qgsc-mic"><svg' in home_html)
+check("showcase finale brand lockup present",
+      home_html.count('data-brand="1"') == 1
+      and 'qgsc-bwm">Q<span>Grab</span>' in home_html,
+      str(home_html.count('data-brand="1"')))
+check("showcase brand lockup in finale and static fallback",
+      home_html.count('class="qgsc-brand"') == 2
+      and home_html.count('qgsc-burl">qgrab.onrender.com<') == 2,
+      str(home_html.count('class="qgsc-brand"')))
+check("showcase corner watermark present",
+      'class="qgsc-wm"' in home_html
+      and 'qgsc-wmt">QGrab</span>' in home_html
+      and 'class="qgsc-wmlogo"' in home_html)
+
+# ------------------------------------------------------------------
 # Service worker guard
 # ------------------------------------------------------------------
 sw = client.get("/sw.js").get_data(as_text=True)
 check("sw caches the shell only from the homepage",
       'url.pathname === "/"' in sw)
-check("sw cache version bumped past v4", "qgrab-shell-v5" in sw)
+check("sw cache version bumped past v11", "qgrab-shell-v12" in sw)
 
 print()
 if FAILURES:

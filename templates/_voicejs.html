@@ -1,0 +1,438 @@
+{# Voice input — the HYBRID mic (build 2026-11-18.32): a
+   Google-style mic button inside every search-type field marked
+   data-voice="1" — the home and platform link bars, video
+   search, Video Toolkit, AI Tools, Script+Prompt and the
+   Assistant (never name/email/report/review fields or
+   textareas). ONE button, two engines, no language picker
+   anywhere:
+   1. Web Speech API (as in .31): if the visitor speaks their
+      phone/site language, words are typed LIVE while they speak
+      — continuous + interim results, one alternative, the field
+      updated on EVERY result event (no debounce) so text keeps
+      up with speech; if recognition ends on its own mid-speech
+      it restarts seamlessly and no text is lost.
+   2. AI transcription (new in .32): the same mic press ALSO
+      records via MediaRecorder. On stop, the clip goes to
+      POST /api/voice-transcribe (Gemini), which transcribes it
+      in the language ACTUALLY spoken. The field is swapped to
+      the AI text only when Web Speech produced no final text,
+      or when the AI-detected language differs from the language
+      Web Speech used — i.e. exactly the "spoke a different
+      language than the phone's" case. Any failure (no mic for
+      the recorder, network, server) silently keeps the live
+      text. Text the visitor typed by hand before pressing the
+      mic is never touched by either engine.
+   Tapping the mic again stops; recordings cap at 30 seconds.
+   Nothing is ever auto-submitted — the visitor presses the
+   site's own Search / Download button as usual. For visitors
+   who cannot type. Browsers with neither SpeechRecognition nor
+   MediaRecorder+getUserMedia get NO button at all; browsers
+   without SpeechRecognition but with recording get the mic in
+   AI-only mode (graceful degradation throughout).
+   Included right after _assistantjs.html on home + platform.
+   Build 2026-11-18.35 (look only): the button face is Google's
+   clean Material mic as an inline SVG in muted grey, red while
+   listening — the owner found the 🎤 emoji looked wrong. Every
+   behaviour below is exactly as in .32. #}
+<style>
+  .voice-wrap{position:relative;display:flex;flex:1 1 auto;min-width:0}
+  .voice-wrap>input{flex:1 1 auto;min-width:0}
+  .voice-wrap input.voice-input{padding-right:42px}
+  .voice-wrap input.voice-input::-webkit-search-cancel-button{display:none}
+  .voice-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);
+    width:36px;height:36px;padding:0;border:none;border-radius:50%;
+    background:transparent;color:#5f6368;cursor:pointer;
+    display:grid;place-items:center;z-index:2}
+  .voice-btn svg{width:22px;height:22px;display:block}
+  .voice-btn:hover{background:rgba(128,128,128,.12)}
+  .voice-btn.listening{color:#e53935;
+    animation:voicePulse 1s ease-in-out infinite}
+  @keyframes voicePulse{0%,100%{box-shadow:0 0 0 0 rgba(229,57,53,.45)}
+    50%{box-shadow:0 0 0 8px rgba(229,57,53,0)}}
+  .voice-btn.busy{animation:voiceBusy 1.2s ease-in-out infinite}
+  @keyframes voiceBusy{0%,100%{opacity:.4}50%{opacity:1}}
+</style>
+<script>
+/* --- Voice input (hybrid: Web Speech live + AI transcription) --- */
+(function () {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var MR = window.MediaRecorder || null;
+
+  function canRecord() {
+    try {
+      return !!(MR && navigator.mediaDevices &&
+                navigator.mediaDevices.getUserMedia);
+    } catch (e) { return false; }
+  }
+  /* No live recognition AND no recording: no button, nothing
+     changes (graceful degradation). */
+  if (!SR && !canRecord()) return;
+
+  /* Recognition language, chosen automatically — no picker.
+     Prefer the site's current language (the <html lang> the
+     server rendered, else the qgrab_lang cookie behind it),
+     mapped to the closest speech code; else the browser's
+     language, mapped the same way; an unmapped browser language
+     is passed through as-is; last resort Urdu. */
+  var BASE2FULL = {
+    ur: 'ur-PK', en: 'en-US', hi: 'hi-IN', ar: 'ar-SA', fa: 'fa-IR',
+    sd: 'sd-PK', ps: 'ps-AF', pa: 'pa-IN', ta: 'ta-IN', bn: 'bn-BD',
+    tr: 'tr-TR'
+  };
+  function mapLang(raw) {
+    if (!raw) return '';
+    var primary = String(raw).trim().toLowerCase()
+                    .replace('_', '-').split('-')[0];
+    return BASE2FULL[primary] || '';
+  }
+  function siteLang() {
+    var l = '';
+    try {
+      l = document.documentElement.lang ||
+          document.documentElement.getAttribute('lang') || '';
+    } catch (e) {}
+    var m = mapLang(l);
+    if (m) return m;
+    try {
+      var ck = document.cookie.match(/(?:^|;\s*)qgrab_lang=([^;]*)/);
+      if (ck) {
+        var cm = mapLang(decodeURIComponent(ck[1]));
+        if (cm) return cm;
+      }
+    } catch (e) {}
+    return '';
+  }
+  function pickLang() {
+    var s = siteLang();
+    if (s) return s;
+    var nav = '';
+    try { nav = navigator.language || ''; } catch (e) {}
+    var nm = mapLang(nav);
+    if (nm) return nm;
+    if (nav) return nav;      /* unmapped: pass through as-is */
+    return 'ur-PK';
+  }
+  function primaryOf(code) {
+    return String(code || '').trim().toLowerCase()
+             .replace('_', '-').split('-')[0];
+  }
+
+  var toastTimer = null;
+  function showToast(msg) {
+    var t = document.getElementById('spToast') ||
+            document.getElementById('appToast');
+    if (!t && document.body) {
+      t = document.createElement('div');
+      t.className = 'sp-toast';
+      t.id = 'appToast';
+      t.setAttribute('role', 'status');
+      document.body.appendChild(t);
+    }
+    if (!t) { alert(msg); return; }
+    t.textContent = msg;
+    t.style.display = 'block';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.style.display = 'none'; }, 4500);
+  }
+
+  function combine(base, add) {
+    if (!add) return base;
+    if (!base) return add.replace(/^\s+/, '');
+    return base.replace(/\s+$/, '') + ' ' + add.replace(/^\s+/, '');
+  }
+
+  /* --- AI transcription side ----------------------------------
+     The recorder runs in parallel with live recognition and is
+     pure bonus: every failure path below degrades to the Web
+     Speech behaviour of build .31, silently. */
+  var REC_MIMES = ['audio/webm;codecs=opus', 'audio/webm',
+                   'audio/mp4', 'audio/ogg;codecs=opus', 'audio/ogg'];
+  var REC_CAP_MS = 30000;     /* recordings auto-stop at 30 s */
+  var AI_TIMEOUT_MS = 15000;  /* then the live text simply stays */
+  var AI_MIN_BYTES = 1024;    /* smaller clips hold no speech */
+
+  function pickMime() {
+    if (!MR || typeof MR.isTypeSupported !== 'function') return '';
+    for (var i = 0; i < REC_MIMES.length; i++) {
+      try { if (MR.isTypeSupported(REC_MIMES[i])) return REC_MIMES[i]; }
+      catch (e) {}
+    }
+    return '';
+  }
+  function recFilename(mime) {
+    if (String(mime).indexOf('mp4') >= 0) return 'voice.mp4';
+    if (String(mime).indexOf('ogg') >= 0) return 'voice.ogg';
+    return 'voice.webm';
+  }
+  function stopStream(stream) {
+    try {
+      var tracks = stream.getTracks ? stream.getTracks() : [];
+      for (var i = 0; i < tracks.length; i++) {
+        try { tracks[i].stop(); } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  function attach(input) {
+    if (input.getAttribute('data-voice-on')) return;
+    input.setAttribute('data-voice-on', '1');
+    /* Wrap the field so the button can sit at its right edge
+       without disturbing the flex row it lives in. */
+    var wrap = document.createElement('span');
+    wrap.className = 'voice-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    input.classList.add('voice-input');
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'voice-btn';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15a.996.996 0 0 0-.98-.85c-.61 0-1.09.55-1 1.15.49 3.08 2.91 5.45 5.91 5.99V21c0 .55.45 1 1 1s1-.45 1-1v-2.86c3-.54 5.42-2.91 5.91-5.99.1-.6-.39-1.15-1-1.15z"/></svg>';
+    btn.title = 'Voice input';
+    btn.setAttribute('aria-label', 'Voice input');
+    wrap.appendChild(btn);
+
+    var active = false;     /* the visitor wants SR listening */
+    var srRunning = false;  /* an SR instance is live right now */
+    var rec = null;
+    var baseText = '';      /* field text committed before live text */
+    var rapidEnds = 0;      /* guard against restart spin on errors */
+    var lastStart = 0;
+    var forcedLang = null;  /* set on a language-not-supported retry */
+    var session = null;     /* per-mic-press hybrid state */
+
+    function newSession() {
+      return {
+        open: true,
+        preText: input.value, /* typed by hand before the mic —
+                                 never touched by either engine */
+        lang: '',             /* language SR used (its last start) */
+        lastFinals: '',       /* current SR instance's final text */
+        allFinals: '',        /* finals folded across SR restarts */
+        recorder: null,
+        chunks: [],
+        mime: '',
+        stream: null,
+        capTimer: null,
+        aiStarted: false
+      };
+    }
+
+    /* --- Web Speech side (build .31 behaviour, unchanged) --- */
+    function startSession() {
+      rec = new SR();
+      var lang = forcedLang || pickLang();
+      rec.lang = lang;
+      if (session) session.lang = lang;
+      rec.interimResults = true;  /* text appears while speaking */
+      rec.continuous = true;      /* keep up with fast speech */
+      rec.maxAlternatives = 1;    /* fastest result path */
+      lastStart = Date.now();
+      rec.onresult = function (e) {
+        /* Rebuild from the full result list on EVERY event —
+           immediate, lossless, no debounce/throttle. */
+        var finals = '', interim = '';
+        for (var i = 0; i < e.results.length; i++) {
+          var r = e.results[i];
+          if (r.isFinal) finals += r[0].transcript;
+          else interim += r[0].transcript;
+        }
+        if (session) session.lastFinals = finals;
+        input.value = combine(baseText, finals + interim);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      rec.onerror = function (e) {
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          active = false;
+          showToast('Microphone permission is needed for voice input.');
+        } else if (e.error === 'language-not-supported' &&
+                   lang !== 'ur-PK' && !forcedLang) {
+          forcedLang = 'ur-PK';   /* onend restarts once with it */
+        }
+        /* other errors end the session; onend decides restart */
+      };
+      rec.onend = function () {
+        srRunning = false;
+        if (!active) {
+          btn.classList.remove('listening');
+          finishSession();
+          return;
+        }
+        /* Ended on its own mid-speech: fold the field's current
+           text into the base and restart — nothing is lost. */
+        baseText = input.value;
+        if (session) {
+          session.allFinals = combine(session.allFinals,
+                                      session.lastFinals);
+          session.lastFinals = '';
+        }
+        if (Date.now() - lastStart < 800) rapidEnds++;
+        else rapidEnds = 0;
+        if (rapidEnds > 3) {
+          active = false;
+          btn.classList.remove('listening');
+          finishSession();
+          return;
+        }
+        startSession();
+      };
+      try {
+        rec.start();
+        srRunning = true;
+      } catch (err) {
+        active = false;
+        srRunning = false;
+        btn.classList.remove('listening');
+        finishSession();
+      }
+    }
+
+    /* --- Recording side -------------------------------------- */
+    function startRecording(s) {
+      if (!canRecord()) return;
+      var mime = pickMime();
+      var gum;
+      try { gum = navigator.mediaDevices.getUserMedia({ audio: true }); }
+      catch (e) { return; }
+      if (!gum || typeof gum.then !== 'function') return;
+      gum.then(function (stream) {
+        if (!s.open) { stopStream(stream); return; }
+        var mr;
+        try {
+          mr = mime ? new MR(stream, { mimeType: mime })
+                    : new MR(stream);
+        } catch (e) { stopStream(stream); return; }
+        s.stream = stream;
+        s.recorder = mr;
+        s.mime = mr.mimeType || mime || 'audio/webm';
+        mr.ondataavailable = function (ev) {
+          if (ev.data && ev.data.size) s.chunks.push(ev.data);
+        };
+        mr.onstop = function () { onRecorderStop(s); };
+        try { mr.start(250); }
+        catch (e) { s.recorder = null; stopStream(stream); }
+      }).catch(function () {
+        /* Recorder denied/busy (e.g. SR holds the mic): the
+           session continues Web-Speech-only, silently. */
+      });
+    }
+
+    function onRecorderStop(s) {
+      if (s.stream) { stopStream(s.stream); s.stream = null; }
+      var blob = null;
+      try {
+        blob = new Blob(s.chunks,
+                        { type: (s.mime || 'audio/webm').split(';')[0] });
+      } catch (e) {}
+      s.chunks = [];
+      maybePostAI(s, blob);
+    }
+
+    /* The session is over (visitor tap, SR end, cap): stop the
+       recorder — its onstop runs the AI step — or run it now. */
+    function finishSession() {
+      var s = session;
+      if (!s || !s.open) return;
+      s.open = false;
+      if (s.capTimer) { clearTimeout(s.capTimer); s.capTimer = null; }
+      if (s.recorder && s.recorder.state === 'recording') {
+        try { s.recorder.stop(); return; } catch (e) {}
+      }
+      maybePostAI(s, null);
+    }
+
+    function endSession() {
+      active = false;
+      btn.classList.remove('listening');
+      if (rec && srRunning) {
+        /* SR's onend finishes the session (after any last
+           results land), exactly as in build .31. */
+        try { rec.stop(); return; } catch (e) {}
+      }
+      finishSession();
+    }
+
+    /* --- AI step ---------------------------------------------- */
+    function maybePostAI(s, blob) {
+      if (s.aiStarted) return;
+      s.aiStarted = true;
+      if (!blob || blob.size < AI_MIN_BYTES) return;
+      if (typeof fetch !== 'function' ||
+          typeof FormData !== 'function') return;
+      var valueAtStop = input.value;
+      btn.classList.add('busy');
+      var fd = new FormData();
+      fd.append('audio', blob, recFilename(s.mime || blob.type || ''));
+      var ctrl = null, timer = null;
+      try {
+        if (typeof AbortController === 'function') {
+          ctrl = new AbortController();
+          timer = setTimeout(function () {
+            try { ctrl.abort(); } catch (e) {}
+          }, AI_TIMEOUT_MS);
+        }
+      } catch (e) {}
+      var opts = { method: 'POST', body: fd };
+      if (ctrl) opts.signal = ctrl.signal;
+      fetch('/api/voice-transcribe', opts).then(function (resp) {
+        if (!resp || !resp.ok) throw new Error('bad status');
+        return resp.json();
+      }).then(function (data) {
+        applyAIResult(s, data, valueAtStop);
+      }).catch(function () {
+        /* Any failure keeps the live Web Speech text, silently. */
+      }).then(function () {
+        if (timer) clearTimeout(timer);
+        btn.classList.remove('busy');
+      });
+    }
+
+    /* Swap the field to the AI text ONLY when it is the better
+       answer: (a) Web Speech produced no final text at all, or
+       (b) the AI heard a different language than Web Speech
+       used. Hand-typed text (preText) is always preserved. */
+    function applyAIResult(s, data, valueAtStop) {
+      if (!data) return;
+      var aiText = (typeof data.text === 'string')
+                     ? data.text.replace(/^\s+|\s+$/g, '') : '';
+      if (!aiText) return;
+      var aiLang = (typeof data.lang === 'string') ? data.lang : '';
+      var srText = combine(s.allFinals, s.lastFinals);
+      var replace = false;
+      if (!srText.replace(/\s+/g, '')) replace = true;        /* (a) */
+      else if (aiLang && s.lang &&
+               primaryOf(aiLang) !== primaryOf(s.lang)) {
+        replace = true;                                       /* (b) */
+      }
+      if (!replace) return;
+      if (input.value !== valueAtStop) return; /* typed meanwhile */
+      input.value = combine(s.preText, aiText);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    btn.addEventListener('click', function () {
+      if (session && session.open) {   /* tap again: stop cleanly */
+        endSession();
+        return;
+      }
+      session = newSession();
+      rapidEnds = 0;
+      forcedLang = null;
+      baseText = input.value;
+      btn.classList.add('listening');
+      input.focus();
+      var s = session;
+      s.capTimer = setTimeout(function () {
+        if (s.open) endSession();
+      }, REC_CAP_MS);
+      if (SR) {
+        active = true;
+        startSession();
+      }
+      startRecording(s);
+    });
+  }
+
+  var inputs = document.querySelectorAll('input[data-voice="1"]');
+  for (var i = 0; i < inputs.length; i++) attach(inputs[i]);
+})();
+</script>
