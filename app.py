@@ -6028,7 +6028,7 @@ def _sp_quota_snapshot():
 # itself can never be answered from a cache.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "2026-11-19.39"
+APP_VERSION = "2026-11-19.40"
 
 
 @app.route("/api/version", methods=["GET"])

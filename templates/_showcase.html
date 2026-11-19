@@ -22,7 +22,13 @@
    prefers-reduced-motion, the stage is replaced by a static
    block: the same fixed headline plus all 8 cards in a tidy
    grid. Self-contained: scoped qgsc- classes, no external
-   assets, transform/opacity animation only. #}
+   assets, transform/opacity animation only.
+   Landscape stage (build 2026-11-19.40, owner's correction from
+   his own PC/phone check): the stage is a wide, short LANDSCAPE
+   box (aspect-ratio driven) instead of the old tall fixed-height
+   box (540px desktop / 500px phone) that looked vertical and
+   forced scrolling; scenes and the static fallback were compacted
+   to fit it on both PC and phone. #}
 <section class="qgsc" aria-label="What QGrab can do" data-qgsc-stage>
   <style>
     .qgsc,.qgsc *{box-sizing:border-box}
@@ -33,7 +39,7 @@
       --qgsc-star-op:.30}
     html[data-theme="eyecare"] .qgsc{--qgsc-dot:rgba(61,47,29,.42);
       --qgsc-star-op:.30}
-    .qgsc[data-live]{min-height:540px}
+    .qgsc[data-live]{aspect-ratio:2.05/1;min-height:360px;max-height:440px}
 
     /* starfield + nebula glows (behind everything) */
     .qgsc-stars{position:absolute;inset:-46px;pointer-events:none;z-index:0}
@@ -244,25 +250,25 @@
 
     @media (max-width:560px){
       .qgsc{margin:26px 0 6px}
-      .qgsc[data-live]{min-height:500px}
-      .qgsc-scene{padding:26px 16px 58px}
+      .qgsc[data-live]{aspect-ratio:auto;min-height:302px;max-height:none}
+      .qgsc-scene{padding:20px 14px 50px}
       .qgsc-bigword{font-size:clamp(2.6rem,13vw,3.4rem)}
       .qgsc-prompt{padding:13px 14px;gap:9px;border-radius:14px}
       .qgsc-ptext{font-size:.95rem}
       .qgsc-mic svg{width:19px;height:19px}
       .qgsc-pbtn{padding:8px 15px;font-size:.9rem}
       .qgsc-pnote{font-size:.88rem}
-      .qgsc-feat,.qgsc-feat.qgsc-rev{flex-direction:column;gap:18px}
+      .qgsc-feat,.qgsc-feat.qgsc-rev{flex-direction:column;gap:12px}
       .qgsc-bigcard{flex:0 1 auto;width:min(300px,100%)}
-      .qgsc-drift{padding:24px 18px 20px}
-      .qgsc-bigcard .qgsc-ic{font-size:2.2rem}
-      .qgsc-bigcard .qgsc-tt{font-size:1.12rem}
-      .qgsc-bigcard .qgsc-pp{font-size:.9rem}
-      .qgsc-bighead,.qgsc-rev .qgsc-bighead{flex:0 1 auto;font-size:1.65rem;
+      .qgsc-drift{padding:18px 14px 15px}
+      .qgsc-bigcard .qgsc-ic{font-size:1.9rem}
+      .qgsc-bigcard .qgsc-tt{font-size:1.05rem}
+      .qgsc-bigcard .qgsc-pp{font-size:.85rem}
+      .qgsc-bighead,.qgsc-rev .qgsc-bighead{flex:0 1 auto;font-size:1.42rem;
         text-align:center}
-      .qgsc-fh{font-size:1.75rem}
-      .qgsc-fhead{max-width:300px}
-      .qgsc-fcard{width:104px}
+      .qgsc-fh{font-size:1.5rem}
+      .qgsc-fhead{max-width:260px}
+      .qgsc-fcard{width:92px}
       .qgsc-f1{left:3%;top:4.5%}
       .qgsc-f2{right:3%;top:4.5%}
       .qgsc-f5{left:35.5%;top:1.5%}
@@ -276,12 +282,12 @@
       .qgsc-ffloat .qgsc-tt{font-size:.74rem}
       .qgsc-static{padding:34px 14px 6px}
       .qgsc-sfield{gap:16px;margin-top:26px}
-      .qgsc-scard{flex:1 1 100%;max-width:none}
-      .qgsc-sface{padding:26px 22px 22px;gap:9px;min-height:158px;
-        justify-content:center;border-radius:18px}
-      .qgsc-sface .qgsc-ic{font-size:2.15rem}
-      .qgsc-sface .qgsc-tt{font-size:1.05rem}
-      .qgsc-sface .qgsc-pp{font-size:.92rem;line-height:1.55}
+      .qgsc-scard{flex:1 1 42%;max-width:none}
+      .qgsc-sface{padding:18px 12px 15px;gap:7px;min-height:0;
+        justify-content:center;border-radius:16px}
+      .qgsc-sface .qgsc-ic{font-size:1.8rem}
+      .qgsc-sface .qgsc-tt{font-size:.95rem}
+      .qgsc-sface .qgsc-pp{font-size:.85rem;line-height:1.5}
       .qgsc-wm{top:11px;left:12px}
       .qgsc-brand{margin-top:12px;gap:4px}
       .qgsc-blogo{width:28px;height:28px;border-radius:8px}
@@ -291,7 +297,7 @@
     @media (prefers-reduced-motion: reduce){
       .qgsc-scenes{display:none!important}
       .qgsc-static{display:block!important}
-      .qgsc[data-live]{min-height:0}
+      .qgsc[data-live]{min-height:0;aspect-ratio:auto;max-height:none}
       .qgsc[data-live] .qgsc-tag{position:relative;left:auto;right:auto;
         bottom:auto;padding:16px 16px 22px}
       .qgsc *,.qgsc-stars,.qgsc-glow{animation:none!important}

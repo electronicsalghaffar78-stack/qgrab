@@ -1,4 +1,4 @@
-"""Tests for the app update gate (build 2026-11-19.39).
+"""Tests for the app update gate (build 2026-11-19.40).
 
 QGrab moved to a new Render account/address
 (https://qgrab-lrin.onrender.com) after Google closed the account
@@ -33,7 +33,7 @@ def _home_html():
 
 def test_marker_and_new_address_on_homepage():
     html = _home_html()
-    assert "qgrab-migration-39" in html
+    assert "qgrab-migration-40" in html
     assert "https://qgrab-lrin.onrender.com" in html
 
 

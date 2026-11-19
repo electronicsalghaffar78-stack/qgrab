@@ -177,6 +177,10 @@ check("showcase fixed headline present",
       and '<span class="qgsc-accent">Social Media</span>' in home_html)
 check("showcase tagline kept",
       "All Platform Video Download in One Place" in home_html)
+check("showcase stage is landscape, not the old tall box (.40)",
+      "aspect-ratio:2.05/1" in home_html
+      and "min-height:540px" not in home_html
+      and "min-height:500px" not in home_html)
 check("showcase rotator fully removed",
       "qgscRotWord" not in home_html and "qgsc-hide" not in home_html
       and "qgsc-word" not in home_html)
@@ -213,7 +217,7 @@ check("showcase corner watermark present",
 sw = client.get("/sw.js").get_data(as_text=True)
 check("sw caches the shell only from the homepage",
       'url.pathname === "/"' in sw)
-check("sw cache version bumped past v13", "qgrab-shell-v14" in sw)
+check("sw cache version bumped past v14", "qgrab-shell-v15" in sw)
 
 print()
 if FAILURES:
