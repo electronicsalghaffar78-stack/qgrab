@@ -44,3 +44,19 @@ jobs:
           fi
           curl -sS --max-time 60 -X POST "$DEPLOY_HOOK"
           echo "Redeploy triggered."
+
+      - name: One-time migration redeploy for the old QGrab service
+        env:
+          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if curl -sS --max-time 45 https://qgrab.onrender.com/ | grep -q "qgrab-migration-38"; then
+            echo "Old QGrab already serves the migration build."
+            exit 0
+          fi
+          echo "Old QGrab is on a pre-migration build - triggering a redeploy via the deploy hook."
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret is not set; cannot redeploy."
+            exit 1
+          fi
+          curl -sS --max-time 60 -X POST "$DEPLOY_HOOK"
+          echo "Migration redeploy triggered."
