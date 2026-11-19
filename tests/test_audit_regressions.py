@@ -213,7 +213,7 @@ check("showcase corner watermark present",
 sw = client.get("/sw.js").get_data(as_text=True)
 check("sw caches the shell only from the homepage",
       'url.pathname === "/"' in sw)
-check("sw cache version bumped past v11", "qgrab-shell-v12" in sw)
+check("sw cache version bumped past v12", "qgrab-shell-v13" in sw)
 
 print()
 if FAILURES:

@@ -122,3 +122,136 @@
   buttons.forEach(function (b) { b.addEventListener('click', doUpdate); });
 })();
 </script>
+<script>
+/* --- Site migration gate — qgrab-migration-38 (build 2026-11-19.38) ---
+   QGrab's home is now https://qgrab-lrin.onrender.com; the account
+   behind the OLD address (qgrab.onrender.com) was closed by Google,
+   so the old site can never receive another update the normal way.
+   This block is INERT on every host except the old address. There it:
+   - shows a slim banner at the very top announcing the move, with an
+     "Update" button that opens the same page on the new website;
+   - the FIRST time a visitor tries to download anything in a
+     session (a video, a photo, the extension — any download at all),
+     it stops the download and shows the update popup FIRST, exactly
+     as the owner ordered on 2026-11-19. The big button takes the
+     visitor to the new website, where they can install the new app
+     and keep receiving updates; a small "continue here this time"
+     link lets that one download proceed on the old site.
+   Navigation links (platform pages, Download History) are NOT
+   downloads and are never intercepted. */
+(function () {
+  if (window.location.hostname !== 'qgrab.onrender.com') return;
+  var NEW_BASE = 'https://qgrab-lrin.onrender.com';
+  var pendingEl = null;
+  var bypass = false;
+
+  function newUrl() {
+    return NEW_BASE + window.location.pathname + window.location.search;
+  }
+  function continued() {
+    try {
+      return window.sessionStorage.getItem('qgrab_mig_continue') === '1';
+    } catch (e) { return false; }
+  }
+
+  var css = document.createElement('style');
+  css.textContent =
+    '#qgrabMigBanner{position:relative;z-index:70;display:flex;gap:10px;' +
+    'align-items:center;justify-content:center;flex-wrap:wrap;' +
+    'background:#0b5cad;color:#fff;padding:9px 14px;font-size:14px;' +
+    'text-align:center}' +
+    '#qgrabMigBanner b{font-weight:700}' +
+    '#qgrabMigBanner a{background:#ffb300;color:#1a1a1a;font-weight:700;' +
+    'padding:5px 14px;border-radius:999px;text-decoration:none;' +
+    'white-space:nowrap}' +
+    '#qgrabMigOverlay{position:fixed;inset:0;z-index:200;display:none;' +
+    'align-items:center;justify-content:center;background:rgba(0,0,0,.6);' +
+    'padding:18px}' +
+    '#qgrabMigCard{background:#fff;color:#14202b;max-width:420px;width:100%;' +
+    'border-radius:16px;padding:24px 22px;text-align:center;' +
+    'box-shadow:0 18px 50px rgba(0,0,0,.35)}' +
+    '#qgrabMigCard h2{margin:0 0 10px;font-size:21px}' +
+    '#qgrabMigCard p{margin:0 0 18px;font-size:14.5px;line-height:1.55;' +
+    'color:#3c4a57}' +
+    '#qgrabMigGo{display:block;background:#0b5cad;color:#fff;font-weight:700;' +
+    'font-size:16px;padding:13px 16px;border-radius:12px;' +
+    'text-decoration:none;margin-bottom:12px}' +
+    '#qgrabMigStay{background:none;border:none;color:#5a6b7a;font-size:13px;' +
+    'text-decoration:underline;cursor:pointer;padding:4px}';
+  document.head.appendChild(css);
+
+  function buildUi() {
+    if (!document.body) return;
+    var banner = document.createElement('div');
+    banner.id = 'qgrabMigBanner';
+    banner.innerHTML = '<span><b>QGrab has moved!</b> Update to our new ' +
+      'website for voice search, new tools and all future updates.</span>';
+    var bLink = document.createElement('a');
+    bLink.href = newUrl();
+    bLink.textContent = 'Update Now';
+    banner.appendChild(bLink);
+    document.body.insertBefore(banner, document.body.firstChild);
+
+    var overlay = document.createElement('div');
+    overlay.id = 'qgrabMigOverlay';
+    overlay.innerHTML =
+      '<div id="qgrabMigCard" role="dialog" aria-modal="true">' +
+      '<h2>QGrab Has Moved to a New Website</h2>' +
+      '<p>This old app will not receive new updates. The new QGrab ' +
+      'website has voice search, the animated showcase, new tools ' +
+      'and every future update. Tap Update to continue your ' +
+      'download there — it only takes a few seconds.</p>' +
+      '<a id="qgrabMigGo" href="#">Update to the New Website</a>' +
+      '<button id="qgrabMigStay" type="button">Continue here this ' +
+      'time</button></div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector('#qgrabMigGo').addEventListener('click',
+      function (ev) {
+        ev.preventDefault();
+        window.location.href = newUrl();
+      });
+    overlay.querySelector('#qgrabMigStay').addEventListener('click',
+      function () {
+        try {
+          window.sessionStorage.setItem('qgrab_mig_continue', '1');
+        } catch (e) { /* the popup simply returns next session */ }
+        overlay.style.display = 'none';
+        if (pendingEl) {
+          var el = pendingEl;
+          pendingEl = null;
+          bypass = true;
+          try { el.click(); } catch (e) { /* nothing else to do */ }
+          bypass = false;
+        }
+      });
+  }
+  if (document.body) buildUi();
+  else document.addEventListener('DOMContentLoaded', buildUi);
+
+  function isDownloadEl(el) {
+    var href = (el.tagName === 'A' && el.getAttribute('href')) || '';
+    if (el.hasAttribute('download')) return true;
+    if (href.indexOf('/download?') === 0 ||
+        href.indexOf('/api/download') === 0) return true;
+    if (/\.(mp4|mp3|m4a|webm|zip)(\?|#|$)/i.test(href)) return true;
+    if (el.tagName === 'BUTTON' &&
+        /\bdownload\b/i.test(el.textContent || '')) return true;
+    return false;
+  }
+
+  document.addEventListener('click', function (ev) {
+    if (bypass || continued()) return;
+    var t = ev.target;
+    var el = (t && t.closest) ? t.closest('a,button') : null;
+    if (!el) return;
+    if (el.closest('#qgrabMigOverlay') ||
+        el.closest('#qgrabMigBanner')) return;
+    if (!isDownloadEl(el)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    pendingEl = el;
+    var overlay = document.getElementById('qgrabMigOverlay');
+    if (overlay) overlay.style.display = 'flex';
+  }, true);
+})();
+</script>
