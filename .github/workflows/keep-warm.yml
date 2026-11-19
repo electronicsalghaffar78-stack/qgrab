@@ -49,7 +49,7 @@ jobs:
         env:
           DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
-          if curl -sS --max-time 45 https://qgrab.onrender.com/ | grep -q "qgrab-migration-39"; then
+          if curl -sS --max-time 45 https://qgrab.onrender.com/ | grep -q "qgrab-migration-40"; then
             echo "Old QGrab already serves the migration build."
             exit 0
           fi
