@@ -123,20 +123,23 @@
 })();
 </script>
 <script>
-/* --- Site migration gate — qgrab-migration-38 (build 2026-11-19.38) ---
-   QGrab's home is now https://qgrab-lrin.onrender.com; the account
+/* --- App update gate — qgrab-migration-39 (build 2026-11-19.39) ---
+   Internal note (never shown to visitors): this build's update
+   destination is https://qgrab-lrin.onrender.com; the account
    behind the OLD address (qgrab.onrender.com) was closed by Google,
    so the old site can never receive another update the normal way.
-   This block is INERT on every host except the old address. There it:
-   - shows a slim banner at the very top announcing the move, with an
-     "Update" button that opens the same page on the new website;
+   This block is INERT on every host except the old address. There
+   it presents a plain app update, exactly as the owner ordered on
+   2026-11-19 — the visible wording says only "QGrab Update / new
+   version", never anything about addresses changing:
+   - shows a slim banner at the very top announcing the update, with
+     an "Update Now" button that opens the same page at the update
+     destination;
    - the FIRST time a visitor tries to download anything in a
      session (a video, a photo, the extension — any download at all),
-     it stops the download and shows the update popup FIRST, exactly
-     as the owner ordered on 2026-11-19. The big button takes the
-     visitor to the new website, where they can install the new app
-     and keep receiving updates; a small "continue here this time"
-     link lets that one download proceed on the old site.
+     it stops the download and shows the update popup FIRST. The big
+     button takes the visitor to the update destination; a small
+     "Later" button lets that one download proceed on the old site.
    Navigation links (platform pages, Download History) are NOT
    downloads and are never intercepted. */
 (function () {
@@ -184,8 +187,8 @@
     if (!document.body) return;
     var banner = document.createElement('div');
     banner.id = 'qgrabMigBanner';
-    banner.innerHTML = '<span><b>QGrab has moved!</b> Update to our new ' +
-      'website for voice search, new tools and all future updates.</span>';
+    banner.innerHTML = '<span><b>QGrab Update:</b> a new version is ' +
+      'available — voice search, new tools and more.</span>';
     var bLink = document.createElement('a');
     bLink.href = newUrl();
     bLink.textContent = 'Update Now';
@@ -196,14 +199,13 @@
     overlay.id = 'qgrabMigOverlay';
     overlay.innerHTML =
       '<div id="qgrabMigCard" role="dialog" aria-modal="true">' +
-      '<h2>QGrab Has Moved to a New Website</h2>' +
-      '<p>This old app will not receive new updates. The new QGrab ' +
-      'website has voice search, the animated showcase, new tools ' +
-      'and every future update. Tap Update to continue your ' +
-      'download there — it only takes a few seconds.</p>' +
-      '<a id="qgrabMigGo" href="#">Update to the New Website</a>' +
-      '<button id="qgrabMigStay" type="button">Continue here this ' +
-      'time</button></div>';
+      '<h2>QGrab Update</h2>' +
+      '<p>A new version of QGrab is ready. This update brings voice ' +
+      'search, new tools and a smoother experience. Tap Update Now ' +
+      'to get the new version — it only takes a few seconds, and ' +
+      'you can continue your download right after.</p>' +
+      '<a id="qgrabMigGo" href="#">Update Now</a>' +
+      '<button id="qgrabMigStay" type="button">Later</button></div>';
     document.body.appendChild(overlay);
     overlay.querySelector('#qgrabMigGo').addEventListener('click',
       function (ev) {

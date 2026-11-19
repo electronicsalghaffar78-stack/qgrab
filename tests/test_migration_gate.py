@@ -1,4 +1,4 @@
-"""Tests for the site-migration gate (build 2026-11-19.38).
+"""Tests for the app update gate (build 2026-11-19.39).
 
 QGrab moved to a new Render account/address
 (https://qgrab-lrin.onrender.com) after Google closed the account
@@ -33,13 +33,25 @@ def _home_html():
 
 def test_marker_and_new_address_on_homepage():
     html = _home_html()
-    assert "qgrab-migration-38" in html
+    assert "qgrab-migration-39" in html
     assert "https://qgrab-lrin.onrender.com" in html
 
 
 def test_gate_fenced_to_old_hostname():
     html = _home_html()
     assert "window.location.hostname !== 'qgrab.onrender.com'" in html
+
+
+def test_visible_wording_is_plain_update_only():
+    # Owner's order (2026-11-19): the gate must read as a simple app
+    # update — visitors must never see wording about the site
+    # moving or a "new website".
+    html = _home_html()
+    for phrase in ("has moved", "Has Moved", "new website",
+                   "New Website"):
+        assert phrase not in html, phrase
+    assert "QGrab Update" in html
+    assert "A new version of QGrab is ready" in html
 
 
 def test_download_interception_wired():
